@@ -1,0 +1,5 @@
+<h1><%= @target.name %></h1>
+<p><%= @event.summary %></p>
+<p>Telescope: <%= @target.telescope.name %></p>
+<p>Progress: <%= @target.percent_complete %>% (<%= @target.total_completed_exposures %> / <%= @target.total_desired_exposures %> exposures)</p>
+<p><%= link_to "View target", target_url(@target) %></p>

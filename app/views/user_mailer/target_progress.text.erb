@@ -1,0 +1,8 @@
+<%= @target.name %>
+
+<%= @event.summary %>
+
+Telescope: <%= @target.telescope.name %>
+Progress: <%= @target.percent_complete %>% (<%= @target.total_completed_exposures %> / <%= @target.total_desired_exposures %> exposures)
+
+View target: <%= target_url(@target) %>
