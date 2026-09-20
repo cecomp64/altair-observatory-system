@@ -1,0 +1,34 @@
+# Copy this file per telescope (e.g. config/backyard-16in.yml) and fill
+# it in. `api_key` can be omitted here and supplied instead via the
+# ROBS_<SLUG>_API_KEY environment variable so it never touches disk.
+
+slug: backyard-16in
+
+# The Rails app and a telescope-scoped API key (Admin -> Telescopes ->
+# API keys in the queueing system).
+api_base_url: "https://observatory.example.org"
+api_key: "REPLACE_ME"
+
+# Local path to NINA's Target Scheduler plugin SQLite database.
+scheduler_db_path: "C:/Users/Observatory/AppData/Local/NINA/SchedulerPlugin/schedulerdb.sqlite"
+
+# The NINA equipment profile GUID Target Scheduler should file this
+# telescope's projects/exposure templates under (NINA -> Options ->
+# General -> Profile, or the plugin's own settings screen).
+nina_profile_id: "00000000-0000-0000-0000-000000000000"
+
+# Where NINA writes this telescope's light/dark/flat/bias frames.
+subs_dir: "D:/Observatory/Subs/backyard-16in"
+
+# Where to publish subs (and optional stacks/previews) at end of night.
+s3_bucket: "observatory-data"
+s3_prefix: "backyard-16in"
+aws_region: "us-west-2"
+
+# Optional: calibrate + stack each night's subs before publishing.
+stacking:
+  enabled: false
+  backend: siril            # siril | pixinsight
+  executable_path: "/usr/bin/siril-cli"
+  master_frames_dir: "D:/Observatory/Calibration/backyard-16in"
+  output_dir: "D:/Observatory/Stacks/backyard-16in"
