@@ -1,0 +1,93 @@
+<% content_for :title, "Catalogue" %>
+<% field = "rounded-lg border border-slate-300 px-2 py-1.5 text-sm" %>
+
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <h1 class="text-2xl font-semibold">Catalogue</h1>
+    <p class="text-slate-500 text-sm">OpenNGC, LDN, LBN and objects members have added. Search any name or alias.</p>
+  </div>
+  <%= link_to "Add an object", new_object_path, class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
+</div>
+
+<%= form_with url: objects_path, method: :get, class: "rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end", data: { turbo_frame: "_top" } do %>
+  <div class="col-span-2">
+    <label class="block text-xs text-slate-500 mb-1">Search</label>
+    <input type="search" name="q" value="<%= params[:q] %>" placeholder="M 31, Pelican, NGC 7000…" class="w-full <%= field %>">
+  </div>
+  <div>
+    <label class="block text-xs text-slate-500 mb-1">Type</label>
+    <%= select_tag :type, options_for_select(@facets[:types], params[:type]), include_blank: "Any", class: "w-full #{field}" %>
+  </div>
+  <div>
+    <label class="block text-xs text-slate-500 mb-1">Constellation</label>
+    <%= select_tag :constellation, options_for_select(@facets[:constellations], params[:constellation]), include_blank: "Any", class: "w-full #{field}" %>
+  </div>
+  <div>
+    <label class="block text-xs text-slate-500 mb-1">Catalogue</label>
+    <%= select_tag :catalog, options_for_select(@facets[:catalogs], params[:catalog]), include_blank: "Any", class: "w-full #{field}" %>
+  </div>
+  <div class="grid grid-cols-2 gap-2">
+    <div>
+      <label class="block text-xs text-slate-500 mb-1">Mag ≤</label>
+      <input type="number" step="0.5" name="mag_max" value="<%= params[:mag_max] %>" class="w-full <%= field %>">
+    </div>
+    <div>
+      <label class="block text-xs text-slate-500 mb-1">Size ≥ ′</label>
+      <input type="number" step="1" name="size_min" value="<%= params[:size_min] %>" class="w-full <%= field %>">
+    </div>
+  </div>
+  <div class="col-span-2 md:col-span-3 flex items-center gap-2">
+    <%= select_tag :telescope, options_for_select(@telescopes.map { |t| [ t.name, t.slug ] }, @telescope&.slug), class: field %>
+    <label class="flex items-center gap-2 text-sm text-slate-700">
+      <%= check_box_tag :tonight, "1", params[:tonight] == "1", class: "h-4 w-4" %> Well placed tonight
+    </label>
+  </div>
+  <div class="col-span-2 md:col-span-2">
+    <%= select_tag :sort, options_for_select([ [ "Best match / name", "" ], [ "Brightest", "magnitude" ], [ "Largest", "size" ], [ "Best tonight", "score" ] ], params[:sort]), class: "w-full #{field}" %>
+  </div>
+  <div class="flex justify-end">
+    <%= submit_tag "Apply", name: nil, class: "rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
+  </div>
+<% end %>
+
+<div class="rounded-xl border border-slate-200 bg-white mt-4 overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="text-left text-slate-400 border-b border-slate-100">
+      <tr>
+        <th class="px-4 py-2">Object</th><th class="px-2 py-2">Type</th><th class="px-2 py-2">Const.</th>
+        <th class="px-2 py-2">Mag</th><th class="px-2 py-2">Size</th>
+        <% if @telescope %><th class="px-2 py-2">Tonight at <%= @telescope.name %></th><% end %>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      <% @objects.each do |object| %>
+        <tr>
+          <td class="px-4 py-2">
+            <%= link_to object.primary_name, object_path(object, telescope: @telescope&.slug), class: "font-medium hover:text-indigo-600" %>
+            <p class="text-xs text-slate-400"><%= object.aliases.map(&:name).reject { |n| n == object.primary_name }.first(4).join(", ") %></p>
+          </td>
+          <td class="px-2 py-2 text-slate-600"><%= object.object_type %></td>
+          <td class="px-2 py-2 text-slate-600"><%= object.constellation %></td>
+          <td class="px-2 py-2 text-slate-600"><%= object.magnitude&.to_f %></td>
+          <td class="px-2 py-2 text-slate-600"><%= object.size_major_arcmin && "#{object.size_major_arcmin.to_f.round(1)}′" %></td>
+          <% if @telescope %>
+            <td class="px-2 py-2">
+              <% if object.coordinates? %>
+                <% result = @visibility.for_night(object.ra_deg, object.dec_deg, @night.date) %>
+                <div class="flex items-center gap-2">
+                  <%= altitude_sparkline(result, @night) %>
+                  <span class="text-xs text-slate-500"><%= result.hours_clear_in_darkness.round(1) %> h</span>
+                </div>
+              <% end %>
+            </td>
+          <% end %>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <% if @objects.empty? %>
+    <p class="px-4 py-6 text-sm text-slate-400">No objects match.
+      <% if AstroObject.none? %>The catalogue is empty — an admin can import it under Admin → Catalogue.<% end %></p>
+  <% end %>
+</div>
+<%= render "shared/pagination", pagy: @pagy %>

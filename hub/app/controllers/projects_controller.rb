@@ -12,6 +12,15 @@ class ProjectsController < ApplicationController
     authorize @project
     @targets = @project.targets.includes(:exposure_plans, :telescope, :optical_train, :astro_object).order(:id)
     @progress = Progress::Calculator.new(@project)
+    @visibility = @targets.group_by(&:telescope).map do |telescope, targets|
+      site = Astro::Site.for(telescope)
+      visibility = Astro::Visibility.new(site)
+      night = visibility.night(telescope.night_for(Time.current))
+      results = targets.map { |t| visibility.for_night(t.ra_deg, t.dec_deg, night.date, min_altitude: t.effective_min_altitude_deg) }
+      primary = targets.find(&:is_primary?) || targets.first
+      best = visibility.best_viewing(primary.ra_deg, primary.dec_deg, min_altitude: primary.effective_min_altitude_deg)
+      { telescope: telescope, night: night, targets: targets, results: results, best: best, primary: primary }
+    end
   end
 
   def edit

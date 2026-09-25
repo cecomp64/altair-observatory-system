@@ -7,7 +7,7 @@
   <div>
     <h1 class="text-2xl font-semibold"><%= @project.name %></h1>
     <p class="text-sm text-slate-500"><%= @project.user.display_name %> · <%= @project.status.humanize %> · priority <%= @project.priority %> · <%= @project.visibility.humanize %> · complete when <%= basis %></p>
-    <% if @project.description.present? %><p class="text-slate-600 mt-2"><%= @project.description %></p><% end %>
+    <% if @project.description.present? %><div class="text-slate-600 mt-2 space-y-2"><%= simple_format(@project.description) %></div><% end %>
   </div>
   <% if policy(@project).update? %>
     <%= link_to "Edit", edit_project_path(@project), class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
@@ -40,6 +40,17 @@
     </tbody>
   </table>
 </div>
+
+<% @visibility.each do |v| %>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-medium text-slate-500">Visibility tonight at <%= v[:telescope].name %></h2>
+      <p class="text-sm text-slate-600"><%= peak_season_text(v[:best]) %> <span class="text-slate-400">(<%= v[:primary].name %>)</span></p>
+    </div>
+    <%= altitude_chart(v[:results], labels: v[:targets].map(&:name), night: v[:night]) %>
+    <div class="mt-4"><%= best_viewing_chart(v[:best], height: "h-32") %></div>
+  </div>
+<% end %>
 
 <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
   <h2 class="text-sm font-medium text-slate-500 mb-3">Targets</h2>

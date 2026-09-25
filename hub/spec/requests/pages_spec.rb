@@ -14,9 +14,20 @@ RSpec.describe "Pages", type: :request do
   it "renders the member pages" do
     sign_in member
     [ root_path, projects_path, projects_path(scope: "club"), project_path(project), edit_project_path(project),
-      targets_path, target_path(target), telescopes_path, telescope_path(telescope), new_project_path ].each do |path|
+      targets_path, target_path(target), telescopes_path, telescope_path(telescope), new_project_path,
+      objects_path, new_object_path ].each do |path|
       get path
       expect(response).to have_http_status(:ok), "#{path} → #{response.status}"
+    end
+  end
+
+  it "shows tonight's targets on the dashboard and project visibility" do
+    sign_in member
+    travel_to Time.zone.parse("2026-09-24 20:00 PDT") do
+      get root_path
+      expect(response.body).to include("Tonight at", telescope.name, target.name)
+      get project_path(project)
+      expect(response.body).to include("Visibility tonight at #{telescope.name}")
     end
   end
 

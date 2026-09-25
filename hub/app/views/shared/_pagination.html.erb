@@ -1,0 +1,14 @@
+<% if pagy.pages > 1 %>
+  <nav class="flex items-center justify-between text-sm mt-4" aria-label="Pagination">
+    <span class="text-slate-500"><%= number_with_delimiter(pagy.from) %>–<%= number_with_delimiter(pagy.to) %> of <%= number_with_delimiter(pagy.count) %></span>
+    <div class="flex gap-2">
+      <% if pagy.prev %>
+        <%= link_to "← Previous", url_for(request.query_parameters.merge(page: pagy.prev)), class: "rounded-lg border border-slate-300 px-3 py-1 hover:bg-slate-100" %>
+      <% end %>
+      <span class="px-2 py-1 text-slate-500">Page <%= pagy.page %> of <%= pagy.pages %></span>
+      <% if pagy.next %>
+        <%= link_to "Next →", url_for(request.query_parameters.merge(page: pagy.next)), class: "rounded-lg border border-slate-300 px-3 py-1 hover:bg-slate-100" %>
+      <% end %>
+    </div>
+  </nav>
+<% end %>

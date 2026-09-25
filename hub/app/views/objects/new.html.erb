@@ -1,0 +1,38 @@
+<% content_for :title, "Add an object" %>
+<% field = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+<% label = "block text-sm font-medium text-slate-700 mb-1" %>
+
+<%= link_to "← Catalogue", objects_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
+<h1 class="text-2xl font-semibold mt-3 mb-6">Add an object</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+  <div class="rounded-xl border border-slate-200 bg-white p-5">
+    <h2 class="font-medium mb-1">Look it up</h2>
+    <p class="text-sm text-slate-500 mb-4">We check the catalogue first, then Telescopius.</p>
+    <%= form_with url: objects_path, method: :post, class: "flex gap-2" do %>
+      <input type="text" name="resolve" value="<%= @object.primary_name %>" placeholder="Sh2-240, Pacman Nebula…" class="<%= field %>" required>
+      <%= submit_tag "Look up", class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white cursor-pointer" %>
+    <% end %>
+  </div>
+
+  <div class="rounded-xl border border-slate-200 bg-white p-5">
+    <h2 class="font-medium mb-1">Custom coordinates</h2>
+    <p class="text-sm text-slate-500 mb-4">For anything not in a catalogue.</p>
+    <%= form_with model: @object, url: objects_path, scope: :astro_object, class: "space-y-3" do |f| %>
+      <% if @object.errors.any? %>
+        <div class="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700"><%= @object.errors.full_messages.to_sentence %></div>
+      <% end %>
+      <div><%= f.label :primary_name, "Name", class: label %><%= f.text_field :primary_name, class: field, required: true %></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="<%= label %>">RA</label><input type="text" name="astro_object[ra]" value="<%= params.dig(:astro_object, :ra) %>" placeholder="05:35:17" class="<%= field %>"></div>
+        <div><label class="<%= label %>">Dec</label><input type="text" name="astro_object[dec]" value="<%= params.dig(:astro_object, :dec) %>" placeholder="-05:23:28" class="<%= field %>"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><%= f.label :object_type, "Type", class: label %><%= f.text_field :object_type, class: field %></div>
+        <div><%= f.label :size_major_arcmin, "Size (′)", class: label %><%= f.number_field :size_major_arcmin, step: "any", class: field %></div>
+      </div>
+      <div><label class="<%= label %>">Other names <span class="text-slate-400 font-normal">(comma-separated)</span></label><input type="text" name="astro_object[aliases]" class="<%= field %>"></div>
+      <%= f.submit "Add object", class: "rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white cursor-pointer" %>
+    <% end %>
+  </div>
+</div>

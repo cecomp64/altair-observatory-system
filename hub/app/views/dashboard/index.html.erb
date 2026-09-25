@@ -3,49 +3,79 @@
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-semibold">Welcome back, <%= current_user.display_name %></h1>
-    <p class="text-slate-500 text-sm">Here's how your observing targets are doing.</p>
+    <p class="text-slate-500 text-sm">Your projects, and what's worth imaging tonight.</p>
   </div>
   <%= link_to "New project", new_project_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
 </div>
 
-<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-  <div class="md:col-span-1 rounded-xl border border-slate-200 bg-white p-5">
-    <h2 class="text-sm font-medium text-slate-500 mb-3">Targets by status</h2>
-    <% if @status_counts.present? %>
-      <div class="h-48">
-        <%= chart_tag type: "doughnut", data: {
-              labels: @status_counts.keys.map(&:humanize),
-              datasets: [ { data: @status_counts.values, backgroundColor: %w[#94a3b8 #6366f1 #0ea5e9 #f59e0b #22c55e #ef4444] } ]
-            } %>
-      </div>
-    <% else %>
-      <p class="text-sm text-slate-400">No targets yet — create your first one!</p>
-    <% end %>
-  </div>
-
-  <div class="md:col-span-2 rounded-xl border border-slate-200 bg-white p-5">
-    <h2 class="text-sm font-medium text-slate-500 mb-3">Active targets</h2>
-    <% if @active_targets.any? %>
+<% @tonight.each do |planner| %>
+  <% night = planner.night %>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <h2 class="font-medium">Tonight at <%= link_to planner.telescope.name, telescope_path(planner.telescope), class: "hover:text-indigo-600" %></h2>
+      <p class="text-xs text-slate-500">
+        <% if (dark = night.darkness) %>Dark <%= dark.begin.strftime("%H:%M") %>–<%= dark.end.strftime("%H:%M") %><% else %>No astronomical darkness<% end %>
+        · Moon <%= (night.moon_illumination * 100).round %>% lit
+      </p>
+    </div>
+    <% if planner.rows.any? %>
       <ul class="divide-y divide-slate-100">
-        <% @active_targets.each do |target| %>
-          <li class="py-3 flex items-center justify-between">
-            <div>
-              <%= link_to target.name, target_path(target), class: "font-medium text-slate-900 hover:text-indigo-600" %>
-              <p class="text-xs text-slate-500"><%= target.telescope.name %> &middot; <%= target.status.humanize %></p>
+        <% planner.rows.each do |row| %>
+          <li class="py-2 flex items-center justify-between gap-3 text-sm">
+            <div class="min-w-0">
+              <%= link_to row.target.name, target_path(row.target), class: "font-medium hover:text-indigo-600" %>
+              <span class="text-xs text-slate-400"><%= row.target.project.name %></span>
             </div>
-            <div class="w-32">
-              <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
-                <div class="h-2 bg-indigo-500" style="width: <%= target.percent_complete %>%"></div>
-              </div>
-              <p class="text-xs text-slate-500 text-right mt-1"><%= target.percent_complete %>%</p>
+            <div class="flex items-center gap-3 shrink-0">
+              <%= altitude_sparkline(row.result, night) %>
+              <span class="w-16 text-right text-xs text-slate-500"><%= row.result.hours_clear_in_darkness.round(1) %> h</span>
+              <span class="w-14 text-right text-xs <%= row.score.positive? ? "text-indigo-700 font-medium" : "text-slate-400" %>"><%= row.score.positive? ? "score #{row.score.round}" : "not up" %></span>
             </div>
           </li>
         <% end %>
       </ul>
     <% else %>
-      <p class="text-sm text-slate-400">Nothing in progress right now.</p>
+      <p class="text-sm text-slate-400">You have nothing scheduled here.</p>
+    <% end %>
+    <% suggestions = planner.suggestions(exclude_object_ids: @my_object_ids) %>
+    <% if suggestions.any? %>
+      <p class="text-xs uppercase tracking-wide text-slate-400 mt-4 mb-1">Well placed tonight</p>
+      <div class="flex flex-wrap gap-2">
+        <% suggestions.each do |s| %>
+          <%= link_to object_path(s.object, telescope: planner.telescope.slug), class: "rounded-lg border border-slate-200 px-3 py-1.5 text-sm hover:border-indigo-300" do %>
+            <span class="font-medium"><%= s.object.primary_name %></span>
+            <span class="text-xs text-slate-400"><%= s.entry.hours.round(1) %> h · <%= s.entry.max_altitude.round %>°</span>
+          <% end %>
+        <% end %>
+      </div>
     <% end %>
   </div>
+<% end %>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-medium text-slate-500">My projects</h2>
+    <%= link_to "All projects", projects_path, class: "text-sm text-indigo-600 hover:underline" %>
+  </div>
+  <% if @projects.any? %>
+    <ul class="divide-y divide-slate-100">
+      <% @projects.each do |project| %>
+        <% progress = Progress::Calculator.new(project) %>
+        <li class="py-3 flex items-center justify-between">
+          <div>
+            <%= link_to project.name, project_path(project), class: "font-medium text-slate-900 hover:text-indigo-600" %>
+            <p class="text-xs text-slate-500"><%= project.targets.map { |t| t.telescope.name }.uniq.join(", ") %> &middot; <%= project.status.humanize %></p>
+          </div>
+          <div class="w-40">
+            <%= render "projects/progress_bar", percent: progress.overall_percent %>
+            <p class="text-xs text-slate-500 text-right mt-1"><%= progress.overall_percent %>%<%= " · next #{progress.recommended_filter}" if progress.recommended_filter %></p>
+          </div>
+        </li>
+      <% end %>
+    </ul>
+  <% else %>
+    <p class="text-sm text-slate-400">No projects yet — <%= link_to "start one", new_project_path, class: "text-indigo-600 underline" %>.</p>
+  <% end %>
 </div>
 
 <div class="rounded-xl border border-slate-200 bg-white p-5">

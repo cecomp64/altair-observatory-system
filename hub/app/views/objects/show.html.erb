@@ -1,0 +1,99 @@
+<% content_for :title, @object.primary_name %>
+
+<%= link_to "← Catalogue", objects_path(telescope: @telescope&.slug), class: "text-sm text-slate-500 hover:text-slate-700" %>
+
+<div class="mt-3 flex flex-wrap items-start justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-semibold"><%= @object.primary_name %></h1>
+    <p class="text-sm text-slate-500">
+      <%= [ @object.object_type, @object.constellation, (@object.magnitude && "mag #{@object.magnitude.to_f}"),
+            (@object.size_major_arcmin && "#{@object.size_major_arcmin.to_f.round(1)}′ × #{@object.size_minor_arcmin&.to_f&.round(1) || '?'}′") ].compact.join(" · ") %>
+    </p>
+    <% if @object.coordinates? %>
+      <p class="text-sm text-slate-500">RA <%= number_with_precision(@object.ra_deg, precision: 4) %>° · Dec <%= number_with_precision(@object.dec_deg, precision: 4) %>° (J2000)</p>
+    <% end %>
+    <p class="text-xs text-slate-400 mt-1">Also known as <%= @object.aliases.map(&:name).reject { |n| n == @object.primary_name }.join(", ").presence || "—" %></p>
+  </div>
+  <% if @object.coordinates? %>
+    <%= button_to "Start a project", project_wizard_add_object_path, params: { astro_object_id: @object.id },
+          class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
+  <% end %>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+  <div class="md:col-span-2 rounded-xl border border-slate-200 bg-white p-5">
+    <% if @tonight %>
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h2 class="text-sm font-medium text-slate-500">Night of <%= l(@date, format: :long) %> at</h2>
+        <%= form_with url: object_path(@object), method: :get, class: "flex items-center gap-2" do %>
+          <%= select_tag :telescope, options_for_select(@telescopes.map { |t| [ t.name, t.slug ] }, @telescope.slug), class: "rounded-lg border border-slate-300 px-2 py-1 text-sm", onchange: "this.form.requestSubmit()" %>
+          <input type="date" name="date" value="<%= @date.iso8601 %>" class="rounded-lg border border-slate-300 px-2 py-1 text-sm" onchange="this.form.requestSubmit()">
+        <% end %>
+      </div>
+      <%= altitude_chart(@tonight, labels: [ @object.primary_name ], night: @night, now_line: @date == @telescope.night_for(Time.current)) %>
+      <dl class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mt-4">
+        <div><dt class="text-slate-400">Clear in darkness</dt><dd class="font-medium"><%= @tonight.hours_clear_in_darkness.round(1) %> h</dd></div>
+        <div><dt class="text-slate-400">Highest</dt><dd class="font-medium"><%= @tonight.max_altitude %>° at <%= @tonight.transit_time.in_time_zone(@site.time_zone).strftime("%H:%M") %></dd></div>
+        <div><dt class="text-slate-400">Moon</dt><dd class="font-medium"><%= (@tonight.moon_illumination * 100).round %>% lit, <%= @tonight.moon_separation.round %>° away</dd></div>
+        <div><dt class="text-slate-400">Dark</dt><dd class="font-medium">
+          <% if (dark = @night.darkness) %><%= dark.begin.strftime("%H:%M") %>–<%= dark.end.strftime("%H:%M") %><% else %>no astronomical darkness<% end %></dd></div>
+      </dl>
+      <% if @fits.any? %>
+        <p class="text-xs text-slate-500 mt-3">Fits the field of view of:
+          <%= safe_join(@fits.map { |train, fits| tag.span("#{train.name} #{fits ? '✓' : '✗'}", class: fits ? "text-emerald-700" : "text-rose-600") }, ", ") %></p>
+      <% end %>
+    <% elsif !@object.coordinates? %>
+      <p class="text-sm text-slate-400">This object has no fixed coordinates.</p>
+    <% else %>
+      <p class="text-sm text-slate-400">No telescopes are available to compute visibility.</p>
+    <% end %>
+  </div>
+
+  <div class="rounded-xl border border-slate-200 bg-white p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-medium text-slate-500">Showcase</h2>
+    </div>
+    <% if (showcase = @object.showcase) && showcase.image.attached? %>
+      <%= image_tag showcase.image, class: "rounded-lg w-full object-cover", alt: @object.primary_name %>
+      <p class="text-xs text-slate-400 mt-1"><%= showcase.survey? ? "Survey: #{showcase.survey_name}" : showcase.source_type.humanize %></p>
+    <% else %>
+      <p class="text-sm text-slate-400">No image yet.</p>
+    <% end %>
+    <% if policy(@object).manage_showcase? %>
+      <%= form_with url: object_showcase_path(@object), method: :post, multipart: true, class: "mt-3 space-y-2" do %>
+        <input type="file" name="image" accept="image/jpeg,image/png" class="w-full text-xs">
+        <div class="flex gap-2">
+          <%= submit_tag "Upload", class: "rounded-lg bg-slate-800 px-3 py-1 text-xs font-medium text-white cursor-pointer" %>
+        </div>
+      <% end %>
+      <% if @object.coordinates? %>
+        <%= button_to "Fetch a DSS2 survey image", object_showcase_path(@object), params: { survey: "DSS2 Red" },
+              class: "mt-2 text-xs text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
+      <% end %>
+    <% end %>
+  </div>
+</div>
+
+<% if @best %>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-medium text-slate-500">Best viewing from <%= @telescope.name %> in <%= @date.year %></h2>
+      <p class="text-sm font-medium text-slate-700"><%= peak_season_text(@best) %></p>
+    </div>
+    <%= best_viewing_chart(@best) %>
+    <p class="text-xs text-slate-400 mt-2">Score = hours clear of the horizon in darkness × 8 + highest altitude in darkness × 0.5, averaged over the 1st and 15th of each month.</p>
+  </div>
+<% end %>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+  <h2 class="text-sm font-medium text-slate-500 mb-3">Projects imaging it</h2>
+  <% if @projects.any? %>
+    <ul class="divide-y divide-slate-100 text-sm">
+      <% @projects.each do |project| %>
+        <li class="py-2 flex justify-between"><%= link_to project.name, project_path(project), class: "hover:text-indigo-600" %><span class="text-slate-500"><%= project.user.display_name %></span></li>
+      <% end %>
+    </ul>
+  <% else %>
+    <p class="text-sm text-slate-400">None yet.</p>
+  <% end %>
+</div>

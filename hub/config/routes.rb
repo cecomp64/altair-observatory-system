@@ -33,6 +33,10 @@ Rails.application.routes.draw do
 
   resources :projects, only: [ :index, :show, :edit, :update ]
 
+  resources :objects, only: [ :index, :show, :new, :create ] do
+    resource :showcase, only: [ :create, :destroy ]
+  end
+
   resources :targets, only: [ :index, :show ] do
     member do
       post :cancel
