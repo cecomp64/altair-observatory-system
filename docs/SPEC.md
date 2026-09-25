@@ -1,16 +1,18 @@
 # Altair Pre-Processor — Implementation Specification
 
-**Status:** Draft v0.5
+**Status:** Draft v0.6
 **Date:** 2026-09-25
-**Target platform:** Windows 10/11 (x64). Each telescope has its own NINA mini PC. A
-separate, more powerful processing PC runs PixInsight 1.9.x with WBPP 2.x and reads each
-rig PC's NINA folder over the network. Backup goes to Amazon S3, plus an optional NFS
-archive.
+**Target platform:** Windows 10/11 (x64). Each telescope has its own NINA mini PC that
+saves locally. A **NAS (required)** is the single raw-data store and archive. A separate,
+more powerful processing PC runs PixInsight 1.9.x with WBPP 2.x. It collects frames from
+each rig PC onto the NAS, processes them in place from the NAS, and backs everything up
+to Amazon S3. Everything is on the same wired Ethernet network.
 
 ### Changelog
 
 | Version | Changes |
 |---|---|
+| v0.6 | The **NAS is required** and is the canonical raw-data store and on-site archive (location `nas`, replacing the optional `nfs`). NINA still saves to the rig PC's local disk. The collector writes each verified frame straight into the NAS archive layout, then S3. Processing reads raw frames **in place from the NAS**, while WBPP's intermediates stay on the processing PC's local SSD. The processing PC no longer keeps a local copy of raw frames. The rig PCs become a short buffer (3-day retention once NAS and S3 copies are verified). Raw calibration subs are kept on the NAS (not S3). (§1–§7, §9–§16) |
 | v0.5 | Removes the separate shared folder and the rig PC agent. Each rig PC's own NINA folder, exposed as a network share, is the raw data source. The processing PC has a config entry per rig (host, raw data location, credentials, collection settings). A **collector** on the processing PC pulls frames from each rig as they are written, verifies them with a double read, and backs them up first. Rig PC cleanup is done by the processing PC over the share. (§2–§7, §10–§16) |
 | v0.4 | Altair owns the S3 backup (Amazon S3) and the NFS archive copy. Raw lights are backed up **first**, as each frame lands. Backup only copies and never syncs deletions, which the IAM policy enforces. What gets backed up: raw lights, calibration masters, reference frames, calibrated light subs, night and multi-night masters, and metadata. Not backed up: registered subs and raw calibration subs. Adds retention and cleanup across rig PCs, landing, cache, work, published, and logs, with a deletion ledger. Backup is now the first build phase. (§3, §5, §6, §7, §9.6, §9.7, §10, §11, §15, §16) |
 | v0.3 | Distributed storage. A small agent on each rig PC delivers files to the shared folder with SHA-256 manifests. The catalog tracks files by content hash across several storage locations (shared folder, NFS, S3, local cache), so it doesn't depend on where a file currently lives. A staging layer fetches job inputs from whichever location has them, including S3 Glacier restores. Files are deleted from the shared folder only after a verified durable copy exists. Catalog backup and a rebuild-from-archive path for disaster recovery. Raw files are no longer moved. (§4, §6, §7, §10, §11) |
@@ -56,15 +58,15 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
   measurements, not from frame counts.
 - **Recoverable:** every blocking problem becomes an issue that names the fix. Once the fix
   arrives, the rerun is automatic.
-- **A night's raw data is never lost:** raw lights are backed up to Amazon S3 (and the
-  local NFS archive, if present) as soon as the processing PC collects them from the rig,
-  during the night, before any processing. No copy of a raw
-  light is deleted anywhere until that backup is verified, and backup never copies
-  deletions.
+- **A night's raw data is never lost:** NINA always saves to the rig PC's local disk first.
+  The processing PC collects each frame during the night, writes a verified copy to the
+  NAS, and backs raw lights up to Amazon S3 before any processing. No copy of a raw light
+  is deleted anywhere until both the NAS copy and the S3 backup are verified, and backup
+  never copies deletions.
 - **Works wherever the data lives:** jobs ask for files by content hash, not by path. Any
   file the pipeline needs, including raw lights from months ago for a rerun or
   re-reference, is fetched automatically from whichever storage location still has it
-  (the rig PC, the processing PC's cache, the NFS, or S3 including Glacier), and checked against
+  (the NAS, the rig PC, the processing PC's cache, or S3 including Glacier), and checked against
   its hash before use. Deleting local copies is safe because nothing is deleted unless a
   verified backup exists.
 - **Deterministic, idempotent, auditable:** the same inputs give the same outputs, and every
@@ -98,16 +100,17 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
 | **Eligible night** | A night master that passes every merge gate in §9.4, including verified flat calibration. |
 | **Issue** | A stored, trackable problem (for example `FLAT_MISSING`) that blocks a stack or a merge. It carries fix instructions and a status of open, resolved, or waived. |
 | **Rig PC** | The NINA mini PC attached to one telescope. It runs only NINA. Its NINA save folder is shared on the network so the processing PC can read it. Nothing from Altair is installed on it except a one-line session-end script (§4.2). |
-| **Rig raw root** | The network path of a rig PC's NINA save folder (for example `\\rig-esprit\NINA`), set per rig in the processing PC's config (§5). It is where that rig's raw data lives, and the only place it lives until collected. |
+| **Rig raw root** | The network path of a rig PC's NINA save folder (for example `\\rig-esprit\NINA`), set per rig in the processing PC's config (§5). Frames live only there until collected. After that it is a short-lived buffer. |
+| **NAS** | The required network storage (location `nas`). It is the **canonical raw-data store** and on-site archive: raw frames, calibrated subs, and all masters live here in the logical folder layout. The processing PC reads raw frames from it in place. |
 | **Processing PC** | The machine that runs `altaird` (with its collector) and PixInsight. |
-| **Collector** | The part of `altaird` that pulls new frames from each rig's raw root into the processing PC, verifies them, and hands them to ingest and backup (§7.3). |
+| **Collector** | The part of `altaird` that pulls new frames from each rig's raw root, verifies them, writes them into the NAS, and hands them to ingest and backup (§7.3). |
 | **Blob** | One file's content, identified by its SHA-256 hash. The catalog refers to data only by blob hash plus a *logical path*, never by a physical path. |
-| **Location** | A configured place blobs can live: `rig:<name>` (a rig PC's NINA folder, one per rig), `cache` (processing PC SSD), `nfs`, or `s3`. |
+| **Location** | A configured place blobs can live: `rig:<name>` (a rig PC's NINA folder, one per rig), `nas` (required), `cache` (processing PC SSD), or `s3`. |
 | **Replica** | One copy of a blob in one location. It is tracked with state (`present`, `missing`, `archived_cold`, `restoring`) and when it was last verified. |
-| **Durable location** | A backup location: S3 (always) and the NFS archive (if enabled). Rig PCs and the processing PC cache are **not** durable. |
-| **Backup** | Altair's own **copy-only** replication of selected data classes to S3 and the NFS (§7.4–7.5). Deletions are never synced. |
+| **Durable location** | The NAS (on-site) and S3 (off-site). A "verified backup" for cleanup purposes means a verified **S3** copy, since the NAS alone is one device (§7.6). Rig PCs and the processing PC cache are **not** durable. |
+| **Backup** | Altair's own **copy-only** replication of selected data classes to the NAS and S3 (§7.4–7.5). Deletions are never synced. |
 | **Cleanup** | Altair's retention rules that delete **individual copies** in non-archive locations, and only once a verified backup exists (§7.6). |
-| **Staging** | Making sure every input blob of a job is in the local cache, verified, before PixInsight starts. |
+| **Staging** | Making sure every input blob of a job is readable and verified before PixInsight starts: raw frames in place on the NAS, and everything else in the local cache (§7.7). |
 
 ---
 
@@ -125,29 +128,35 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
                  └──────────────────┬──────────────────┘
                                     ▼
       ┌──────────────────────────────────────────────────┐   upload   ┌────────────────────┐
-      │ Processing PC: altaird (collector, backup,        │──────────►│ Amazon S3 (durable) │
-      │ planner, stager, …) + PixInsight                  │  (raw      │ STANDARD / IA /     │
-      │ local SSD cache (location:cache)                  │   first)   │ GLACIER tiers       │
-      │ catalog DB (backed up to S3 nightly)              │◄───────────┤                     │
+      │ Processing PC: altaird (collector, backup,        │──────────►│ Amazon S3 (off-site │
+      │ planner, stager, …) + PixInsight                  │  (raw      │ backup) STANDARD /  │
+      │ local NVMe: spool, work dirs, masters cache       │   first)   │ IA / GLACIER tiers  │
+      │ catalog DB (local; backed up to NAS + S3 nightly) │◄───────────┤                     │
       └───────────────┬──────────────────────────────────┘  fetch     └────────────────────┘
-                      │ copy / fetch
+                      │ SMB 3: write verified frames + outputs;
+                      │ read raw frames in place for processing
                       ▼
-            ┌───────────────────────┐
-            │ NFS archive (optional, │
-            │ durable)               │
-            └───────────────────────┘
+      ┌──────────────────────────────────────────────────┐
+      │ NAS (required) — location "nas"                   │
+      │ \\nas\astro  canonical raw store + on-site archive │
+      │ raw/ calibration/ projects/ catalog/  Masters/    │
+      └──────────────────────────────────────────────────┘
 ```
 
-- **Rig PCs** only capture. NINA saves to the rig PC's **local disk**, so a network outage
-  never costs frames. The NINA save folder is shared on the network. That share is the
-  rig's raw data location, and the processing PC has one config entry per rig pointing at
-  it (§5).
+- **Rig PCs** only capture. NINA saves to the rig PC's **local disk**, so a network or NAS
+  outage never costs frames. The NINA save folder is shared on the network. That share is
+  the rig's raw data location, and the processing PC has one config entry per rig pointing
+  at it (§5). Once a frame is on the NAS and in S3, the rig copy is just a short buffer.
 - The **processing PC** pulls each new frame from each rig while the night is still going
-  (§7.3). It verifies the frame, then backs it up to S3 (and the NFS) before anything else
-  (§7.2). PixInsight never reads a network path. Every job input is staged into the local
-  SSD cache first (§7.7).
-- **S3** (and the NFS, if you add it) is the durable archive. A rig PC's copy of a frame is
-  deleted by the processing PC's cleanup only after the backup is verified (§7.6).
+  (§7.3). It verifies the frame, writes it into the **NAS** in its final archive layout,
+  and uploads raw lights to **S3** before anything else (§7.2).
+- **Processing reads raw frames in place from the NAS.** There is no second local copy.
+  WBPP's intermediate files (calibrated, cosmetized, debayered, registered, and local
+  normalization files, 3–5× the raw volume and read repeatedly) are written to the
+  processing PC's **local NVMe** work directory. Outputs worth keeping are then copied to
+  the NAS and S3 (§7.4).
+- The **NAS** is the on-site archive and the **S3 bucket** is the off-site backup. A rig
+  PC's copy of a frame is deleted only after both are verified (§7.6).
 
 ### 3.1 Software components
 
@@ -155,15 +164,15 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
            ┌───────────────────────────────────────────────────────────────────────┐
            │                     altaird (Processing PC, Windows)                   │
  rig raw   │ 0 Collector ─► 2 Ingest & ─► 3 Planner ─► 4 Stager ─► 5 Executor ─►    │
- roots ──► │   (pull, verify) Catalog     (group,      (fetch     (PixInsight       │
- (per-rig  │ 1 Trigger       (headers,    calib/flat   inputs to   WBPP, per        │
- config)   │   (session end,  blobs,      matching)    cache)      night)           │
-           │   schedule)     replicas)        │            ▲            │           │
-           │                                 │            │            ▼           │
+ roots ──► │   (pull, verify, Catalog     (group,      (resolve   (PixInsight       │
+ (per-rig  │   write to NAS)  (headers,   calib/flat   NAS paths / WBPP, per        │
+ config)   │ 1 Trigger        blobs,      matching)    fetch to    night)           │
+           │   (session end,  replicas)      │        cache)           │            │
+           │   schedule)                     │            ▲            ▼            │
            │   Calibration Library ◄─────────┤   Storage Manager   6 Verifier &     │
            │                                 │   (BACKUP first:    Publisher        │
-           │                                 │    raw → S3/NFS on      │            │
-           │                                 │    ingest; restore,     ▼            │
+           │                                 │    raw → NAS + S3 on    │            │
+           │                                 │    collect; restore,    ▼            │
            │                                 │    cleanup)        7 Merger         │
            │                                 ▼                        │            │
            │                          8 Issue Tracker ◄──── gates ────┘            │
@@ -206,8 +215,30 @@ process. Nothing from Altair runs on the rig PCs.
   on the rig, grant **Read** only and set `cleanup.enabled: false` for that rig. Then you
   clean up the rig by hand, guided by `altair storage cleanup --dry-run`.
 - Add the session-end script to the NINA sequence (§4.2).
-- Keep the rig PC from sleeping, and give it enough disk for several nights. Its copy is
-  the only copy until the processing PC collects it.
+- Keep the rig PC from sleeping, and give it enough disk for about a week of nights. A
+  frame's copy there is the only copy until the processing PC collects it. After that,
+  the rig is only a short buffer (3 days by default), but a NAS outage means frames pile
+  up on the rig until the NAS is back.
+
+**NAS (required).** It is the canonical raw-data store and on-site archive.
+
+- Expose it over **SMB 3** (for example `\\nas\astro`) to the processing PC's service
+  account, with **Modify** permission. NFS mounts also work (as a UNC path through the
+  Windows NFS client), but SMB is recommended on Windows: it handles credentials,
+  locking, and change notifications properly, and the Windows NFS client is only in Pro
+  and Enterprise editions.
+- Rig PCs **do not** write to the NAS, and NINA never saves to it directly. So a NAS
+  reboot, firmware update, or network hiccup can never cost a frame during capture.
+- Recommended: RAID or another form of redundancy, scheduled snapshots, and a
+  **2.5 GbE or faster** link to the processing PC. Processing reads raw frames in place
+  and writes outputs back (§7.7). At 1 GbE a 100-frame night (about 5 GB) is read in
+  about 45 s. Multi-night re-integrations and re-references read much more.
+- Size: raw lights plus raw calibration subs, plus about twice the raw-light volume for
+  calibrated subs, plus masters. See §7.4 for per-night figures. `altair storage status`
+  shows growth and projected fill date, and raises `NAS_SPACE_LOW` below
+  `min_free_percent`.
+- The **catalog database stays on the processing PC's local disk.** SQLite on a network
+  share is unsafe. It is backed up nightly to the NAS and to S3 (§7.9).
 
 The processing PC stores each rig's share credentials in Windows Credential Manager
 (`credential_target` in the rig config). `altair doctor` checks from the processing PC
@@ -243,13 +274,14 @@ Windows Update active hours overlap the configured processing window.
 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. On timeout or crash, the whole process tree is killed
 reliably and no orphaned `PixInsight.exe` is left holding the instance slot.
 
-**Performance notes (checked by `altair doctor`):** PixInsight swap directories should be
-on a fast SSD. The `cache`, `work`, and `projects` directories should be excluded from
-Windows Defender real-time scanning. Long-path support should be enabled
-(`LongPathsEnabled=1`), because WBPP output paths get deep. Wired Ethernet to each rig PC
-is recommended. At 1 GbE, a 100-frame night (about 5 GB of 16-bit frames, read twice for
-verification) collects in about 2 minutes. Over Wi-Fi it takes longer, but it happens
-frame by frame during the night.
+**Performance notes (checked by `altair doctor`):** PixInsight swap directories and the
+`work` directory should be on a fast local NVMe SSD. WBPP's intermediates live there and
+are read many times, which is why they never go to the NAS. The `cache`, `spool`, and
+`work` directories should be excluded from Windows Defender real-time scanning. Long-path support should be enabled
+(`LongPathsEnabled=1`), because WBPP output paths get deep. All rig PCs, the NAS, and the
+processing PC are on wired Ethernet. At 1 GbE, a 100-frame night (about 5 GB of 16-bit
+frames, read twice for verification) collects in about 2 minutes. That happens frame by
+frame during the night, about a minute behind capture.
 
 ### 4.2 NINA integration
 
@@ -327,26 +359,34 @@ site:
   timezone: "America/Los_Angeles"
   session_rollover_local: "12:00"
 
-paths:                                    # processing PC local paths only
-  work: "E:/AltairWork"                   # per-job scratch space (fast SSD)
-  state: "C:/ProgramData/Altair/state"    # catalog DB, logs
-  published: "D:/Astro/Masters"           # user-facing copies of masters (convenience, not the record); share it if you like
+paths:
+  work: "E:/AltairWork"                   # per-job scratch space incl. all WBPP intermediates (local NVMe)
+  spool: "E:/AltairSpool"                 # collector staging: frames being verified before they go to the NAS (local NVMe)
+  state: "C:/ProgramData/Altair/state"    # catalog DB (always local), logs
+  published: "//nas/astro/Masters"        # user-facing copies of masters on the NAS (convenience, not the record)
 
 storage:                                  # see §7
-  cache:
-    path: "E:/AltairCache"                # location "cache": processing PC SSD
-    max_size_gb: 800
-    min_free_gb: 100
-    pin: [calibration_master, project_reference, night_master, multi_night_master]
-    pin_raw_until: [durable_verified, night_processed, no_open_issue]   # collected raw frames stay local until all hold
-  locations:                              # rig locations (rig:<name>) come from `rigs:` below, read_priority 10
-    - name: nfs
+  cache:                                  # small local copies for speed; NOT where raw frames live
+    path: "E:/AltairCache"                # location "cache": processing PC NVMe
+    max_size_gb: 200
+    min_free_gb: 50
+    pin: [calibration_master, project_reference, night_master, multi_night_master]   # small; merges never wait on the network
+  locations:                              # rig locations (rig:<name>) come from `rigs:` below
+    - name: nas                           # REQUIRED — canonical raw store + on-site archive
       kind: fs
-      root: "//bignfs/astro-archive"      # a UNC path works for SMB or the Windows NFS client
+      root: "//nas/astro"                 # SMB 3 recommended (an NFS mount via UNC also works)
+      credential_target: "altair-nas"
       durable: true
-      read_priority: 20
-      enabled: false                      # turn on if/when the NFS is added; backfill with `altair storage replicate`
-      backup_classes: same_as_s3          # or an explicit list (e.g. add raw_calibration here — NFS space is cheap)
+      read_priority: 10                   # first choice after the local cache; raw frames are read in place from here
+      stores:                             # every class except registered_frame and provisional (§7.4)
+        [raw_light, raw_calibration, calibration_master, project_reference, calibrated_frame,
+         night_master, multi_night_master, metadata]
+      write_verify: readback              # re-hash after writing (§7.3)
+      read_in_place: true                 # PixInsight reads raw frames / calibrated subs directly from here (§7.7)
+      stage_raw_locally: false            # true = copy inputs to local NVMe first (only if the NAS link is slow)
+      nas_read_verify: none               # none | sample | all — re-hash in-place inputs before a job
+      min_free_percent: 10                # NAS_SPACE_LOW below this
+      health_check: { identity_file: ".altair-location.json", max_missing_sample_percent: 1 }
     - name: s3
       kind: s3                            # Amazon S3; Altair does all uploads itself
       bucket: "my-astro-archive"
@@ -354,7 +394,7 @@ storage:                                  # see §7
       region: "us-west-2"
       credentials: { profile: "altair" }  # AWS profile for a dedicated least-privilege IAM user (§7.5)
       durable: true
-      read_priority: 30
+      read_priority: 30                   # used only when the NAS copy is missing or corrupt
       backup_classes:                     # what is copied here (§7.4); anything not listed is never uploaded
         - raw_light
         - calibration_master
@@ -382,9 +422,9 @@ storage:                                  # see §7
 
   backup:
     raw_first: true                       # raw_light uploads pre-empt every other transfer
-    start: on_collect                     # upload each frame as soon as it is collected from the rig, during the night
+    start: on_collect                     # each frame goes to the NAS and is queued for S3 as soon as it is collected, during the night
     processing_waits_for_raw_backup: false   # true = a night is not processed until its raw lights are durable
-    raw_backup_sla_hours: 6               # BACKUP_BEHIND alert if a collected raw light is not durable by then
+    raw_backup_sla_hours: 6               # BACKUP_BEHIND alert if a collected raw light has no verified S3 copy by then
     calibrated_frame_stage: calibrated    # calibrated | cosmetized | debayered — which WBPP intermediate is kept (§7.4)
     calibrated_frame_compression: zstd+shuffle   # XISF lossless compression before upload; none to disable
 
@@ -393,13 +433,15 @@ storage:                                  # see §7
     dry_run: false
     rig_defaults:                         # applied to every rig's NINA folder; override per rig under rigs.<name>.cleanup
       enabled: true
-      raw_light:       { min_age_days: 7, require: [collected_verified, durable_verified] }
-      raw_calibration: { min_age_days: 7, require: [collected_verified, master_durable] }
+      raw_light:       { min_age_days: 3, require: [nas_verified, s3_verified] }
+      raw_calibration: { min_age_days: 3, require: [nas_verified] }
       target_free_percent: 20             # below this free space, clean oldest-first before min_age (the require rules still apply)
       keep: ["_altair/**"]                # never touched (session-end markers are cleaned by their own rule below)
       markers_keep_days: 30
     cache:
       evict: lru                          # §7.7; never evicts pinned or sole-copy blobs
+    spool:
+      delete_when: nas_verified           # a spooled frame is removed once its NAS copy is verified
     work:
       succeeded_jobs: delete_immediately
       failed_jobs_keep_days: 7
@@ -407,15 +449,17 @@ storage:                                  # see §7
       night_masters_keep_days: 365        # viewing copies only; the canonical masters stay archived
       multi_night_versions_keep: 3
     logs_keep_days: 90
-    nfs:                                  # archive: nothing is deleted unless you add rules here
-      {}
+    nas:                                  # on-site archive: raw lights, calibrated subs and masters are kept forever by default
+      raw_calibration: { min_age_days: 365, require: [master_nas_verified, master_s3_verified] }   # null = keep forever
+      raw_light: null                     # optional, e.g. { min_age_days: 730, require: [s3_verified] } to push old raw lights to S3-only
+      target_free_percent: null           # optional space-pressure cleanup, still subject to the require rules
     s3:                                   # archive: kept data classes are NEVER deleted by Altair
       multi_night_master_versions_keep: 20   # older superseded versions deleted (regenerable from night masters)
       catalog_backups_keep: { daily: 30, monthly: 12 }
 
   verify:
     s3_after_upload: checksum             # checksum (SHA-256 stored + S3 checksum) | head_only
-    scrub_interval_days: 90               # re-verify a random sample of replicas
+    scrub_interval_days: 90               # re-verify a random sample of NAS and S3 replicas
     scrub_sample_percent: 2
 
 pixinsight:
@@ -532,7 +576,7 @@ multi_night:
   autocrop_output: true
 
 issues:
-  page: "D:/Astro/Masters/ALTAIR_STATUS.html"
+  page: "//nas/astro/Masters/ALTAIR_STATUS.html"
   remind_every_days: 3
   auto_rerun_on_resolution: true
 
@@ -603,10 +647,10 @@ For each frame the collector has copied and verified (§7.3):
    (`HEADER_INCOMPLETE`). Their blobs are kept, so you can add aliases or fix the config,
    and `altair rerun` picks them up. Headers are cached in the catalog, so re-planning never
    has to fetch a file.
-8. **Queue the backup right away.** A `raw_light` goes to the front of the backup queue
-   (S3, plus the NFS if enabled) the moment it is registered, before any planning or
-   processing (§7.2, §7.5). `raw_calibration` blobs are not backed up; they are kept
-   until their masters are (§7.4, §7.6).
+8. **Queue the S3 backup right away.** The frame is already on the NAS (the collector wrote
+   it there, §7.3). A `raw_light` goes to the front of the S3 upload queue the moment it
+   is registered, before any planning or processing (§7.2, §7.5). `raw_calibration` blobs
+   stay on the NAS only (§7.4, §7.6).
 
 **Required fields:**
 
@@ -642,7 +686,7 @@ CREATE TABLE blobs (
 );
 
 CREATE TABLE locations (
-  name TEXT PRIMARY KEY,         -- rig:<name> / cache / nfs / s3
+  name TEXT PRIMARY KEY,         -- rig:<name> / nas / cache / s3
   kind TEXT NOT NULL,            -- fs / s3
   durable INTEGER NOT NULL,
   reachable INTEGER NOT NULL,    -- last probe result
@@ -832,16 +876,18 @@ The planner runs when a night is ready, and again whenever an issue might be res
    calibration hashes, resolved settings, reference version, and software versions. A plan
    whose `plan_hash` already succeeded is skipped.
 8. **Data cost estimate.** For each job, the planner records the total input size and
-   where each input would come from (cache, rig PC, NFS, S3 hot, S3 cold). That feeds the
+   where each input would come from (NAS in place, cache, rig PC, S3 hot, S3 cold). That feeds the
    approval guards and ETAs in §7.7. Planning itself never needs file contents, because
    headers are cached in the catalog.
 
 ### 6.5 Executor (PixInsight on Windows)
 
-**Before PixInsight starts, every job is staged** (§7.7). All input blobs are made
-present and verified in the local cache, and then hard-linked into
-`work\<job-id>\inputs\` under their original file names. A job whose inputs are not all
-available goes to `waiting_data` instead of `running`. So a slow S3 restore never ties up
+**Before PixInsight starts, every job is staged** (§7.7). Raw frames and calibrated subs
+are handed to PixInsight by their **NAS paths** and read in place. Small inputs (masters,
+references) come from the local cache. WBPP's output directory, and so every
+intermediate, is `work\<job-id>\` on local NVMe. A job whose inputs are not all
+available (for example, the NAS is unreachable, or an S3 restore is pending) goes to
+`waiting_data` instead of `running`. So a slow S3 restore never ties up
 the PixInsight slot, and other ready jobs run in the meantime.
 
 Invocation, one process per job:
@@ -890,18 +936,20 @@ After a `NIGHT_STACK` job:
 2. **Register outputs as blobs:** the canonical copy (uncropped, project geometry) is
    stored under the logical path `projects/<project>/nights/<night>/<filter>/`, together
    with `night.json`, which holds the calibration evidence, metrics, per-frame weights,
-   rejections, and the SHA-256 of every input. Both go into the cache (pinned) and are
-   queued for backup (§7.5). The **calibrated light subs** of a final (flat-verified)
-   stack, at `calibrated_frame_stage`, are collected from WBPP's output before the work
-   directory is cleared. They are registered as `calibrated_frame` blobs and queued for
-   backup too. Registered subs are **not** kept beyond the job (§7.4).
+   rejections, and the SHA-256 of every input. Both are written to the **NAS** (verified
+   write, §7.5), kept pinned in the local cache, and queued for S3. The **calibrated light
+   subs** of a final (flat-verified) stack, at `calibrated_frame_stage`, are copied from
+   WBPP's local output to the NAS before the work directory is cleared. They are registered
+   as `calibrated_frame` blobs and queued for S3 too. Registered subs and all other
+   intermediates are **not** kept beyond the job (§7.4).
 3. **Publish a viewing copy** (autocropped) to
    `published\<target>\<night>\<target>_<telescope>_<camera>_<filter>_<night>_<N>x<exp>s.xisf`.
    Provisional masters get the suffix `_NOFLAT-PROVISIONAL`. Published copies are for
    convenience only. They are not tracked as replicas and can be regenerated at any time
    (`altair publish --refresh`).
-4. **Raw lights are not moved.** They were already backed up at collection (§7.2). The
-   rig PC's original stays in the NINA folder until cleanup (§7.6) removes it.
+4. **Raw lights are not moved.** They have been on the NAS since collection (§7.3), and
+   in S3 shortly after. The rig PC's original stays in the NINA folder until cleanup (§7.6)
+   removes it.
 5. **Record the night master** with `merge_status`, set by the gates in §9.4.
 
 ### 6.7 Merger
@@ -918,13 +966,12 @@ See §10.
 
 ### 7.1 Principles
 
-1. **Backup comes first.** A raw light is uploaded to S3 (and copied to the NFS archive,
-   if one is configured) **as soon as the collector has pulled it from the rig**, during
-   the night, ahead of every other
-   transfer and independent of processing. No copy of a raw light is ever deleted anywhere
-   until its backup is verified.
-2. **Altair owns the backup.** Altair does all S3 uploads (Amazon S3) and NFS copies
-   itself. No external sync tool is needed or assumed.
+1. **Backup comes first.** As soon as the collector has pulled a raw light from the rig,
+   during the night, it is written to the **NAS** and uploaded to **S3**, ahead of every
+   other transfer and independent of processing. No copy of a raw light is ever deleted
+   anywhere until both the NAS copy and the S3 backup are verified.
+2. **Altair owns the storage.** Altair itself does all NAS writes and S3 uploads (Amazon
+   S3). No external sync tool is needed or assumed.
 3. **Backup copies; it never syncs deletions.** Replication only adds files. Deleting a
    file in one location, whether by Altair's cleanup, by you, or by a crashed disk, never
    causes a deletion anywhere else. S3 permissions enforce this at the IAM level (§7.5).
@@ -940,8 +987,11 @@ See §10.
 7. **Nothing is deleted without a verified backup.** This is a hard rule with no override:
    Altair never deletes the only verified copy of a blob, and cleanup (§7.6) always checks
    the backup again right before deleting.
-8. **PixInsight only reads the local cache**, and **every input can be re-fetched** from
-   whichever location still has it (§7.7).
+8. **One raw store, read in place.** The NAS holds the canonical copy of every raw frame
+   in its final folder layout. PixInsight reads raw frames **directly from the NAS**.
+   Everything PixInsight writes (all WBPP intermediates) goes to local NVMe, and only
+   finished outputs are copied back. **Every input can be re-fetched** from S3 if its NAS
+   copy is ever missing or corrupt (§7.7).
 
 ### 7.2 Pipeline order
 
@@ -949,21 +999,22 @@ See §10.
  capture night ─────────────────────────────► dawn ─────────────────────────────► days / weeks
  Rig PC   NINA saves to local D:\NINA (shared)                          session-end marker
  Proc PC  collector pulls each finished frame (≈1 min after it is written) ─┐
-          ingest ─► [1] RAW BACKUP → S3 + NFS  (continuous, top priority, verified)
+          ingest ─► [1] RAW → NAS (verified) → S3  (continuous, top priority)
                                      close night + manifest ─► plan ─► stage ─► WBPP ─► verify
                                                                     │
-                                        [2] OUTPUT BACKUP → S3 + NFS ◄┘  masters, reference,
+                                        [2] OUTPUT BACKUP → NAS + S3 ◄┘  masters, reference,
                                                                          calibrated light subs
                                                                     [3] CLEANUP (per location,
                                                                         only verified-backed-up data)
 ```
 
-1. **Raw backup** starts as soon as each frame is collected, and each frame is uploaded
-   while the night is still going. By the time the session ends, most of the night is usually already in S3.
-   Processing does not have to wait for it, because processing only reads raw files and
-   never changes them. If you want a strict order anyway, set
-   `processing_waits_for_raw_backup: true`: a night is then not processed until all of
-   its raw lights are durable.
+1. **Raw storage and backup** start as soon as each frame is collected. The frame is on the
+   NAS within seconds of collection and uploaded to S3 while the night is still going. By
+   the time the session ends, most of the night is usually already in S3. Processing needs
+   the NAS copy (it reads raw frames from there) but does not have to wait for S3, because
+   processing only reads raw files and never changes them. If you want a strict order
+   anyway, set `processing_waits_for_raw_backup: true`: a night is then not processed
+   until all of its raw lights are in S3.
 2. **Output backup** runs as soon as the verifier accepts a job's outputs.
 3. **Cleanup** runs daily. It only removes copies whose backup is verified, following the
    rules for each location (§7.6).
@@ -971,14 +1022,16 @@ See §10.
 A collected raw light that still has no verified S3 copy after `raw_backup_sla_hours`
 raises **`BACKUP_BEHIND`** (warning). A raw light more than 48 h old with **no** verified
 durable copy anywhere raises **`DATA_AT_RISK`** (blocking, alerted immediately). Nothing
-from that night is cleaned up until the condition clears. Until a frame is collected, its
-only copy is on the rig PC, so an unreachable rig raises `RIG_UNREACHABLE` (§7.3).
+from that night is cleaned up until the condition clears. Until a frame is collected and on
+the NAS, its only copy is on the rig PC. So an unreachable rig raises `RIG_UNREACHABLE`
+and an unreachable NAS raises `NAS_UNREACHABLE` (§7.3).
 
-### 7.3 Collector (rig PC → processing PC)
+### 7.3 Collector (rig PC → NAS)
 
 The collector is part of `altaird`. It runs one worker per configured rig. Rig PCs run
 nothing from Altair; the collector does everything over the rig's share, using the rig's
-`raw_root` and credentials from the config (§5).
+`raw_root` and credentials from the config (§5). Data flows rig PC → processing PC spool
+(local NVMe, for verification) → NAS (the canonical copy) → S3.
 
 **Per poll (`poll_interval_s`) for each rig:**
 
@@ -996,8 +1049,8 @@ nothing from Altair; the collector does everything over the rig's share, using t
    `stable_seconds` (across polls), **and** it can be opened over SMB with **exclusive
    share mode**, which fails while NINA still has it open for writing. It must also parse
    as FITS or XISF with a data size that matches the header (catches truncated files).
-4. **Copy and hash:** stream the file from the rig into `cache\tmp\`, computing SHA-256
-   and parsing the header while copying.
+4. **Copy and hash:** stream the file from the rig into the **spool** (`paths.spool`, local
+   NVMe), computing SHA-256 and parsing the header while copying.
 5. **Verify with a double read** (`verify: double_read`, the default): read the file on
    the rig a **second time** and compute SHA-256 again. The two hashes must match (and
    the size and mtime must be unchanged). A mismatch means a transient read error or a
@@ -1005,11 +1058,24 @@ nothing from Altair; the collector does everything over the rig's share, using t
    raise `COLLECTION_CORRUPT`. This doubles LAN reads (about 10 GB per 100-frame night),
    which is cheap on wired Ethernet, in exchange for knowing that the hash that protects
    every later copy really matches the rig's file. `single_read` skips the second read.
-6. **Commit:** atomically rename the copy into `cache\blobs\…` (read-only). Record the
-   blob and both replicas (`rig:<name>` and `cache`) and hand the frame to ingest (§6.2).
-   Ingest puts a `raw_light` **at the front of the backup queue** immediately.
-7. **Throttle:** at most `parallel_files` at once, with `bandwidth_limit_mbps` if set. With
-   `during_capture: false`, steps 4–6 wait until the night's session-end marker or
+6. **Write to the NAS:** copy the spooled file to
+   `\\nas\astro\<logical path>.partial`, flush, **read it back and re-hash**
+   (`write_verify: readback`), then rename it to the final name and mark it read-only.
+   If a file with that name and the same SHA-256 already exists, the frame is already
+   stored. A different SHA-256 raises `INTEGRITY_MISMATCH`, and the existing file is never
+   overwritten.
+7. **Commit:** record the blob and its replicas (`rig:<name>` and `nas`), and hand the
+   frame to ingest (§6.2). Ingest puts a `raw_light` **at the front of the S3 upload
+   queue** immediately. The S3 upload reads from the spool if the file is still there,
+   otherwise from the NAS. The spooled copy is deleted once the NAS copy is verified and
+   the S3 upload has either finished or can read from the NAS instead.
+8. **NAS unavailable:** if the NAS can't be reached or is full, frames stay on the rig
+   (they are not collected further than the spool). The spool is bounded, and new frames
+   are left on the rig once it is full. `NAS_UNREACHABLE` / `NAS_SPACE_LOW` are raised
+   (blocking). Collection resumes automatically when the NAS is back. Nothing on the rig
+   is cleaned up in the meantime, because rig cleanup requires a verified NAS copy.
+9. **Throttle:** at most `parallel_files` at once, with `bandwidth_limit_mbps` if set. With
+   `during_capture: false`, steps 4–8 wait until the night's session-end marker or
    quiescence. That setting is not recommended, because backup then starts only after
    the session.
 
@@ -1025,7 +1091,7 @@ for that night. It then writes the **collection manifest**
   "raw_root": "//rig-esprit/NINA",
   "night": "2026-09-24",
   "closed_by": "session_end_marker",
-  "collector_version": "0.5.0",
+  "collector_version": "0.6.0",
   "files": [
     {
       "logical_path": "raw/esprit100_2600mm/2026-09-24/M31/LIGHT/Ha/2026-09-24_23-10-02_Ha_300.00s_0001.fits",
@@ -1050,24 +1116,27 @@ a re-plan and an updated manifest (a new version; the old one is kept).
 (§7.6). The `_altair\` folder belongs to the NINA session-end script. The collector only
 reads it, apart from cleaning up old markers.
 
-### 7.4 Data classes & backup policy
+### 7.4 Data classes & storage policy
 
 Every blob has a **logical path**. File-system locations store it at
 `<root>\<logical path>`, and the S3 key is `<prefix><logical path>`. Using the same tree
 everywhere keeps every location browsable by hand and makes rebuild-from-archive possible.
 
-| Data class | What | Logical path | S3 | NFS (if enabled) | Storage class → lifecycle |
+| Data class | What | Logical path | NAS (canonical) | S3 (off-site) | S3 storage class → lifecycle |
 |---|---|---|---|---|---|
-| `raw_light` | Raw light subs from NINA | `raw/<rig>/<night>/<NINA relative path>` | **Yes — first, during the night** | Yes | STANDARD_IA → DEEP_ARCHIVE after 120 d |
-| `raw_calibration` | Raw dark / flat / bias / dark-flat subs | `raw/<rig>/<night>/…` | **No** | No by default (can be enabled; NFS space is cheap) | — |
+| `raw_light` | Raw light subs from NINA | `raw/<rig>/<night>/<NINA relative path>` | **Yes — on collection**; processing reads it here | **Yes — first, during the night** | STANDARD_IA → DEEP_ARCHIVE after 120 d |
+| `raw_calibration` | Raw dark / flat / bias / dark-flat subs | `raw/<rig>/<night>/…` | **Yes** (kept 365 d after its master is backed up; configurable) | **No** | — |
 | `calibration_master` | Master dark / flat / bias / dark-flat (+ sidecar) | `calibration/masters/<kind>/…/<name>_<sha8>.xisf` | Yes | Yes | STANDARD |
 | `project_reference` | Project reference frame (+ WCS sidecar) | `projects/<project>/reference/reference_v<N>.xisf` | Yes | Yes | STANDARD |
 | `calibrated_frame` | Calibrated light subs from a **final** (flat-verified) night stack | `projects/<project>/nights/<night>/<filter>/calibrated/<name>_c.xisf` | Yes | Yes | STANDARD_IA → GLACIER_IR after 60 d |
 | `night_master` | Night master (+ `night.json`) | `projects/<project>/nights/<night>/<filter>/night_master_<sha8>.xisf` | Yes | Yes | STANDARD |
 | `multi_night_master` | Multi-night master versions (+ sidecar, coverage map) | `projects/<project>/multinight/<filter>/v<NNN>.xisf` | Yes | Yes | STANDARD |
 | `metadata` | Manifests, sidecars, reports, catalog backups | `raw/<rig>/_manifests/…`, `catalog/…` | Yes | Yes | STANDARD |
-| `registered_frame` | Registered subs | `projects/…/registered/…` (cache only) | **No** | **No** | — (local only) |
-| `provisional` | No-flat preview masters and their calibrated subs | cache and published copy only | **No** | **No** | — |
+| `registered_frame` | Registered subs | local work dir / cache only | **No** | **No** | — (local only) |
+| `provisional` | No-flat preview masters and their calibrated subs | local cache and published copy only | **No** | **No** | — |
+
+The NAS holds everything worth keeping. S3 holds the off-site subset: everything except
+raw calibration subs. Intermediates never leave the processing PC.
 
 Why this split:
 
@@ -1075,10 +1144,10 @@ Why this split:
   usually happen within weeks, while the raw lights are still in STANDARD_IA and can be
   read straight away. After 120 days they move to Deep Archive, which is cheap and only
   needed for disaster recovery or reprocessing from scratch.
-- **Raw calibration subs are not backed up.** Their masters are. So a calibration sub is
-  only cleaned up after the master built from it has a verified backup (§7.6). The
-  trade-off: a master flat or dark can't be rebuilt from its subs later (for example with
-  different rejection settings), but you can always reshoot calibration frames.
+- **Raw calibration subs are not backed up off-site.** Their masters are. The subs stay on
+  the NAS (365 days by default after their master is on the NAS and in S3), so a master
+  can still be rebuilt with different settings during that time. After that, or if the
+  NAS is lost, only the masters remain. You can always reshoot calibration frames.
 - **Calibrated light subs** let a re-reference (§9.7) or a frame-level re-integration
   (§9.6) start from already-calibrated data, without the raw calibration subs and without
   restoring raw lights from Deep Archive. They move to Glacier Instant Retrieval, so they
@@ -1086,23 +1155,37 @@ Why this split:
   is kept: `calibrated` (the default; pre-cosmetic, pre-debayer) or a later stage. They
   are uploaded with XISF lossless compression (`zstd+shuffle`). Only subs from a **final**
   night stack are backed up, never from a provisional no-flat run.
-- **Registered subs** are not backed up. They exist only in the cache while needed and can
-  be regenerated from calibrated subs plus the project reference (§9.6).
+- **Registered subs** are never stored on the NAS or in S3. They exist only in the local work
+  directory while needed and can be regenerated from calibrated subs plus the project
+  reference (§9.6).
 
 **Volume estimate** (per rig-night, 26 MP mono, 100 lights): raw lights ≈ 5.2 GB (16-bit).
-Calibrated subs ≈ 10.4 GB before compression (32-bit float; compressed size to be measured
-in Phase 1). Masters ≈ 0.2 GB. Calibrated subs are the biggest item. If S3 cost or uplink
-time becomes a problem, per-project `backup_calibrated_frames: false` turns them off. At
+Raw calibration subs ≈ 1–3 GB on nights they are taken (NAS only). Calibrated subs
+≈ 10.4 GB before compression (32-bit float; compressed size to be measured in Phase 1).
+Masters ≈ 0.2 GB. So roughly **16–19 GB per rig-night on the NAS**, and about 16 GB to S3.
+With two rigs and about 100 clear nights a year, that is about 3–4 TB per year on the NAS.
+Calibrated subs are the biggest item. If NAS space, S3 cost, or uplink time becomes a
+problem, per-project `keep_calibrated_frames: false` turns them off. At
 20 Mbps upload, about 16 GB takes about 1.8 h. `altair storage status` shows the current
 backlog, growth per month, and a rough monthly cost estimate per storage class, using
 prices you enter in config.
 
-### 7.5 Backup engine (S3 and NFS)
+### 7.5 Storage & backup engine (NAS and S3)
 
-A **replicator** worker in `altaird` uploads `(blob, location)` pairs according to
-`backup_classes`.
+**NAS writes.** Raw frames are written to the NAS by the collector (§7.3). Job outputs
+(masters, reference frames, calibrated subs, sidecars) are written by the publisher as
+soon as the verifier accepts them (§6.6). Every NAS write uses the same safe procedure:
+write `<logical path>.partial`, flush, read it back and re-hash, rename to the final name,
+and mark it read-only. An existing file with the same hash counts as already stored. A
+different hash raises `INTEGRITY_MISMATCH`, and the existing file is never overwritten.
+Altair never modifies or renames a file on the NAS once it is committed. It only adds
+files, and deletes them through cleanup rules (§7.6).
 
-**Priority order:** `raw_light` (pre-empts everything, ignores `upload_window`) →
+**S3 uploads.** A **replicator** worker in `altaird` uploads `(blob, s3)` pairs according
+to `backup_classes`. It reads from the spool or local cache when the file is still there,
+and otherwise from the NAS.
+
+**S3 priority order:** `raw_light` (pre-empts everything, ignores `upload_window`) →
 `metadata` → `calibration_master` / `project_reference` / `night_master` /
 `multi_night_master` → `calibrated_frame`.
 
@@ -1120,10 +1203,6 @@ A **replicator** worker in `altaird` uploads `(blob, location)` pairs according 
   metadata. Only then is the replica marked `present`, verified `s3_checksum_sha256`.
 - **Resumable:** interrupted multipart uploads resume by upload ID. A bucket lifecycle rule
   aborts orphaned multipart uploads after 7 days.
-
-**NFS copy:** copy to a temp file, read it back and re-hash it, then rename. An existing
-file with the same hash counts as already backed up. A different hash raises
-`INTEGRITY_MISMATCH` and is never overwritten.
 
 **Bucket setup (`altair storage s3 init`, run once with an admin profile):**
 
@@ -1173,16 +1252,17 @@ re-checked right before a delete.
 
 | Location | Class | Deleted when (all must hold) |
 |---|---|---|
-| **Rig PC** (each rig's NINA folder, via its `raw_root`) | `raw_light` | collected and verified (double read) · verified backup in S3 (or the NFS if S3 is not configured) · the file on the rig still has the collected size, mtime, and SHA-256 · older than 7 days |
-| | `raw_calibration` | collected and verified · the master(s) built from it have a verified backup · unchanged on the rig · older than 7 days |
+| **Rig PC** (each rig's NINA folder, via its `raw_root`) | `raw_light` | collected and verified (double read) · **verified on the NAS** · **verified in S3** · the file on the rig still has the collected size, mtime, and SHA-256 · older than 3 days |
+| | `raw_calibration` | collected and verified · **verified on the NAS** · unchanged on the rig · older than 3 days |
 | | anything | also cleaned oldest-first before the age limit **only** while the rig's free space is below `target_free_percent`, still subject to every other condition |
 | | session-end markers | older than `markers_keep_days` |
-| **Cache** (processing PC) | raw frames | only after `pin_raw_until` holds: verified backup · night processed · **not tied to an open issue**, so a flat-blocked night's lights stay local for a fast rerun |
-| | any other | LRU eviction (§7.7). Never pinned blobs, inputs of queued jobs, or blobs whose only verified copy is the cache |
+| **Spool** (processing PC) | any | as soon as the NAS copy is verified and the S3 upload no longer needs the spooled copy |
+| **Cache** (processing PC) | any | LRU eviction (§7.7). Never pinned blobs, inputs of queued jobs, or blobs whose only verified copy is the cache |
 | **Work** dirs | — | right away after a successful job. Failed jobs are kept 7 days for debugging |
 | **Published** viewing copies | — | night viewing copies after `night_masters_keep_days`. Multi-night viewing copies beyond the latest `multi_night_versions_keep` |
 | **Logs** | — | after `logs_keep_days` |
-| **NFS** archive | — | never, unless you add rules |
+| **NAS** (canonical store) | `raw_light`, `calibrated_frame`, masters, references, metadata | **never** by default. Optional rule, for example raw lights older than 2 years that have a verified S3 copy, to make S3 the only copy of old data |
+| | `raw_calibration` | 365 days after the master(s) built from it are verified on the NAS **and** in S3 (`null` = keep forever). Not tied to an open issue |
 | **S3** archive | kept classes | **never**. The IAM policy doesn't allow it (§7.5) |
 | | `multi_night_master` | versions beyond the newest `multi_night_master_versions_keep`. They can be regenerated from the backed-up night masters |
 | | `metadata` (catalog backups) | beyond 30 daily + 12 monthly |
@@ -1204,20 +1284,37 @@ re-checked right before a delete.
 `cleanup.enabled: false` for a rig, the dry-run report lists what is safe to delete, and
 you delete it by hand.
 
-**Deletions outside Altair** (you, a disk failure on a rig, or someone tidying the NINA
-folder): the next scan marks those replicas `missing`. A frame deleted on a rig **before it
-was collected** raises `DATA_AT_RISK` immediately (§7.3). If a blob now has no verified
-backup, `DATA_AT_RISK` is raised as well. Nothing is ever deleted in response.
+Because the NAS keeps every raw light by default, a night blocked by a missing flat
+(§10) can always be rerun from the NAS, with no S3 fetch.
 
-### 7.7 Staging: fetch on demand
+**Deletions outside Altair** (you, a disk failure on a rig or the NAS, or someone tidying
+a folder): the next scan or scrub marks those replicas `missing`. A frame deleted on a rig
+**before it was collected** raises `DATA_AT_RISK` immediately (§7.3). A NAS file that
+disappears without a cleanup ledger entry raises `NAS_FILE_MISSING` and is **healed**:
+copied back from S3, or from the rig if it is still there. If a blob now has no verified
+copy anywhere, `DATA_AT_RISK` is raised. Nothing is ever deleted in response.
 
-Before any job runs, the **stager** gets every input blob into the local cache:
+### 7.7 Staging: in-place reads from the NAS, fetch on demand
 
-1. **Cache hit:** the blob is `present` in the cache → pin it for the job.
-2. **Choose a source:** reachable locations holding a `present` replica, in
-   `read_priority` order: cache → `rig:<name>` (the rig PC's original, while it still
-   exists) → NFS → S3 (instant classes: STANDARD, STANDARD_IA, GLACIER_IR) → S3 cold
-   (DEEP_ARCHIVE, GLACIER). Replicas marked `corrupt` are skipped.
+Before any job runs, the **stager** resolves every input blob to a path PixInsight can
+read:
+
+1. **Read in place from the NAS (normal case).** Raw lights, raw calibration subs, and
+   calibrated subs with a verified `present` NAS replica are handed to PixInsight **by
+   their NAS path** (`\\nas\astro\raw\…`). Nothing is copied. WBPP reads each one
+   roughly once and writes all its intermediates to the local work directory.
+2. **Small inputs from the local cache.** Calibration masters, project references, and
+   night masters are pinned in the local cache (they are small and read often, especially
+   by merges). A cache miss is filled from the NAS.
+3. **Fallback when the NAS copy is missing, corrupt, or the NAS is unreachable:** fetch
+   into the local cache from the next source in `read_priority` order: `rig:<name>` (the
+   rig PC's original, while it still exists) → S3 (instant classes: STANDARD,
+   STANDARD_IA, GLACIER_IR) → S3 cold (DEEP_ARCHIVE, GLACIER). Replicas marked `corrupt`
+   are skipped. After a successful fetch, a blob whose NAS copy was lost (not removed by a
+   cleanup rule) is also **written back to the NAS**, so the canonical store heals itself.
+   If the NAS is merely unreachable, the job waits (`waiting_data`, `NAS_UNREACHABLE`)
+   rather than pulling whole nights from S3. `altair run --allow-s3-fallback` overrides
+   that, still subject to the guards below.
 3. **Cost and size guards:** if the bytes to download from S3 exceed
    `max_auto_download_gb`, raise `FETCH_APPROVAL_NEEDED`. It shows the size, the estimated
    egress cost, and the reason (for example "re-reference M31: 412 calibrated subs,
@@ -1242,11 +1339,17 @@ Before any job runs, the **stager** gets every input blob into the local cache:
    unreachable"). The job stays in `waiting_data` and re-queues automatically when any
    location becomes reachable again (locations are probed every 10 min) or when a replica
    turns up.
-7. **Hand-off:** inputs are **hard-linked** (NTFS, same volume) into
-   `work\<job-id>\inputs\` under their original file names. This copies no data and keeps
-   WBPP logs readable.
+7. **Hand-off:** `job.json` lists every input by absolute path: NAS paths for in-place
+   inputs, and local cache paths (hard-linked into `work\<job-id>\inputs\` under their
+   original names) for everything else. WBPP's output directory is always
+   `work\<job-id>\` on local NVMe. Nothing is ever written next to an input on the NAS.
+   The NAS paths are read-only files, which enforces this.
 8. **Prefetch:** staging starts as soon as a job is planned, even while other jobs occupy
    PixInsight. Restores for reruns and re-references are requested right away.
+9. **Integrity of in-place reads:** a NAS replica was verified when it was written, and it
+   is re-verified by scrubbing (§7.8). `nas_read_verify: none` (the default) trusts that.
+   `sample` or `all` re-hashes inputs before the job, which costs an extra NAS read. A NAS
+   with a checksumming file system (ZFS or Btrfs) is recommended.
 
 **Cache eviction:** least-recently-used eviction of unpinned blobs, down to
 `max_size_gb` and `min_free_gb`. Never evicted: inputs of queued or running jobs, pinned
@@ -1256,71 +1359,95 @@ Registered subs are evicted as soon as the job that needs them finishes.
 
 ### 7.8 Integrity scrubbing
 
-Every `scrub_interval_days`, a random `scrub_sample_percent` of backed-up replicas in S3
-and on the NFS is re-verified. For S3 that means a checksum `HeadObject`, plus a full
-download for 10% of the sample, **skipping cold classes** so no restore is triggered. For
-the NFS it means a full re-hash. A corrupt replica is re-uploaded from a good copy under
-the same key. S3 versioning keeps the bad version for inspection; this is the one case
-where a key's content is written again, and only with the matching SHA-256.
+Every `scrub_interval_days`, a random `scrub_sample_percent` of replicas on the NAS and in
+S3 is re-verified:
+
+- **NAS:** a full re-hash.
+- **S3:** a checksum `HeadObject`, plus a full download for 10% of the sample. Cold
+  classes are skipped, so no restore is triggered.
+
+A corrupt replica is rewritten from a good copy. On the NAS the rewrite goes to a
+`.partial` file and then replaces the corrupt file. In S3 it is re-uploaded under the same
+key, and S3 versioning keeps the bad version for inspection. These are the only cases where
+a committed file's content is written again, and only with the matching SHA-256.
 `INTEGRITY_MISMATCH` is raised.
 
 ### 7.9 Catalog backup & disaster recovery
 
-- **Nightly catalog backup:** SQLite online backup → zstd → uploaded to
-  `catalog/altair-<utc>.db.zst` in S3 (and on the NFS). Kept: 30 daily and 12 monthly.
+- **The catalog database lives on the processing PC's local disk**, never on the NAS,
+  because SQLite over SMB is unsafe.
+- **Nightly catalog backup:** SQLite online backup → zstd → written to
+  `catalog/altair-<utc>.db.zst` on the NAS and uploaded to S3. Kept: 30 daily and 12
+  monthly.
 - **Self-describing archive:** manifests (with headers), calibration master sidecars,
   `night.json`, and multi-night sidecars are all stored next to the data under the same
-  logical paths. If every catalog backup were lost,
-  `altair storage rebuild-catalog --from s3` would rebuild everything from a bucket
-  listing, the manifests, and the sidecars, **without downloading or restoring any
-  images**: blobs, replicas, frames, calibration masters, projects, night masters, and
-  multi-night history. Issues are not restored; they are re-derived by a re-plan. Raw
-  calibration subs are not in the archive, so they are not in a rebuilt catalog either.
-  Their masters are.
+  logical paths on the NAS and in S3. If every catalog backup were lost,
+  `altair storage rebuild-catalog --from nas` (or `--from s3`) would rebuild everything
+  from a folder listing, the manifests, and the sidecars, **without reading any images**:
+  blobs, replicas, frames, calibration masters, projects, night masters, and multi-night
+  history. Issues are not restored; they are re-derived by a re-plan.
 - **Losing the processing PC:** install Altair on the new PC, restore `altair.yaml`, run
-  `altair storage restore-catalog --latest`, and start. The cache starts empty, and
-  everything is fetched on demand as jobs need it.
+  `altair storage restore-catalog --latest` (from the NAS), and start. Nothing else needs
+  copying, because all data is on the NAS.
+- **Losing the NAS:** see §7.10. S3 holds everything except raw calibration subs.
 - The disaster-recovery drill is an exit criterion (§15).
 
-### 7.10 Adding the NFS later
+### 7.10 NAS setup, health & replacement
 
-1. Mount or share it, set `enabled: true` on the `nfs` location, and choose its
-   `backup_classes` (the default is the same as S3; adding `raw_calibration` is
-   reasonable).
-2. `altair storage replicate --to nfs --dry-run` shows how many bytes are still on the rig
-   PCs or in the cache (free to copy), and how many would have to come from S3 (egress cost,
-   and restores for Deep Archive objects). Run it without `--dry-run` to backfill, or with
-   `--from-local-only` to skip anything that needs S3.
-3. With `read_priority` 20 (ahead of S3), reruns and re-references are then served from
-   the NFS, and S3 becomes purely an offsite backup.
-4. Cleanup rules don't change. A backup on either the NFS or S3 satisfies "verified
-   backup", except for raw lights on the rig PCs, which need S3 whenever S3 is configured.
-   That way an offsite copy exists before the rig's original is removed.
+- **Setup:** `altair storage nas init` creates the folder tree and checks the credentials
+  and **Modify** permission. It also writes a location identity file
+  (`\\nas\astro\.altair-location.json` with a unique ID). `altair doctor` checks free
+  space, SMB version, and link speed.
+- **Health guard:** every scan first checks the identity file. If it is missing or
+  different (for example the share mounted the wrong volume, or an empty folder), or if
+  more than 1% of a sampled set of known files is missing at once, the NAS is marked
+  **unhealthy** (`NAS_UNHEALTHY`, blocking). While it is unhealthy:
+  - no NAS file is marked `missing`, and no healing or re-download starts;
+  - no cleanup runs anywhere (rig copies are kept);
+  - collection pauses, and frames wait safely on the rigs.
 
-No catalog migration is needed. It only adds a location and replicas.
+  This prevents a mount problem from looking like mass data loss and triggering a
+  terabyte-sized S3 download.
+- **Replacing or rebuilding the NAS:** point `nas.root` at the new share and run
+  `altair storage nas init --adopt`. Then run
+  `altair storage replicate --to nas --dry-run`: it lists what can be copied from the rig
+  PCs and cache (free) and what must come from S3, with the egress estimate and the
+  restores needed for Deep Archive objects. Raw calibration subs that were only on the old
+  NAS are reported as unrecoverable, and their masters are unaffected. Run it without
+  `--dry-run` (with the usual approval guards) to repopulate.
+- **Growing out of space:** `NAS_SPACE_LOW` blocks collection before the NAS fills (frames
+  wait on the rigs). Options are more NAS capacity, or turning on the optional NAS rule
+  that removes old raw lights already verified in S3 (§7.6).
 
 ### 7.11 Physical layout
 
 ```
 Rig PC (one per telescope) — location "rig:<name>", reached as rigs.<name>.raw_root
 D:\NINA\                                       # NINA save folder, shared as \\<host>\NINA
-├── 2026-09-24\M31\LIGHT\Ha\...fits            # NINA's own layout (file pattern §4.2)
+├── 2026-09-24\M31\LIGHT\Ha\...fits            # NINA's own layout (file pattern §4.2); kept ~3 days
 └── _altair\session-end-<timestamp>.json        # written by the NINA end-of-sequence script
 C:\Tools\altair-session-end.cmd                # the only Altair file on the rig PC
 
-s3://my-astro-archive/altair/                  # location "s3" — same logical tree
-├── raw/<rig>/<night>/...                      # raw lights + collection manifests (no calibration subs)
+NAS (required) — location "nas"
+\\nas\astro\
+├── .altair-location.json                      # location identity (health guard)
+├── raw\<rig>\<night>\...                      # canonical raw lights + calibration subs + collection manifests
+├── calibration\masters\...
+├── projects\<project>\{reference, nights\<night>\<filter>\{calibrated, night_master_*}, multinight}\
+├── catalog\                                   # nightly catalog backups
+└── Masters\                                   # published viewing copies + ALTAIR_STATUS.html
+
+s3://my-astro-archive/altair/                  # location "s3" — same logical tree, off-site
+├── raw/<rig>/<night>/...                      # raw lights + manifests (no calibration subs)
 ├── calibration/masters/...
-├── projects/<project>/{reference, nights/<night>/<filter>/{calibrated, night_master_*}, multinight}/
+├── projects/...
 └── catalog/
 
-Processing PC
-E:\AltairCache\                                # location "cache"
-│   ├── blobs\<aa>\<sha256>.<ext>              # content-addressed, read-only
-│   └── tmp\                                   # in-flight downloads
-E:\AltairWork\<job-id>\inputs\                 # hard links into the cache (same volume)
+Processing PC (local NVMe)
+E:\AltairSpool\                                # collector staging before the NAS write
+E:\AltairWork\<job-id>\                        # WBPP output dir: all intermediates (never on the NAS)
+E:\AltairCache\blobs\<aa>\<sha256>.<ext>       # pinned masters/references, S3 fetches
 C:\ProgramData\Altair\{altair.yaml, state\altair.db, state\logs\, state\cleanup-ledger\}
-D:\Astro\Masters\                              # published viewing copies + ALTAIR_STATUS.html
 ```
 
 ---
@@ -1558,6 +1685,10 @@ never happens automatically.
 | `DATA_AT_RISK` | blocking (alerts immediately) | all cleanup of the affected blobs | a verified backup exists |
 | `S3_CONFIG_UNSAFE` | blocking | cleanup (all locations) | `doctor` finds versioning on and delete denied under `raw/` |
 | `CACHE_FULL` | blocking | staging | space freed or cache limit raised |
+| `NAS_UNREACHABLE` | blocking | collection (frames wait on rigs), processing, rig cleanup | the NAS is reachable again |
+| `NAS_UNHEALTHY` | blocking | collection, healing, all cleanup | the identity file matches and sampled files are present (§7.10) |
+| `NAS_SPACE_LOW` | blocking | collection (frames wait on rigs) | free space above `min_free_percent` |
+| `NAS_FILE_MISSING` | warning | nothing (the file is healed) | the file is restored from S3 or the rig and verified |
 
 Severity `info` issues show on the status page but don't send a push notification
 (except `RESTORE_IN_PROGRESS`, which sends one message when it opens and one when it
@@ -1609,7 +1740,7 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
       │                           │ yes
       │                           ▼
       │      NIGHT_STACK rerun for blocked night(s) (stager fetches raw lights
-      │      from cache / rig PC / NFS / S3, restoring from Glacier if needed)
+      │      in place from the NAS; S3 only if the NAS copy is lost)
       │                           │
       │                 verifier → gates (§9.4) pass?
       │               no ─────────┘      │ yes
@@ -1623,13 +1754,12 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
   requirements of all open issues. If it matches, the dependent `NIGHT_STACK` jobs are
   re-planned (and get a new `plan_hash`, because the calibration inputs changed), followed
   by `MERGE`.
-- **Raw data for reruns:** held lights stay linked to their issue and stay pinned in the
-  processing PC's cache while the issue is open (`pin_raw_until`). If they are gone anyway
-  (for example, the cache was wiped), the stager fetches them from the rig PC if it still
-  has them, then from the NFS or S3. For the first 120 days
-  they are readable immediately (STANDARD_IA). After that a Deep Archive restore is
-  needed, and the issue's status line shows "waiting for restore, ETA …". The rerun is
-  only slower, never impossible.
+- **Raw data for reruns:** held lights stay linked to their issue. They are on the NAS,
+  which keeps raw lights by default, so a rerun reads them in place with no fetch. Only if
+  the NAS copy is lost does the stager fall back to the rig PC (if it still has the
+  frames) or S3. From S3 they are readable immediately for the first 120 days
+  (STANDARD_IA). After that a Deep Archive restore is needed, and the issue's status line
+  shows "waiting for restore, ETA …". The rerun is only slower, never impossible.
 - **Manual controls:**
   - `altair issue resolve <id> --flat <path>` applies a specific master flat. The flat is
     still validated against §8, and `--force-match` is required to override a mismatch.
@@ -1664,7 +1794,8 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
 - **Atomic publication:** outputs are written to a temporary file in the same directory
   and then renamed. The DB update and file publish use a write-ahead intent record, so a
   crash between them heals itself on restart.
-- **Raw data is never lost.** Raw lights are backed up to S3 (and the NFS) as they land.
+- **Raw data is never lost.** Raw lights are written to the NAS and backed up to S3 as
+  soon as they are collected.
   Raw files are never moved or modified. A copy is deleted only by cleanup (§7.6), only
   after the backup is re-verified, and deletions never propagate between locations (S3
   delete permission on `raw/` does not exist).
@@ -1704,7 +1835,8 @@ altair storage locate <sha256|logical-path|--night DATE --rig R>   # every repli
 altair storage fetch <selector> [--dry-run]       # pre-stage into cache (shows sizes, sources, restore needs)
 altair storage approve|deny <issue-id>            # approve a large fetch or restore
 altair storage backup status [--night DATE]       # backup progress per class and location; BACKUP_BEHIND items
-altair storage replicate --to LOC [--classes ...] [--dry-run] [--from-local-only]   # backfill, e.g. after adding NFS
+altair storage replicate --to LOC [--classes ...] [--dry-run] [--from-local-only]   # backfill, e.g. repopulating a replaced NAS
+altair storage nas init [--adopt] | status        # NAS setup, identity file, health, space, growth
 altair storage cleanup [--dry-run] [--location LOC]   # retention rules per §7.6; prints space freed
 altair storage ledger [--since DATE]              # every deletion and the backup it relied on
 altair storage s3 init | apply-lifecycle | check  # bucket setup, lifecycle, IAM policy (admin profile)
@@ -1752,9 +1884,9 @@ Home Assistant or dashboards.
 | Phase | Deliverable | Exit criteria |
 |---|---|---|
 | **0: Windows/PixInsight spike** | Headless PixInsight on Windows from a Task-Scheduler-launched process. A PJSR runner that (a) drives WBPP's engine with a **manual registration reference** and autocrop off, and (b) runs `SubframeSelector` measurement + `LocalNormalization` + `ImageIntegration` with `KeywordWeight` and `rangeClipLow`. Confirm the NINA header keywords, including `ROTATOR` units, on your own files. | A single command produces a night master in reference geometry and a 2-night merge with keyword weights. Documented in `docs/pixinsight-cli.md`. |
-| **1: Collector, ingest & backup** *(ships first: protects raw data before any processing exists)* | Per-rig config and **collector** (§7.3): SMB polling of each rig's `raw_root`, stability and exclusive-open check, double-read SHA-256 verification, collection manifests, session-end marker and quiescence handling, `RIG_UNREACHABLE`. The NINA session-end script. Ingest (config, header mapping, rig and rotator extraction, blob/replica/ledger schema). **Backup engine** (§7.5): raw-first S3 upload with SHA-256 checksums and conditional writes, NFS copy, output classes wired for later. `altair storage s3 init` (versioning, encryption, lifecycle, least-privilege IAM). **Cleanup** (§7.6) of rig PC NINA folders over SMB and of the cache, with ledger and dry-run. Catalog backup. `altair storage backup status`. | Two rigs' real nights are collected during the night and in S3 (and on the NFS if present) within the backup time limit, verified by hash. Unplugging a rig's network mid-night loses nothing, and collection catches up after reconnecting. `doctor` proves the daemon **cannot** delete under `raw/`. Property tests: cleanup never deletes the last verified copy or an uncollected rig file, and deleting a copy in one location never deletes one elsewhere. Rig PC disk space is reclaimed on schedule. |
+| **1: Collector, NAS, ingest & backup** *(ships first: protects raw data before any processing exists)* | Per-rig config and **collector** (§7.3): SMB polling of each rig's `raw_root`, stability and exclusive-open check, double-read SHA-256 verification, spool, verified NAS write, collection manifests, session-end marker and quiescence handling, `RIG_UNREACHABLE`. **NAS** setup and health guard (§7.10). The NINA session-end script. Ingest (config, header mapping, rig and rotator extraction, blob/replica/ledger schema). **Backup engine** (§7.5): raw-first S3 upload with SHA-256 checksums and conditional writes, output classes wired for later. `altair storage s3 init` (versioning, encryption, lifecycle, least-privilege IAM). **Cleanup** (§7.6) of rig PC NINA folders over SMB, spool, and NAS calibration subs, with ledger and dry-run. Catalog backup. `altair storage backup status`. | Two rigs' real nights are on the NAS within minutes of capture and in S3 within the backup time limit, all verified by hash. Unplugging a rig's network, or the NAS, mid-night loses nothing, and collection catches up afterwards. Unmounting the NAS or pointing it at an empty folder triggers `NAS_UNHEALTHY` with no healing, cleanup, or S3 download. `doctor` proves the daemon **cannot** delete under `raw/` in S3. Property tests: cleanup never deletes the last verified copy or an uncollected rig file, and deleting a copy in one location never deletes one elsewhere. Rig PC disk space is reclaimed on schedule. |
 | **2: Planner & matching** | §8 rules, including rotator and equipment events, issue generation, `altair plan`. | Table-driven tests for every rule: rotator Δ at tolerance ±1 step, wrap-around, missing position, event between flat and light. |
-| **2b: Staging & retrieval** | §7.7: stager (source selection, verify, hard-link hand-off, cache eviction), Deep Archive restore flow, approval guards, scrub, `restore-catalog` / `rebuild-catalog`. | Against MinIO / S3: wipe the cache and delete the rig originals → a job still runs from S3. Deep Archive objects → restore → run. A corrupted replica is detected and bypassed. `rebuild-catalog` from the bucket alone reproduces the catalog. |
+| **2b: Staging & retrieval** | §7.7: stager (in-place NAS paths, cache for small inputs, fallback source selection, verify, NAS healing, cache eviction), Deep Archive restore flow, approval guards, scrub, `restore-catalog` / `rebuild-catalog`. | A night stack runs with raw inputs read in place from the NAS and all intermediates on local NVMe (nothing written to the NAS except outputs). Against MinIO / S3: delete NAS files → they are healed from S3 and the job still runs. Deep Archive objects → restore → run. A corrupted replica is detected and bypassed. `rebuild-catalog` from the NAS alone, and from the bucket alone, reproduces the catalog. |
 | **3: Night stacks** | Executor (Job Objects, timeouts), `PROJECT_REFERENCE`, `NIGHT_STACK`, verifier, publisher, output backup (masters, reference, calibrated subs). | A night master matches a manual WBPP run on the same data within noise, and is pixel-aligned with the reference. |
 | **4: Calibration library** | `CALIB_MASTER`, rotator-tagged master flats, import, supersession. | A flats-only night produces masters that are matched automatically. |
 | **5: Merger** | §9: gates, measured weighting, LN, coverage-aware integration, versions, reports. | A 3-night merge's weights match the measured PSF signal ordering. Excluding a night and re-including it reproduces the same result byte for byte. Uncovered edges don't darken the result. |
@@ -1845,18 +1977,21 @@ altair-pre-processor/
 | R5 | Weights must share a scale across nights. | Weights are re-measured together at every merge (§9.5). WBPP's per-run normalized weights are never used across nights. |
 | R6 | Disk usage in `frame_reintegration` mode. | Off by default, enabled per project. Disk guard. |
 | R7 | A bug or a mistaken command in Altair deletes archived data. | The daemon's IAM policy has no delete permission on kept prefixes. Bucket versioning. Conditional writes (no overwrites). Optional Object Lock on `raw/`. Cleanup re-verifies the backup before every delete, and deletions are recorded in a ledger. Property tests. |
-| R11 | Raw calibration subs are not backed up. | Their masters are, and subs are only cleaned up after the masters' backup is verified. Masters can't be rebuilt from subs with new settings later. The NFS can be set to keep subs. |
+| R11 | Raw calibration subs are not backed up off-site. | They stay on the NAS (365 days by default after their masters are on the NAS and in S3). Their masters are in S3. If the NAS is lost, the subs are gone but the masters are not. |
 | R12 | Calibrated subs roughly triple S3 volume (32-bit float). | Compression, a Glacier IR transition after 60 days, and a per-project opt-out. `storage status` shows growth and a cost estimate. |
-| R8 | Glacier restore latency (hours) and retrieval or egress costs on reruns and re-references. | Prefetch as soon as a job is planned. Approval guards with cost estimates. `pin_raw_until` keeps likely rerun inputs in the processing PC cache. The NFS (if added) serves reruns first. |
+| R8 | Glacier restore latency (hours) and retrieval or egress costs on reruns and re-references. | Prefetch as soon as a job is planned. Approval guards with cost estimates. Reruns read from the NAS, which keeps raw lights by default. S3 is only touched if a NAS copy is lost. |
 | R9 | Losing the catalog makes the archive hard to navigate. | Nightly catalog backups to every durable location, plus the self-describing archive (manifests with headers, sidecars) and `rebuild-catalog`. |
 | R10 | SMB read errors, or partially written frames. | Stability plus exclusive-open check, FITS size validation, double-read SHA-256, temp file + rename, and hash checks on every later fetch. |
 | R13 | A rig's frames exist only on that rig until collected. | Collection during the night (about a minute behind capture). `RIG_UNREACHABLE` escalation. Nothing uncollected is ever cleaned up. `DATA_AT_RISK` if an uncollected file disappears. |
+| R14 | The NAS is a single on-site device holding the canonical copy. | Every raw light and output is also in S3. RAID, snapshots, and a checksumming file system are recommended. Scrubbing and healing from S3. The health guard prevents a mount failure from being treated as data loss. Rig copies are kept until both NAS and S3 are verified. |
+| R15 | Processing reads raw frames over the network. | WBPP reads each raw frame roughly once, and all repeated I/O is on local NVMe. Use 2.5 GbE or faster for large re-integrations. A job can optionally stage inputs locally (`stage_raw_locally: true`) if a slow link makes in-place reads a bottleneck. |
 | Q1 | Is the rotator reported in degrees or steps, and is steps-per-revolution known? Which rotator and driver? | Sets the rig's `rotator` defaults. |
 | Q2 | ~~Same PC or separate?~~ **Decided:** one mini PC per rig, each sharing its own NINA folder, and a separate processing PC with a config entry per rig. | §3.0, §4.1, §5. |
 | Q5 | ~~S3 provider?~~ **Decided:** Amazon S3, with Altair doing all uploads and never syncing deletions. Proposed defaults: raw lights STANDARD_IA → DEEP_ARCHIVE at 120 days; calibrated subs STANDARD_IA → GLACIER_IR at 60 days; masters STANDARD. Are those day counts right for how long you usually wait before shooting missing flats or reprocessing? | Sets `storage_class` and `lifecycle`. |
 | Q6 | ~~External backup tool?~~ **Decided:** none. Altair owns the backup. | §7.5. |
-| Q7 | NFS: add it? If so, should it also keep raw calibration subs (not kept in S3)? | Sets `nfs.backup_classes`. |
+| Q7 | ~~Add an NFS?~~ **Decided:** a NAS is required and is the canonical store. Open: how long to keep raw calibration subs on it (default 365 days after their masters are backed up, or forever), and should raw lights ever be removed from the NAS to rely on S3 alone (default: never)? | Sets `cleanup.nas`. |
+| Q10 | What NAS (model, file system, RAID level, link speed)? ZFS or Btrfs with snapshots, and 2.5 GbE or faster to the processing PC, are recommended. | Sets expectations for in-place processing speed and the scrub/`nas_read_verify` defaults. |
 | Q9 | Which calibrated stage to keep: pure calibrated (default), cosmetic-corrected, or debayered (OSC)? | Sets `calibrated_frame_stage`. |
-| Q8 | Network link from each rig PC to the processing PC (wired or Wi-Fi, speed), and the internet uplink and downlink? | Sizes staging expectations, upload windows, and restore-to-run ETAs. |
+| Q8 | ~~Rig network?~~ **Decided:** all wired Ethernet on one network. Open: internet uplink and downlink speeds? | Sizes staging expectations, upload windows, and restore-to-run ETAs. |
 | Q3 | Should the multi-night master require every night to cover the full frame (strict crop), or allow partial-coverage edges? | Default: crop to full coverage (`min_coverage_nights: all`). |
 | Q4 | Default weighting: `measured_psf_signal` or `inverse_noise_variance`? | Spec default is PSF signal (it rewards seeing and transparency too). Phase 5 compares both on real data. |
