@@ -1,0 +1,20 @@
+<% content_for :title, "Admin — Telescopes" %>
+
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-semibold">Telescopes</h1>
+  <%= link_to "New telescope", new_admin_telescope_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+  <% @telescopes.each do |telescope| %>
+    <%= link_to admin_telescope_path(telescope), class: "flex items-center justify-between px-5 py-4 hover:bg-slate-50" do %>
+      <div>
+        <p class="font-medium"><%= telescope.name %></p>
+        <p class="text-xs text-slate-500"><%= telescope.slug %></p>
+      </div>
+      <span class="text-xs rounded-full px-2 py-1 <%= telescope.active? ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500" %>">
+        <%= telescope.active? ? "Active" : "Inactive" %>
+      </span>
+    <% end %>
+  <% end %>
+</div>

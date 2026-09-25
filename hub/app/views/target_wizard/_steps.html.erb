@@ -1,0 +1,22 @@
+<%
+  steps = [
+    ["Telescope", "telescope"],
+    ["Details", "details"],
+    ["Exposures", "exposures"],
+    ["Review", "review"]
+  ]
+%>
+<ol class="flex items-center gap-2 mb-8 text-sm">
+  <% steps.each_with_index do |(label, key), index| %>
+    <li class="flex items-center gap-2">
+      <span class="flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium
+        <%= key == current_step ? "bg-indigo-600 text-white" : (steps.index { |_, k| k == current_step }.to_i > index ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-400") %>">
+        <%= index + 1 %>
+      </span>
+      <span class="<%= key == current_step ? "text-slate-900 font-medium" : "text-slate-400" %>"><%= label %></span>
+      <% unless index == steps.length - 1 %>
+        <span class="mx-1 text-slate-300">&rarr;</span>
+      <% end %>
+    </li>
+  <% end %>
+</ol>

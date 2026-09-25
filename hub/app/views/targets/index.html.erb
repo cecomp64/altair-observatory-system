@@ -1,0 +1,27 @@
+<% content_for :title, "My Targets" %>
+
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-semibold">My Targets</h1>
+  <%= link_to "New target", new_target_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+  <% @targets.each do |target| %>
+    <%= link_to target_path(target), class: "flex items-center justify-between px-5 py-4 hover:bg-slate-50" do %>
+      <div>
+        <p class="font-medium"><%= target.name %></p>
+        <p class="text-xs text-slate-500"><%= target.telescope.name %> &middot; <%= target.status.humanize %> &middot; <%= pluralize(target.exposure_plans.size, "filter") %></p>
+      </div>
+      <div class="w-32 text-right">
+        <p class="text-sm font-medium"><%= target.percent_complete %>%</p>
+        <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1">
+          <div class="h-1.5 bg-indigo-500" style="width: <%= target.percent_complete %>%"></div>
+        </div>
+      </div>
+    <% end %>
+  <% end %>
+</div>
+
+<% if @targets.empty? %>
+  <p class="text-slate-400 mt-6">You haven't created any targets yet. <%= link_to "Create your first one.", new_target_path, class: "text-indigo-600 underline" %></p>
+<% end %>

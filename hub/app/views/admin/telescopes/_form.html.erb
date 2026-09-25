@@ -1,0 +1,56 @@
+<%= form_with model: [ :admin, telescope ], class: "space-y-5" do |f| %>
+  <% if telescope.errors.any? %>
+    <div class="rounded-lg bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">
+      <%= telescope.errors.full_messages.to_sentence %>
+    </div>
+  <% end %>
+
+  <div>
+    <%= f.label :name, class: "block text-sm font-medium text-slate-700 mb-1" %>
+    <%= f.text_field :name, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+  </div>
+
+  <div>
+    <%= f.label :slug, class: "block text-sm font-medium text-slate-700 mb-1" %>
+    <%= f.text_field :slug, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm", placeholder: "auto-generated from name if left blank" %>
+  </div>
+
+  <div class="grid grid-cols-3 gap-4">
+    <div>
+      <%= f.label :latitude, class: "block text-sm font-medium text-slate-700 mb-1" %>
+      <%= f.text_field :latitude, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+    </div>
+    <div>
+      <%= f.label :longitude, class: "block text-sm font-medium text-slate-700 mb-1" %>
+      <%= f.text_field :longitude, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+    </div>
+    <div>
+      <%= f.label :elevation_m, "Elevation (m)", class: "block text-sm font-medium text-slate-700 mb-1" %>
+      <%= f.text_field :elevation_m, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+    </div>
+  </div>
+
+  <div>
+    <%= f.label :description, class: "block text-sm font-medium text-slate-700 mb-1" %>
+    <%= f.text_area :description, rows: 3, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+  </div>
+
+  <div>
+    <%= f.label :horizon_file, "Horizon file", class: "block text-sm font-medium text-slate-700 mb-1" %>
+    <p class="text-xs text-slate-400 mb-1">A text/CSV file of "azimuth,altitude" pairs describing the minimum clear altitude at each azimuth.</p>
+    <%= f.file_field :horizon_file, class: "w-full text-sm" %>
+  </div>
+
+  <div class="flex items-center gap-6">
+    <label class="flex items-center gap-2 text-sm">
+      <%= f.check_box :active, class: "h-4 w-4 rounded border-slate-300 text-indigo-600" %> Active
+    </label>
+    <label class="flex items-center gap-2 text-sm">
+      <%= f.check_box :self_serve_submit, class: "h-4 w-4 rounded border-slate-300 text-indigo-600" %> Members can submit directly
+    </label>
+  </div>
+
+  <div class="pt-2">
+    <%= f.submit class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
+  </div>
+<% end %>
