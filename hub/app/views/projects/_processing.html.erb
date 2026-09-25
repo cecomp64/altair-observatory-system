@@ -1,0 +1,139 @@
+<% targets_by_id = @targets.index_by(&:id) %>
+
+<% if @cumulative.any? %>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Integration collected over time</h2>
+    <% palette = AstroChartsHelper::COLORS %>
+    <div class="h-56">
+      <%= chart_tag type: "line", data: {
+            datasets: @cumulative.each_with_index.map { |(filter, points), i|
+              { label: filter.to_s, data: points.map { |night, hours| { x: night, y: hours } }, borderColor: palette[i % palette.size],
+                backgroundColor: palette[i % palette.size], stepped: true, pointRadius: 2 } }
+          }, options: { scales: { x: { type: "time", time: { unit: "day", tooltipFormat: "yyyy-MM-dd" } }, y: { beginAtZero: true, title: { display: true, text: "Hours" } } } } %>
+    </div>
+  </div>
+<% end %>
+
+<% if @multi_masters.any? %>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Latest multi-night masters</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <% @multi_masters.each_value do |product| %>
+        <div>
+          <% if product.thumbnail.attached? || product.preview.attached? %>
+            <%= link_to rails_blob_path(product.preview.attached? ? product.preview : product.thumbnail, disposition: "inline"), target: "_blank" do %>
+              <%= image_tag (product.thumbnail.attached? ? product.thumbnail : product.preview), class: "rounded-lg w-full aspect-square object-cover bg-slate-100", alt: "#{product.filter} master" %>
+            <% end %>
+          <% else %>
+            <div class="rounded-lg w-full aspect-square bg-slate-100"></div>
+          <% end %>
+          <p class="text-sm font-medium mt-1"><%= product.filter %> · v<%= product.version %></p>
+          <p class="text-xs text-slate-500"><%= targets_by_id[product.target_id]&.name %> · <%= product.metrics["frames"] %> frames<%= " · #{(product.metrics['total_exposure_s'].to_f / 3600).round(1)} h" if product.metrics["total_exposure_s"] %></p>
+        </div>
+      <% end %>
+    </div>
+  </div>
+<% end %>
+
+<div id="nights" class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+  <h2 class="text-sm font-medium text-slate-500 mb-3">Nights</h2>
+  <% if @nights.any? %>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-left text-slate-400">
+          <tr><th class="pb-2">Night</th><th class="pb-2">Target</th><th class="pb-2">Filter</th><th class="pb-2">Lights</th><th class="pb-2">Hours</th>
+              <th class="pb-2">FWHM</th><th class="pb-2">Night master</th><th class="pb-2">Weight</th><th></th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <% @nights.each do |n| %>
+            <% target = targets_by_id[n[:target_id]] %>
+            <tr>
+              <td class="py-1.5"><%= link_to n[:night], frames_path(target_id: n[:target_id], night_from: n[:night], night_to: n[:night], filter: n[:filter]), class: "hover:text-indigo-600" %></td>
+              <td class="py-1.5"><%= target&.name %></td>
+              <td class="py-1.5"><%= n[:filter] %></td>
+              <td class="py-1.5"><%= n[:count] %></td>
+              <td class="py-1.5"><%= n[:hours] %></td>
+              <td class="py-1.5"><%= n[:fwhm] || "—" %></td>
+              <td class="py-1.5 text-xs"><%= n[:master] ? n[:master].kind.humanize : "—" %></td>
+              <td class="py-1.5 text-xs"><%= n[:in_merge] ? n[:weight].to_f.round(2) : "not merged" %></td>
+              <td class="py-1.5 text-right">
+                <% if policy(@project).update? && target && @served[target] %>
+                  <%= button_to n[:in_merge] ? "Exclude" : "Include", project_target_night_path(@project, target),
+                        params: { night: n[:night], filter: n[:filter], include: n[:in_merge] ? "0" : "1" },
+                        class: "text-xs text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
+                <% end %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    <% quality = @nights.select { |n| n[:fwhm] } %>
+    <% if quality.size > 1 %>
+      <p class="text-xs uppercase tracking-wide text-slate-400 mt-4 mb-1">Quality by night</p>
+      <div class="h-40">
+        <%= chart_tag type: "scatter", data: {
+              datasets: [ { label: "FWHM", data: quality.map { |n| { x: n[:night].iso8601, y: n[:fwhm] } }, backgroundColor: "#6366f1" },
+                          { label: "Eccentricity", data: quality.filter_map { |n| n[:eccentricity] && { x: n[:night].iso8601, y: n[:eccentricity] } }, backgroundColor: "#f59e0b", yAxisID: "y2" } ]
+            }, options: { scales: { x: { type: "time", time: { unit: "day" } }, y: { title: { display: true, text: "FWHM" } },
+                                    y2: { position: "right", min: 0, max: 1, grid: { drawOnChartArea: false }, title: { display: true, text: "Eccentricity" } } } } %>
+      </div>
+    <% end %>
+  <% else %>
+    <p class="text-sm text-slate-400">No frames collected yet. They appear here within minutes of capture.</p>
+  <% end %>
+</div>
+
+<% if @issues.any? %>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Open issues</h2>
+    <%= render "issues/list", issues: @issues %>
+  </div>
+<% end %>
+
+<% if policy(@project).update? %>
+  <div id="processing" class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Processing</h2>
+    <% @targets.each do |target| %>
+      <% settings = target.effective_processing_settings %>
+      <details class="border-t border-slate-100 py-3 first:border-t-0">
+        <summary class="cursor-pointer text-sm font-medium"><%= target.name %>
+          <span class="text-xs text-slate-400 font-normal">· <%= settings.dig("multi_night", "mode").to_s.humanize.downcase %><%= " · no processing node serves #{target.telescope.name}" unless @served[target] %></span></summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-3">
+          <%= form_with url: project_target_settings_path(@project, target), method: :patch, class: "grid grid-cols-2 gap-3 text-sm" do %>
+            <label>Reference filter<%= text_field_tag :reference_filter, settings["reference_filter"], class: "mt-1 w-full rounded-lg border border-slate-300 px-2 py-1" %></label>
+            <label>Drizzle scale<%= number_field_tag :drizzle_scale, settings["drizzle_scale"], min: 1, max: 3, class: "mt-1 w-full rounded-lg border border-slate-300 px-2 py-1" %></label>
+            <label>Min lights per stack<%= number_field_tag :min_lights_per_stack, settings["min_lights_per_stack"], min: 1, class: "mt-1 w-full rounded-lg border border-slate-300 px-2 py-1" %></label>
+            <label>Max FWHM / median<%= number_field_tag :max_fwhm_ratio_to_project_median, settings["max_fwhm_ratio_to_project_median"], step: 0.1, class: "mt-1 w-full rounded-lg border border-slate-300 px-2 py-1" %></label>
+            <label>WBPP profile<%= text_field_tag :wbpp_profile, settings["wbpp_profile"], class: "mt-1 w-full rounded-lg border border-slate-300 px-2 py-1" %></label>
+            <div class="space-y-1 pt-5">
+              <label class="flex items-center gap-2"><%= hidden_field_tag :keep_calibrated_frames, "0", id: nil %><%= check_box_tag :keep_calibrated_frames, "1", settings["keep_calibrated_frames"] %> Keep calibrated frames</label>
+              <label class="flex items-center gap-2"><%= hidden_field_tag :pin_to_nas, "0", id: nil %><%= check_box_tag :pin_to_nas, "1", settings["pin_to_nas"] %> Pin to NAS</label>
+            </div>
+            <div class="col-span-2"><%= submit_tag "Save settings", class: "rounded-lg bg-slate-800 px-3 py-1 text-sm font-medium text-white cursor-pointer" %></div>
+          <% end %>
+          <div class="space-y-3 text-sm">
+            <%= form_with url: project_target_mode_path(@project, target), method: :post, class: "flex items-center gap-2" do %>
+              <%= select_tag :mode, options_for_select([ [ "Master merge", "master_merge" ], [ "Frame re-integration", "frame_reintegration" ] ], settings.dig("multi_night", "mode")), class: "rounded-lg border border-slate-300 px-2 py-1" %>
+              <%= submit_tag "Set multi-night mode", class: "rounded-lg border border-slate-300 px-3 py-1 cursor-pointer" %>
+            <% end %>
+            <%= form_with url: project_target_rerun_path(@project, target), method: :post, class: "flex items-center gap-2" do %>
+              <input type="date" name="night" class="rounded-lg border border-slate-300 px-2 py-1">
+              <%= select_tag :filter, options_for_select(target.exposure_plans.map(&:filter).uniq), include_blank: "all filters", class: "rounded-lg border border-slate-300 px-2 py-1" %>
+              <%= submit_tag "Rerun", class: "rounded-lg border border-slate-300 px-3 py-1 cursor-pointer" %>
+            <% end %>
+            <%= form_with url: project_target_rereference_path(@project, target), method: :post, class: "flex flex-wrap items-center gap-2" do %>
+              <input type="date" name="from_night" class="rounded-lg border border-slate-300 px-2 py-1">
+              <label class="flex items-center gap-1 text-xs text-slate-600"><%= check_box_tag :confirm, "1" %> Re-register every night</label>
+              <%= submit_tag "Re-reference", class: "rounded-lg border border-rose-200 text-rose-700 px-3 py-1 cursor-pointer" %>
+            <% end %>
+          </div>
+        </div>
+      </details>
+    <% end %>
+    <% if @commands.any? %>
+      <p class="text-xs uppercase tracking-wide text-slate-400 mt-4 mb-1">Recent commands</p>
+      <%= render "processing_commands/list", commands: @commands %>
+    <% end %>
+  </div>
+<% end %>

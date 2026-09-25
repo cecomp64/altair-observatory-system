@@ -3,6 +3,10 @@
 class OpticalTrain < ApplicationRecord
   belongs_to :telescope
   has_many :targets, dependent: :nullify
+  has_many :frames, dependent: :restrict_with_error
+  has_many :observing_nights, dependent: :delete_all
+  has_many :calibration_masters, dependent: :delete_all
+  has_many :equipment_events, dependent: :delete_all
 
   enum :camera_type, { mono: "mono", osc: "osc" }, validate: true
 
@@ -50,6 +54,12 @@ class OpticalTrain < ApplicationRecord
 
       { "name" => name.strip, "aliases" => aliases.to_s.split(",").map(&:strip).reject(&:blank?) }
     end
+  end
+
+  # Altair checks its rig against these (§8.2.2); a train without them isn't
+  # sent to processing nodes.
+  def complete_optics?
+    focal_length_mm.to_f.positive? && pixel_size_um.to_f.positive? && sensor_width_px.to_i.positive? && sensor_height_px.to_i.positive?
   end
 
   def pixel_scale_arcsec

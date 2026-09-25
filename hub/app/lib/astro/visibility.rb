@@ -67,11 +67,12 @@ module Astro
     # months scoring >= 80% of the best form the peak; the longest run of
     # consecutive peak months, wrapping around the year, is the season).
     def best_viewing(ra, dec, year: Date.current.year, min_altitude: site.min_altitude)
-      Rails.cache.fetch([ "astro/best-viewing/v1", site.cache_key, ra.to_f.round(4), dec.to_f.round(4), year, min_altitude ]) do
+      Rails.cache.fetch([ "astro/best-viewing/v2", site.cache_key, ra.to_f.round(4), dec.to_f.round(4), year, min_altitude ]) do
         months = (1..12).map do |month|
           samples = MONTH_SAMPLE_DAYS.map { |day| for_night(ra, dec, Date.new(year, month, day), min_altitude: min_altitude) }
           hours = samples.sum(&:hours_clear_in_darkness) / samples.size
-          altitude = samples.sum(&:max_altitude_in_darkness) / samples.size
+          # Below the horizon all night counts as 0, not as a penalty.
+          altitude = samples.sum { |r| [ r.max_altitude_in_darkness, 0.0 ].max } / samples.size
           { month: month, score: (hours * 8 + altitude * 0.5).round(1), hours: hours.round(1), altitude: altitude.round(1) }
         end
         best = months.max_by { |m| m[:score] }

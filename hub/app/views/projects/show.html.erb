@@ -41,6 +41,9 @@
   </table>
 </div>
 
+<%= turbo_stream_from @project %>
+<%= render "projects/processing" %>
+
 <% @visibility.each do |v| %>
   <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
     <div class="flex items-center justify-between mb-3">

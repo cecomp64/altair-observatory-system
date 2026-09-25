@@ -20,6 +20,18 @@ class TargetEvent < ApplicationRecord
       "Status changed to #{payload['status']}"
     when "error"
       "Error: #{payload['message']}"
+    when "frames_collected"
+      "#{payload['count']} #{payload['filter']} frame#{'s' unless payload['count'].to_i == 1} collected (night of #{payload['night']})"
+    when "night_closed"
+      "Night of #{payload['night']} closed with #{payload['lights']} lights"
+    when "master_updated"
+      "New #{payload['kind'].to_s.humanize.downcase} for #{payload['filter']}#{" (#{payload['frames']} frames)" if payload['frames']}"
+    when "issue_opened"
+      "Issue: #{payload['kind']} — #{payload['message']}"
+    when "issue_resolved"
+      "Resolved: #{payload['kind']} (#{payload['status']})"
+    when "session"
+      "#{payload['event'].to_s.humanize} at #{payload['at']}"
     else
       event_type
     end

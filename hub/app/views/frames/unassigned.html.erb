@@ -1,0 +1,28 @@
+<% content_for :title, "Unassigned frames" %>
+
+<%= link_to "← Files", frames_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
+<h1 class="text-2xl font-semibold mt-3">Unassigned frames</h1>
+<p class="text-slate-500 text-sm mb-6">Lights Altair couldn't link to a target (no <code>#id</code> in OBJECT, no name or coordinate match). Assigning them tells Altair to link and process them.</p>
+
+<% if @groups.any? %>
+  <div class="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+    <% @groups.each do |g| %>
+      <div class="p-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p class="font-medium"><%= g[:object].presence || "(no OBJECT)" %> <span class="text-sm text-slate-500">· <%= pluralize(g[:count], "light") %></span></p>
+          <p class="text-xs text-slate-500"><%= g[:telescope].name %> · night of <%= g[:night] %>
+            <% if g[:suggestion] %>· nearest target <%= g[:suggestion].name %> (<%= (g[:distance] * 60).round(1) %>′ away)<% end %></p>
+        </div>
+        <%= form_with url: assign_frames_path, method: :post, class: "flex items-center gap-2" do %>
+          <%= hidden_field_tag :telescope_id, g[:telescope].id %>
+          <%= hidden_field_tag :night, g[:night] %>
+          <%= hidden_field_tag :object_header, g[:object] %>
+          <%= select_tag :target_id, options_for_select(g[:targets].map { |t| [ t.name, t.id ] }, g[:suggestion]&.id), class: "rounded-lg border border-slate-300 px-2 py-1 text-sm" %>
+          <%= submit_tag "Assign", class: "rounded-lg bg-indigo-600 px-3 py-1 text-sm font-medium text-white cursor-pointer" %>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+<% else %>
+  <p class="text-sm text-slate-400">Nothing waiting. Every light is linked to a target.</p>
+<% end %>

@@ -8,6 +8,21 @@
   <%= link_to "New project", new_project_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
 </div>
 
+<% if @imaging_now.any? %>
+  <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 mb-6 text-sm text-emerald-800">
+    Imaging now: <%= safe_join(@imaging_now.map { |t| link_to(t.name, telescope_path(t), class: "font-medium underline") }, ", ") %>
+  </div>
+<% end %>
+
+<% if @my_issues.any? %>
+  <div class="rounded-xl border border-amber-200 bg-white p-5 mb-6">
+    <h2 class="text-sm font-medium text-amber-700 mb-2">Needs your attention</h2>
+    <%= render "issues/list", issues: @my_issues %>
+  </div>
+<% end %>
+
+<%= render "dashboard/node_health", nodes: @nodes if @nodes.any? %>
+
 <% @tonight.each do |planner| %>
   <% night = planner.night %>
   <div class="rounded-xl border border-slate-200 bg-white p-5 mb-6">

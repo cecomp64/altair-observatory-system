@@ -43,7 +43,8 @@
           <td class="py-2"><%= train.name %></td>
           <td class="py-2 text-slate-500"><%= [ train.camera_name, train.camera_type ].compact_blank.join(" · ") %></td>
           <td class="py-2 text-slate-500"><%= train.focal_length_mm ? "#{train.focal_length_mm.to_f} mm" : "—" %></td>
-          <td class="py-2 text-slate-500"><%= train.filter_names.join(", ").presence || "—" %></td>
+          <td class="py-2 text-slate-500"><%= train.filter_names.join(", ").presence || "—" %>
+            <% unless train.complete_optics? %><span class="block text-xs text-amber-600">No optics yet: not sent to Altair</span><% end %></td>
           <td class="py-2 text-right"><%= link_to "Edit", edit_admin_telescope_optical_train_path(@telescope, train), class: "text-xs text-indigo-600 hover:underline" %></td>
         </tr>
       <% end %>

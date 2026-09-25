@@ -1,0 +1,62 @@
+<% content_for :title, @train.name %>
+
+<%= link_to "← #{@telescope.name}", telescope_path(@telescope), class: "text-sm text-slate-500 hover:text-slate-700" %>
+<h1 class="text-2xl font-semibold mt-3"><%= @train.name %> <span class="text-sm font-mono text-slate-400"><%= @train.key %></span></h1>
+<p class="text-sm text-slate-500">
+  <%= [ @train.camera_name, @train.camera_type&.upcase, (@train.focal_length_mm && "#{@train.focal_length_mm.to_f} mm"),
+        (@train.pixel_scale_arcsec && "#{@train.pixel_scale_arcsec.round(2)}″/px"),
+        (@train.fov_deg && "FOV #{(@train.fov_deg[0] * 60).round}′ × #{(@train.fov_deg[1] * 60).round}′"), ("rotator" if @train.has_rotator) ].compact.join(" · ") %>
+</p>
+<p class="text-sm text-slate-500">Filters: <%= @train.filter_list.map { |f| [ f["name"], (Array(f["aliases"]).any? ? "(#{Array(f['aliases']).join(', ')})" : nil) ].compact.join(" ") }.join(", ").presence || "none listed" %></p>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+  <div class="rounded-xl border border-slate-200 bg-white p-5">
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Flats shopping list</h2>
+    <% if @flats_needed.any? %>
+      <ul class="text-sm divide-y divide-slate-100">
+        <% @flats_needed.each do |issue| %>
+          <li class="py-1.5"><%= link_to issue.message, issue_path(issue), class: "hover:text-indigo-600" %>
+            <span class="text-xs text-slate-400"><%= [ issue.filter, issue.night, issue.scope["rotator_pos"] && "rotator #{issue.scope['rotator_pos']}" ].compact.join(" · ") %></span></li>
+        <% end %>
+      </ul>
+    <% else %>
+      <p class="text-sm text-slate-400">No flats needed.</p>
+    <% end %>
+  </div>
+  <div class="rounded-xl border border-slate-200 bg-white p-5">
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Equipment log</h2>
+    <% if current_user.admin? %>
+      <%= form_with url: admin_telescope_optical_train_equipment_events_path(@telescope, @train), method: :post, class: "grid grid-cols-2 gap-2 mb-3 text-sm" do %>
+        <%= select_tag :kind, options_for_select(EquipmentEvent::KINDS.map { |k| [ k.humanize, k ] }), class: "rounded-lg border border-slate-300 px-2 py-1" %>
+        <%= select_tag :filter, options_for_select(@train.filter_names), include_blank: "any filter", class: "rounded-lg border border-slate-300 px-2 py-1" %>
+        <input type="datetime-local" name="at" class="rounded-lg border border-slate-300 px-2 py-1">
+        <input type="text" name="note" placeholder="Note" class="rounded-lg border border-slate-300 px-2 py-1">
+        <%= submit_tag "Log event", class: "col-span-2 rounded-lg bg-slate-800 px-3 py-1 text-sm font-medium text-white cursor-pointer" %>
+      <% end %>
+    <% end %>
+    <ul class="text-sm divide-y divide-slate-100">
+      <% @events.each do |event| %>
+        <li class="py-1.5 flex justify-between"><span><%= event.kind.humanize %><%= " · #{event.filter}" if event.filter %><%= " — #{event.note}" if event.note %></span>
+          <span class="text-xs text-slate-400"><%= l(event.at, format: :short) %></span></li>
+      <% end %>
+    </ul>
+    <% if @events.empty? %><p class="text-sm text-slate-400">Nothing logged.</p><% end %>
+  </div>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+  <h2 class="text-sm font-medium text-slate-500 mb-3">Calibration library</h2>
+  <% if @masters.any? %>
+    <table class="w-full text-sm">
+      <thead class="text-left text-slate-400"><tr><th class="pb-2">Kind</th><th class="pb-2">Filter</th><th class="pb-2">Exposure</th><th class="pb-2">Gain/offset</th><th class="pb-2">Temp</th><th class="pb-2">Rotator</th><th class="pb-2">Night</th><th class="pb-2">Frames</th></tr></thead>
+      <tbody class="divide-y divide-slate-100">
+        <% @masters.each do |m| %>
+          <tr><td class="py-1.5"><%= m.kind %></td><td><%= m.filter %></td><td><%= m.exposure_s&.to_f %></td><td><%= [ m.gain&.to_f, m.offset&.to_f ].compact.join("/") %></td>
+              <td><%= m.sensor_temp_c&.to_f %></td><td><%= m.rotator_pos&.to_f %></td><td><%= m.night %></td><td><%= m.n_frames %></td></tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <p class="text-sm text-slate-400">Altair hasn't reported any calibration masters yet.</p>
+  <% end %>
+</div>

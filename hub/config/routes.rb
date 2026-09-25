@@ -8,7 +8,9 @@ Rails.application.routes.draw do
 
   resource :profile, only: [ :edit, :update ]
 
-  resources :telescopes, only: [ :index, :show ]
+  resources :telescopes, only: [ :index, :show ] do
+    resources :optical_trains, only: :show
+  end
 
   # Guided, step-by-step project creation wizard. These routes must be
   # declared before `resources :projects` below, otherwise `/projects/new`
@@ -32,6 +34,28 @@ Rails.application.routes.draw do
   get "targets/new", to: redirect("/projects/new"), as: :new_target
 
   resources :projects, only: [ :index, :show, :edit, :update ]
+  scope "projects/:project_id/targets/:target_id", controller: "project_processing", as: "project_target" do
+    post :night
+    post :rerun
+    post :rereference
+    post :mode
+    patch :settings
+  end
+
+  resources :issues, only: [ :index, :show ] do
+    member do
+      post :waive
+      post :approve
+      post :deny
+    end
+  end
+
+  resources :frames, only: [ :index, :show ] do
+    collection do
+      get :unassigned
+      post :assign
+    end
+  end
 
   resources :objects, only: [ :index, :show, :new, :create ] do
     resource :showcase, only: [ :create, :destroy ]
@@ -48,7 +72,17 @@ Rails.application.routes.draw do
 
     resources :telescopes do
       resources :api_keys, only: [ :index, :new, :create, :destroy ]
-      resources :optical_trains, except: [ :index, :show ]
+      resources :optical_trains, except: [ :index, :show ] do
+        resources :equipment_events, only: :create
+      end
+    end
+
+    resources :processing_nodes do
+      member do
+        post :refresh_config
+        post :create_key
+        post :revoke_key
+      end
     end
 
     resource :catalogue, only: :show, controller: "catalogue" do
@@ -62,6 +96,25 @@ Rails.application.routes.draw do
         member do
           get :active_targets
         end
+        resources :sessions, only: :create
+      end
+
+      post "heartbeat", to: "heartbeats#create"
+
+      namespace :processing do
+        get "config", to: "config#show"
+        # The contract's paths carry a literal colon ("frames:batch"), which
+        # Rails would read as a parameter; match the whole segment instead.
+        post "*collection", to: "frames#create", constraints: { collection: "frames:batch" }, format: false
+        patch "*collection", to: "frames#update", constraints: { collection: "frames:batch" }, format: false
+        put "nights/:optical_train/:night", to: "nights#update", constraints: { night: /\d{4}-\d{2}-\d{2}/ }
+        get "nights/:optical_train/:night/digest", to: "nights#digest", constraints: { night: /\d{4}-\d{2}-\d{2}/ }
+        put "calibration_masters/:altair_id", to: "calibration_masters#update"
+        put "data_products/:kind/:altair_id", to: "data_products#update"
+        put "issues/:fingerprint", to: "issues#update", constraints: { fingerprint: %r{[^/]+} }, format: false
+        put "jobs/:altair_id", to: "jobs#update"
+        get "commands", to: "commands#index"
+        post "commands/:id/ack", to: "commands#ack"
       end
 
       resources :targets, only: [] do

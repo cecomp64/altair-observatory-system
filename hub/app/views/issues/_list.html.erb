@@ -1,0 +1,13 @@
+<ul class="divide-y divide-slate-100">
+  <% issues.each do |issue| %>
+    <li class="py-2 flex items-start justify-between gap-3 text-sm">
+      <div class="min-w-0">
+        <%= link_to issue.kind, issue_path(issue), class: "font-mono text-xs font-medium hover:text-indigo-600" %>
+        <%= render "issues/severity", issue: issue %>
+        <p class="text-slate-600 truncate"><%= issue.message %></p>
+        <p class="text-xs text-slate-400"><%= [ issue.target&.name, issue.optical_train&.key, issue.night, issue.filter ].compact.join(" · ") %></p>
+      </div>
+      <span class="text-xs text-slate-400 shrink-0"><%= time_ago_in_words(issue.opened_at) %> ago</span>
+    </li>
+  <% end %>
+</ul>

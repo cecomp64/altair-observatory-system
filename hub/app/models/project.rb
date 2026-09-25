@@ -17,6 +17,12 @@ class Project < ApplicationRecord
   has_many :targets, dependent: :destroy
   has_many :exposure_plans, through: :targets
   has_many :data_products, dependent: :nullify
+  has_many :frames, dependent: :nullify
+  has_many :processing_issues, dependent: :nullify
+
+  # Pages showing the project refresh (Turbo morph) when frames, masters or
+  # issues arrive.
+  broadcasts_refreshes
 
   enum :status, { planning: "planning", active: "active", paused: "paused", completed: "completed", archived: "archived" },
     validate: true

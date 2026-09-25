@@ -8,6 +8,9 @@ class Target < ApplicationRecord
   has_many :exposure_plans, dependent: :destroy
   has_many :data_products, dependent: :destroy
   has_many :target_events, dependent: :destroy
+  has_many :frames, dependent: :nullify
+  has_many :processing_issues, dependent: :nullify
+  has_many :processing_commands, dependent: :nullify
 
   accepts_nested_attributes_for :exposure_plans, allow_destroy: true, reject_if: :all_blank
 

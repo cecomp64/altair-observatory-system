@@ -1,0 +1,108 @@
+<% content_for :title, "Files" %>
+<% field = "rounded-lg border border-slate-300 px-2 py-1.5 text-sm w-full" %>
+<% p = @search.params %>
+
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <h1 class="text-2xl font-semibold">Files</h1>
+    <p class="text-slate-500 text-sm">Every frame Altair has collected or indexed. Filters are in the URL, so any view can be shared.</p>
+  </div>
+  <div class="flex gap-2">
+    <% if current_user.admin? %>
+      <%= link_to "Unassigned inbox", unassigned_frames_path, class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
+    <% end %>
+    <%= link_to "Export CSV", frames_path(request.query_parameters.merge(format: :csv)), class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
+  </div>
+</div>
+
+<%= form_with url: frames_path, method: :get, class: "rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end" do %>
+  <div class="col-span-2"><label class="block text-xs text-slate-500 mb-1">Object / name</label><input type="search" name="q" value="<%= p[:q] %>" placeholder="M 31, NGC 7000…" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Telescope</label><%= select_tag :telescope, options_for_select(@telescopes.map { |t| [ t.name, t.slug ] }, p[:telescope]), include_blank: "Any", class: field %></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Filter</label><%= select_tag :filter, options_for_select(@filters, p[:filter]), include_blank: "Any", class: field %></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Type</label><%= select_tag :image_type, options_for_select(Frame::IMAGE_TYPES, p[:image_type]), include_blank: "Any", class: field %></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Status</label><%= select_tag :status, options_for_select(Frame::STATUSES, p[:status]), include_blank: "Any", class: field %></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Night from</label><input type="date" name="night_from" value="<%= p[:night_from] %>" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Night to</label><input type="date" name="night_to" value="<%= p[:night_to] %>" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Exposure (s)</label><input type="number" step="any" name="exposure" value="<%= p[:exposure] %>" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Gain</label><input type="number" step="any" name="gain" value="<%= p[:gain] %>" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Binning</label><input type="text" name="binning" value="<%= p[:binning] %>" placeholder="1x1" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Storage</label><%= select_tag :storage, options_for_select([ [ "On the NAS", "nas" ], [ "S3 only", "s3_only" ], [ "S3 Standard-IA", "STANDARD_IA" ], [ "S3 Deep Archive", "DEEP_ARCHIVE" ] ], p[:storage]), include_blank: "Any", class: field %></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Cone: RA</label><input type="text" name="ra" value="<%= p[:ra] %>" placeholder="00:42:44" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Dec</label><input type="text" name="dec" value="<%= p[:dec] %>" placeholder="+41:16:09" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Radius (°)</label><input type="number" step="any" name="radius" value="<%= p[:radius] %>" placeholder="1" class="<%= field %>"></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Group by</label><%= select_tag :group, options_for_select(Frames::Search::GROUPS.map { |g| [ g.humanize, g ] }, p[:group]), include_blank: "No grouping", class: field %></div>
+  <div class="flex items-center gap-2 text-sm"><%= check_box_tag :unassigned, "1", p[:unassigned] == "1" %> Unassigned only</div>
+  <div class="flex justify-end"><%= submit_tag "Search", name: nil, class: "rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %></div>
+<% end %>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+  <div class="rounded-xl border border-slate-200 bg-white p-4">
+    <p class="text-xs uppercase tracking-wide text-slate-400">Matching frames</p>
+    <p class="text-2xl font-semibold"><%= number_with_delimiter(@stats[:count]) %></p>
+    <p class="text-xs text-slate-500 mt-1"><%= @stats[:hours_by_filter].map { |f, h| "#{f || '?'} #{h} h" }.join(" · ").presence || "No lights" %></p>
+  </div>
+  <div class="md:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+    <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Frames per month</p>
+    <% if @stats[:frames_by_month].any? %>
+      <div class="h-24"><%= chart_tag type: "bar", data: { labels: @stats[:frames_by_month].keys, datasets: [ { data: @stats[:frames_by_month].values, backgroundColor: "#818cf8" } ] }, options: { plugins: { legend: { display: false } } } %></div>
+    <% else %>
+      <p class="text-sm text-slate-400">—</p>
+    <% end %>
+  </div>
+</div>
+
+<% if @groups %>
+  <div class="rounded-xl border border-slate-200 bg-white mt-4">
+    <table class="w-full text-sm">
+      <thead class="text-left text-slate-400"><tr><th class="px-4 py-2"><%= @search.group.humanize %></th><th class="px-2 py-2">Frames</th><th class="px-2 py-2">Light hours</th><th></th></tr></thead>
+      <tbody class="divide-y divide-slate-100">
+        <% @groups.each do |g| %>
+          <% key = { "night" => :night_from, "target" => :target_id, "telescope" => :telescope }[@search.group] %>
+          <% filter = @search.group == "telescope" ? Telescope.find_by(id: g[:key])&.slug : g[:key] %>
+          <% narrow = @search.group == "night" ? { night_from: g[:key], night_to: g[:key] } : { key => filter } %>
+          <tr><td class="px-4 py-2 font-medium"><%= g[:label] %></td><td class="px-2 py-2"><%= g[:count] %></td><td class="px-2 py-2"><%= g[:hours] %></td>
+            <td class="px-2 py-2 text-right"><%= link_to "Show", frames_path(request.query_parameters.except("group", "page").merge(narrow)), class: "text-xs text-indigo-600 hover:underline" %></td></tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+<% end %>
+
+<%= form_with url: assign_frames_path, method: :post, data: { controller: "bulk-select" }, class: "mt-4" do %>
+  <div class="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-slate-400 border-b border-slate-100">
+        <tr>
+          <% if current_user.admin? %><th class="pl-4 py-2"><input type="checkbox" data-bulk-select-target="all" data-action="bulk-select#toggleAll"></th><% end %>
+          <th class="px-4 py-2">File</th><th class="px-2 py-2">Night</th><th class="px-2 py-2">Type</th><th class="px-2 py-2">Filter</th>
+          <th class="px-2 py-2">Exp</th><th class="px-2 py-2">Target</th><th class="px-2 py-2">Status</th><th class="px-2 py-2">Storage</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        <% @frames.each do |frame| %>
+          <tr>
+            <% if current_user.admin? %><td class="pl-4 py-2"><%= check_box_tag "frame_ids[]", frame.id, false, data: { bulk_select_target: "row", action: "bulk-select#update" } %></td><% end %>
+            <td class="px-4 py-2"><%= link_to frame.file_name, frame_path(frame), class: "hover:text-indigo-600" %><p class="text-xs text-slate-400"><%= frame.telescope.name %> · <%= frame.optical_train.key %></p></td>
+            <td class="px-2 py-2 text-slate-600"><%= frame.night %></td>
+            <td class="px-2 py-2 text-slate-600"><%= frame.image_type %></td>
+            <td class="px-2 py-2 text-slate-600"><%= frame.filter %><%= " ⚠" unless frame.filter_known %></td>
+            <td class="px-2 py-2 text-slate-600"><%= frame.exposure_s&.to_f %></td>
+            <td class="px-2 py-2"><%= frame.target ? link_to(frame.target.name, target_path(frame.target), class: "hover:text-indigo-600") : tag.span(frame.light? ? "unassigned" : "—", class: "text-amber-600") %>
+              <% if frame.manual? %><span class="text-xs text-slate-400">(manual)</span><% end %></td>
+            <td class="px-2 py-2 text-slate-600"><%= frame.status %></td>
+            <td class="px-2 py-2 text-xs text-slate-500"><%= frame.storage_summary %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+    <% if @frames.empty? %><p class="px-4 py-6 text-sm text-slate-400">No frames match.</p><% end %>
+  </div>
+  <% if current_user.admin? && @frames.any? %>
+    <div class="flex items-center gap-2 mt-3 text-sm">
+      <span class="text-slate-500" data-bulk-select-target="count"></span>
+      <%= select_tag :target_id, options_for_select(@assignable_targets.map { |t| [ "#{t.name} (#{t.telescope.name})", t.id ] }), class: "rounded-lg border border-slate-300 px-2 py-1.5 text-sm" %>
+      <%= submit_tag "Assign selected to target", class: "rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white cursor-pointer" %>
+    </div>
+  <% end %>
+<% end %>
+<%= render "shared/pagination", pagy: @pagy %>

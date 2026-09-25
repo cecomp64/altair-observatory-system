@@ -1,0 +1,10 @@
+<ul class="text-sm divide-y divide-slate-100">
+  <% commands.each do |command| %>
+    <li class="py-1.5 flex justify-between gap-3">
+      <span><span class="font-mono text-xs"><%= command.kind %></span>
+        <span class="text-xs text-slate-400"><%= command.payload.except("fingerprint", "sha256s").map { |k, v| "#{k} #{v}" }.join(" · ") %></span></span>
+      <span class="text-xs shrink-0 <%= { "succeeded" => "text-emerald-700", "failed" => "text-rose-600" }.fetch(command.state, "text-slate-500") %>">
+        <%= command.state %> · <%= time_ago_in_words(command.created_at) %> ago<%= " · #{command.requested_by.display_name}" if command.requested_by %></span>
+    </li>
+  <% end %>
+</ul>

@@ -8,6 +8,7 @@ class Telescope < ApplicationRecord
   has_many :api_keys, as: :owner, dependent: :destroy
   has_many :processing_node_telescopes, dependent: :destroy
   has_many :processing_nodes, through: :processing_node_telescopes
+  has_many :observing_nights, dependent: :delete_all
   has_one_attached :horizon_file
 
   before_validation :generate_slug, on: :create

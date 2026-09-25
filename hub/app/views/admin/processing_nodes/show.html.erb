@@ -1,0 +1,65 @@
+<% content_for :title, @node.name %>
+<% status = @node.status["status"] || {} %>
+
+<%= link_to "← Processing nodes", admin_processing_nodes_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
+<div class="mt-3 flex items-center justify-between">
+  <h1 class="text-2xl font-semibold"><%= @node.name %></h1>
+  <div class="flex gap-2">
+    <%= button_to "Refresh config", refresh_config_admin_processing_node_path(@node), class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100 cursor-pointer" %>
+    <%= link_to "Edit", edit_admin_processing_node_path(@node), class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
+  </div>
+</div>
+<p class="text-sm text-slate-500"><%= @node.description %></p>
+
+<% if flash[:new_api_key_token] %>
+  <div class="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+    <p class="font-medium mb-1">New API key (copy it now — it won't be shown again):</p>
+    <code class="block bg-white border border-amber-200 rounded px-3 py-2 break-all"><%= flash[:new_api_key_token] %></code>
+  </div>
+<% end %>
+
+<div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6 text-sm">
+  <div class="rounded-xl border border-slate-200 bg-white p-4"><p class="text-slate-400">Heartbeat</p><p class="font-medium <%= @node.healthy? ? "text-emerald-700" : "text-rose-600" %>"><%= @node.last_heartbeat_at ? "#{time_ago_in_words(@node.last_heartbeat_at)} ago" : "never" %></p></div>
+  <div class="rounded-xl border border-slate-200 bg-white p-4"><p class="text-slate-400">Version</p><p class="font-medium"><%= @node.status["version"] || "—" %></p></div>
+  <div class="rounded-xl border border-slate-200 bg-white p-4"><p class="text-slate-400">Outbox depth</p><p class="font-medium"><%= status["outbox_depth"] || "—" %></p></div>
+  <div class="rounded-xl border border-slate-200 bg-white p-4"><p class="text-slate-400">NAS free</p><p class="font-medium"><%= status["nas_free_pct"] ? "#{status['nas_free_pct']}%" : "—" %></p></div>
+  <div class="rounded-xl border border-slate-200 bg-white p-4"><p class="text-slate-400">S3 backlog</p><p class="font-medium"><%= status["s3_backlog"] || "—" %></p></div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+  <div class="rounded-xl border border-slate-200 bg-white p-5">
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Serves</h2>
+    <ul class="text-sm"><% @node.telescopes.each do |t| %><li><%= link_to t.name, admin_telescope_path(t), class: "hover:text-indigo-600" %> <span class="text-xs text-slate-400"><%= t.optical_trains.map(&:key).join(", ") %></span>
+      <% incomplete = t.optical_trains.reject(&:complete_optics?) %>
+      <% if incomplete.any? %><span class="block text-xs text-amber-600">Not sent to Altair until their optics are filled in: <%= incomplete.map(&:key).join(", ") %></span><% end %></li><% end %></ul>
+    <h2 class="text-sm font-medium text-slate-500 mt-5 mb-3">API keys</h2>
+    <ul class="text-sm divide-y divide-slate-100">
+      <% @keys.each do |key| %>
+        <li class="py-1.5 flex justify-between"><span><%= key.name %> <span class="text-xs text-slate-400"><%= key.scopes.join(" ") %></span></span>
+          <span class="text-xs"><%= key.active? ? (key.last_used_at ? "used #{time_ago_in_words(key.last_used_at)} ago" : "unused") : "revoked" %>
+            <% if key.active? %><%= button_to "Revoke", revoke_key_admin_processing_node_path(@node, key_id: key.id), class: "inline text-rose-600 hover:underline bg-transparent border-0 p-0 cursor-pointer ml-2", data: { turbo_confirm: "Revoke this key? Altair will stop syncing until it gets a new one." } %><% end %></span></li>
+      <% end %>
+    </ul>
+    <%= form_with url: create_key_admin_processing_node_path(@node), method: :post, class: "flex gap-2 mt-3" do %>
+      <input type="text" name="name" placeholder="Key name" class="rounded-lg border border-slate-300 px-2 py-1 text-sm">
+      <%= submit_tag "Create API key", class: "rounded-lg bg-slate-800 px-3 py-1 text-sm font-medium text-white cursor-pointer" %>
+    <% end %>
+  </div>
+  <div class="space-y-6">
+    <div class="rounded-xl border border-slate-200 bg-white p-5">
+      <h2 class="text-sm font-medium text-slate-500 mb-3">Open infrastructure issues</h2>
+      <% if @issues.any? %><%= render "issues/list", issues: @issues %><% else %><p class="text-sm text-slate-400">None.</p><% end %>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-5">
+      <h2 class="text-sm font-medium text-slate-500 mb-3">Commands</h2>
+      <% if @commands.any? %><%= render "processing_commands/list", commands: @commands %><% else %><p class="text-sm text-slate-400">None yet.</p><% end %>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-5">
+      <h2 class="text-sm font-medium text-slate-500 mb-3">Recent jobs</h2>
+      <ul class="text-sm">
+        <% @jobs.each do |job| %><li class="flex justify-between"><span><%= job.kind %> <span class="text-xs text-slate-400"><%= [ job.target&.name, job.night, job.filter ].compact.join(" · ") %></span></span><span class="text-xs"><%= job.status %></span></li><% end %>
+      </ul>
+      <% if @jobs.empty? %><p class="text-sm text-slate-400">None yet.</p><% end %>
+    </div>
+  </div>
+</div>

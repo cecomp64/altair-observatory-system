@@ -12,6 +12,7 @@ class ProjectsController < ApplicationController
     authorize @project
     @targets = @project.targets.includes(:exposure_plans, :telescope, :optical_train, :astro_object).order(:id)
     @progress = Progress::Calculator.new(@project)
+    load_processing
     @visibility = @targets.group_by(&:telescope).map do |telescope, targets|
       site = Astro::Site.for(telescope)
       visibility = Astro::Visibility.new(site)
@@ -37,6 +38,31 @@ class ProjectsController < ApplicationController
   end
 
   private
+
+  # Nights, masters, quality, issues and commands for the project page.
+  def load_processing
+    lights = Frame.lights.counted.where(project: @project)
+    rows = lights.group(:target_id, :night, :filter)
+                 .pluck(:target_id, :night, :filter, Arel.sql("count(*)"), Arel.sql("coalesce(sum(exposure_s), 0)"),
+                        Arel.sql("avg((quality->>'fwhm')::float)"), Arel.sql("avg((quality->>'eccentricity')::float)"))
+    products = @project.data_products.masters.current.includes(preview_attachment: :blob, thumbnail_attachment: :blob)
+    @multi_masters = products.select(&:multi_night_master?).group_by { |p| [ p.target_id, p.filter ] }
+                             .transform_values { |list| list.max_by { |p| [ p.version.to_i, p.id ] } }
+    night_masters = products.select { |p| p.night_master? || p.provisional_noflat? }.index_by { |p| [ p.target_id, p.night, p.filter ] }
+    @nights = rows.map do |target_id, night, filter, count, seconds, fwhm, ecc|
+      weights = @multi_masters[[ target_id, filter ]]&.metrics&.dig("night_weights") || {}
+      { target_id: target_id, night: night, filter: filter, count: count, hours: (seconds.to_f / 3600).round(2),
+        fwhm: fwhm&.round(2), eccentricity: ecc&.round(2), master: night_masters[[ target_id, night, filter ]],
+        weight: weights[night.iso8601], in_merge: weights.key?(night.iso8601) }
+    end.sort_by { |n| [ -n[:night].jd, n[:filter].to_s ] }
+    @cumulative = @nights.group_by { |n| n[:filter] }.transform_values do |list|
+      total = 0.0
+      list.sort_by { |n| n[:night] }.group_by { |n| n[:night] }.map { |night, ns| [ night.iso8601, (total += ns.sum { |n| n[:hours] }).round(2) ] }
+    end
+    @issues = @project.processing_issues.open.recent_first.includes(:target)
+    @commands = ProcessingCommand.where(target_id: @targets.map(&:id)).recent_first.limit(15).includes(:requested_by)
+    @served = @targets.index_with { |t| t.telescope.processing_nodes.active.any? }
+  end
 
   def set_project
     @project = Project.find(params[:id])

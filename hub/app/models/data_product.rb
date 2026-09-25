@@ -9,6 +9,8 @@ class DataProduct < ApplicationRecord
   belongs_to :optical_train, optional: true
   belongs_to :processing_node, optional: true
   belongs_to :superseded_by, class_name: "DataProduct", optional: true
+  has_one_attached :preview
+  has_one_attached :thumbnail
 
   enum :kind, {
     sub: 0, stacked: 1, preview: 2, log: 3,

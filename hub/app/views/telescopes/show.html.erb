@@ -7,6 +7,8 @@
   <%= link_to "Start a project", new_project_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
 </div>
 <p class="text-slate-500 mt-1"><%= @telescope.description %></p>
+<p class="text-sm text-slate-500 mt-1">Optical trains:
+  <%= safe_join(@telescope.optical_trains.select(&:active?).sort_by(&:key).map { |t| link_to(t.name, telescope_optical_train_path(@telescope, t), class: "text-indigo-600 hover:underline") }, ", ") %></p>
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
   <div class="rounded-xl border border-slate-200 bg-white p-5">

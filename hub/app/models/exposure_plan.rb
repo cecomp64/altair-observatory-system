@@ -3,6 +3,7 @@ class ExposurePlan < ApplicationRecord
   EXPOSURE_MATCH_TOLERANCE_S = 0.5
 
   belongs_to :target
+  has_many :frames, dependent: :nullify
 
   validates :filter, presence: true
   validates :exposure_seconds, numericality: { greater_than: 0 }

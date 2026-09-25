@@ -4,6 +4,8 @@ class NotifyOwnerJob < ApplicationJob
   def perform(target_event_id)
     event = TargetEvent.find_by(id: target_event_id)
     return unless event
+    # Session events drive the dashboard's "imaging now"; they aren't news.
+    return if event.session?
 
     user = event.target.user
 
