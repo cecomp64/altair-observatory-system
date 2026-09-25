@@ -15,18 +15,22 @@ import logging
 
 from .api_client import ObservatoryApiClient
 from .config import TelescopeConfig
+from .hub import Hub
 from . import scheduler_db
+from . import scheduler_schema
 from . import state
 
 logger = logging.getLogger(__name__)
 
 
-def cleanup_completed_projects(config: TelescopeConfig, api: ObservatoryApiClient) -> int:
-    """Disables scheduler targets no longer active in Rails.
+def cleanup_completed_projects(config: TelescopeConfig, api: ObservatoryApiClient | Hub | None) -> int:
+    """Disables scheduler targets no longer active in the Hub, and (per Hub
+    project) Target Scheduler projects left with no active targets.
 
     Returns the number of targets cleaned up.
     """
-    still_active_ids = {t["id"] for t in api.active_targets(config.slug)}
+    hub = api if isinstance(api, Hub) else Hub(config, api)
+    still_active_ids = {t["id"] for t in hub.active_targets()}
     state_db_path = state.state_db_path_for(config.scheduler_db_path)
     cleaned_up = 0
 
@@ -46,5 +50,10 @@ def cleanup_completed_projects(config: TelescopeConfig, api: ObservatoryApiClien
                     target_link["scheduler_target_id"],
                     config.slug,
                 )
+
+            if config.ts_project_mode == "per_hub_project":
+                for project_link in state.all_project_links(state_conn):
+                    if scheduler_db.enabled_target_count(sched_conn, project_link["scheduler_project_id"]) == 0:
+                        scheduler_db.set_project_state(sched_conn, project_link["scheduler_project_id"], scheduler_schema.PROJECT_STATE_INACTIVE)
 
     return cleaned_up

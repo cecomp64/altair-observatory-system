@@ -1,7 +1,8 @@
-"""Thin client for the remote-observatory-queueing-system JSON API.
+"""Thin client for the Hub's JSON API.
 
-See ARCHITECTURE.md in this repo (and in the Rails app) for the full
-contract. Every method raises `ApiError` on a non-2xx response.
+The contract lives in contracts/schemas (docs/SYSTEM_ARCHITECTURE.md §5.2);
+responses are parsed with the observatory-contracts models. Every method
+raises `ApiError` on a non-2xx response.
 """
 
 from __future__ import annotations
@@ -47,8 +48,25 @@ class ObservatoryApiClient:
 
     def active_targets(self, telescope_slug: str) -> list[dict[str, Any]]:
         """Targets the worker should have scheduled in NINA right now."""
-        data = self._request("GET", f"/api/v1/telescopes/{telescope_slug}/active_targets")
-        return data.get("targets", [])
+        return self.active_targets_response(telescope_slug).get("targets", [])
+
+    def active_targets_response(self, telescope_slug: str) -> dict[str, Any]:
+        """The whole response, including the telescope (timezone, api_revision 1)."""
+        return self._request("GET", f"/api/v1/telescopes/{telescope_slug}/active_targets")
+
+    def post_session_event(self, telescope_slug: str, event: str, at: str, night: str, target_ids: Iterable[int] = ()) -> dict[str, Any]:
+        """roof_open / roof_close / session_end (§5.2). session_end makes the
+        Hub queue night_ready for Altair."""
+        body = {"event": event, "at": at, "night": night, "target_ids": list(target_ids)}
+        return self._request("POST", f"/api/v1/telescopes/{telescope_slug}/sessions", json=body)
+
+    def heartbeat(self, status: dict[str, Any]) -> dict[str, Any]:
+        from observatory_contracts import API_REVISION
+
+        from . import __version__
+
+        body = {"agent": "robs", "version": __version__, "api_revision": API_REVISION, "status": status}
+        return self._request("POST", "/api/v1/heartbeat", json=body)
 
     def update_progress(
         self,

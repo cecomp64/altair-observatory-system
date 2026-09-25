@@ -20,6 +20,25 @@ nina_profile_id: "00000000-0000-0000-0000-000000000000"
 # Where NINA writes this telescope's light/dark/flat/bias frames.
 subs_dir: "D:/Observatory/Subs/backyard-16in"
 
+# IANA timezone of the site; must match the Hub telescope (robs check-config).
+timezone: "America/Los_Angeles"
+
+# altair: Altair collects, archives and processes frames; nothing below this
+# line is used. legacy (deprecated): the worker uploads subs and stacks.
+data_pipeline: altair
+
+# per_hub_project (default): one Target Scheduler project per Hub project.
+# single: every target in one "Remote Observatory Queue" project.
+ts_project_mode: per_hub_project
+
+# Standalone, without a Hub: schedule from a file, log locally, and signal
+# Altair with its session-end marker.
+# hub:
+#   enabled: false
+# targets_file: "C:/Observatory/targets.json"
+# altair_marker_dir: "D:/Observatory/Subs/backyard-16in/_altair"
+
+# ── legacy pipeline only (deprecated) ────────────────────────────────────
 # Where to publish subs (and optional stacks/previews) at end of night.
 s3_bucket: "observatory-data"
 s3_prefix: "backyard-16in"

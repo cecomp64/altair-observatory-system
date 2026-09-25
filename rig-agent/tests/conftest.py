@@ -13,6 +13,7 @@ CREATE TABLE project (
     description TEXT,
     state INTEGER,
     priority INTEGER,
+    minimumAltitude REAL,
     createDate INTEGER
 );
 

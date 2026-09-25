@@ -3,8 +3,9 @@
 > **Planned change:** the unified platform design, which joins this app with
 > the processing core (`processing/`) and retires `astrophotography-database`, on
 > one central database, is in [`docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md).
-> The API contract below stays in force, and the new API only adds to it, until
-> that plan's Phase 5 lands.
+> Phase 5 has landed: the worker also uses the additions (sessions, heartbeat,
+> `nina_name`, per-project Target Scheduler projects, `schedule_count`); the
+> machine-readable contract is `contracts/schemas/`. The endpoints below are unchanged.
 
 This document is the shared design reference for the two halves of the
 system:

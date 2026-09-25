@@ -40,6 +40,17 @@ PROJECT_COLUMNS = {
     "create_date": "createDate",
 }
 
+# Used only in ts_project_mode: per_hub_project (§8.3). If your plugin
+# version lacks them, check-schema says so and the worker falls back to
+# a single managed project (§13 #3).
+PROJECT_OPTIONAL_COLUMNS = {
+    "minimum_altitude": "minimumAltitude",
+}
+
+# Target Scheduler project states (best effort): 1 = active, 2 = inactive.
+PROJECT_STATE_ACTIVE = 1
+PROJECT_STATE_INACTIVE = 2
+
 TARGET_TABLE = "target"
 TARGET_COLUMNS = {
     "id": "Id",

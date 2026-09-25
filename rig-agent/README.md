@@ -24,11 +24,33 @@ lives in the `altair-observatory-system` monorepo with its full history.
 
 | Command | When it runs | What it does |
 |---|---|---|
-| `robs roof-open` | NINA sequencer "External Script" step on roof open | Fetches active targets from Rails, upserts them into Target Scheduler |
-| `robs sync-progress` | Periodically through the night (Task Scheduler / cron) | Reads accepted-frame counts out of Target Scheduler, reports them to Rails |
-| `robs end-of-night` | Roof close / end of sequence | Uploads the night's subs to S3, optionally calibrates+stacks, reports files back, then runs cleanup |
-| `robs cleanup` | Periodically, or as part of `end-of-night` | Disables/retires targets in Target Scheduler that Rails no longer considers active (i.e. completed) |
+| `robs roof-open` | NINA sequencer "External Script" step on roof open | Fetches active targets from the Hub and upserts them into Target Scheduler: one Target Scheduler project per Hub project (`#P<id> <name>`, the project's priority, the target's minimum altitude), targets named `#<id> <name>`, and each plan's `schedule_count` as the desired count. Reports `roof_open`. |
+| `robs sync-progress` | Periodically through the night (Task Scheduler / cron) | Reads accepted-frame counts out of Target Scheduler and reports them |
+| `robs end-of-night` | End of the NINA sequence (the **only** end-of-sequence script needed) | `data_pipeline: altair`: a final progress sync, then `session_end` to the Hub, which tells Altair the night is over (`night_ready`). Uploads and stacks nothing. `legacy` (deprecated): uploads subs to S3 and optionally stacks. Then runs cleanup. |
+| `robs session-end` | For sequences that signal the end separately | Only the `session_end` report (or Altair's marker file when standalone) |
+| `robs cleanup` | Periodically, or as part of `end-of-night` | Disables targets the Hub no longer considers active, and Target Scheduler projects left with none |
+| `robs check-config` | After installing or changing the config | Hub reachable and key accepted, timezone matches the Hub telescope, folders, Target Scheduler per-project support |
 | `robs check-schema` | Whenever you install/upgrade Target Scheduler | Verifies the plugin's SQLite schema still matches what this worker expects |
+
+Every command sends a heartbeat, so the Hub's admin pages show the worker's health.
+
+### Data pipeline
+
+- `data_pipeline: altair` (use this once Altair runs): Altair collects the frames from
+  `subs_dir` over the network, archives them on the NAS and S3, and processes them. The
+  worker doesn't upload or stack; `s3_*` and `stacking` are ignored. `subs_dir` is the
+  folder Altair has as this rig's `raw_root`, so NINA must use the file pattern from
+  Altair's SPEC §4.2.
+- `data_pipeline: legacy` (default until cutover, deprecated): today's S3 upload and
+  optional Siril/PixInsight stacking. Removed after cutover.
+
+### Standalone (no Hub)
+
+With `hub: { enabled: false }` and `targets_file:` (JSON in the `active_targets` shape from
+`contracts/schemas/worker/active_targets.response.json`), the worker schedules targets from
+the file, writes progress to `robs_<slug>_events.jsonl` next to the Target Scheduler
+database, and at end of night writes Altair's session-end marker
+(`<subs_dir>/_altair/session-end-<time>.json`, or `altair_marker_dir`).
 
 ## Setup
 

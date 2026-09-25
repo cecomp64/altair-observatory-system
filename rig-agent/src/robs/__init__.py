@@ -1,6 +1,5 @@
-"""remote-observatory-worker: the observatory-side sync/publish worker.
-
-See ARCHITECTURE.md and README.md for how the pieces fit together.
+"""robs: the rig agent. Syncs Hub targets into NINA Target Scheduler and
+reports acquisition progress and session events (docs/SYSTEM_ARCHITECTURE.md §8.3).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

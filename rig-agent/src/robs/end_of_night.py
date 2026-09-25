@@ -1,5 +1,14 @@
-"""End-of-night publishing: uploads subs to S3, and optionally runs
-calibration + stacking, publishing the result too.
+"""End of night.
+
+With `data_pipeline: altair` (§8.3) the worker uploads and stacks nothing:
+it runs a final progress sync, reports `session_end` to the Hub (which
+queues `night_ready` for Altair), or, with no Hub, writes Altair's
+session-end marker, then cleans up. One NINA end-of-sequence script covers
+both the worker and Altair.
+
+With `data_pipeline: legacy` (deprecated, removed after cutover) it
+uploads subs to S3, and optionally runs calibration + stacking, publishing
+the result too:
 
 Expects `subs_dir` to contain one subdirectory per target, named with
 the target's Rails id as a leading token — e.g. `#12 M42/` or `12/`,
@@ -17,6 +26,7 @@ from pathlib import Path
 
 from .api_client import ObservatoryApiClient
 from .config import TelescopeConfig
+from .hub import Hub
 from .s3_publisher import S3Publisher
 from .stacking import build_backend
 
@@ -24,6 +34,28 @@ logger = logging.getLogger(__name__)
 
 _TARGET_DIR_RE = re.compile(r"^#?(\d+)")
 _KNOWN_FILTERS = ["Luminance", "Red", "Green", "Blue", "Ha", "OIII", "SII", "L", "R", "G", "B"]
+
+
+def end_of_night(config: TelescopeConfig, hub: Hub, publisher: S3Publisher | None = None) -> dict:
+    """The whole end-of-night step for either data pipeline."""
+    from .cleanup import cleanup_completed_projects
+    from .sync import managed_target_ids, sync_progress_to_api
+
+    if config.altair_mode:
+        reported = sync_progress_to_api(config, hub)
+        target_ids = managed_target_ids(config)
+        if config.hub_enabled:
+            hub.session_event("session_end", target_ids)
+            signal = "session_end sent to the Hub"
+        else:
+            signal = f"marker {hub.write_session_end_marker(target_ids)}"
+        cleaned = cleanup_completed_projects(config, hub)
+        return {"pipeline": "altair", "progress_reported": reported, "signal": signal, "cleaned_up": cleaned}
+
+    logger.warning("data_pipeline: legacy is deprecated: Altair archives and processes frames; set data_pipeline: altair")
+    published = publish_night(config, hub.api, publisher)
+    cleaned = cleanup_completed_projects(config, hub)
+    return {"pipeline": "legacy", "published": published, "cleaned_up": cleaned}
 
 
 def publish_night(config: TelescopeConfig, api: ObservatoryApiClient, publisher: S3Publisher | None = None) -> list[dict]:

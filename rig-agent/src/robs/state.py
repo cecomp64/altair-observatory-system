@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS target_links (
     last_synced_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS project_links (
+    rails_project_id INTEGER PRIMARY KEY,
+    scheduler_project_id INTEGER NOT NULL,
+    last_synced_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS exposure_plan_links (
     rails_exposure_plan_id INTEGER PRIMARY KEY,
     rails_target_id INTEGER NOT NULL,
@@ -106,3 +112,24 @@ def all_target_links(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def remove_target_link(conn: sqlite3.Connection, rails_target_id: int) -> None:
     conn.execute("DELETE FROM exposure_plan_links WHERE rails_target_id = ?", (rails_target_id,))
     conn.execute("DELETE FROM target_links WHERE rails_target_id = ?", (rails_target_id,))
+
+
+def link_project(conn: sqlite3.Connection, rails_project_id: int, scheduler_project_id: int) -> None:
+    conn.execute(
+        """
+        INSERT INTO project_links (rails_project_id, scheduler_project_id, last_synced_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(rails_project_id) DO UPDATE SET
+            scheduler_project_id = excluded.scheduler_project_id,
+            last_synced_at = excluded.last_synced_at
+        """,
+        (rails_project_id, scheduler_project_id),
+    )
+
+
+def find_project_link(conn: sqlite3.Connection, rails_project_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM project_links WHERE rails_project_id = ?", (rails_project_id,)).fetchone()
+
+
+def all_project_links(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM project_links").fetchall()

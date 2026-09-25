@@ -1,9 +1,10 @@
 [project]
 name = "remote-observatory-worker"
-version = "0.1.0"
+version = "0.2.0"
 description = "Observatory-side worker: syncs targets into NINA Target Scheduler, reports progress, and publishes subs/stacks to S3."
 requires-python = ">=3.10"
 dependencies = [
+  "observatory-contracts",
   "requests>=2.31",
   "boto3>=1.34",
   "PyYAML>=6.0",
@@ -16,7 +17,11 @@ dev = [
   "pytest-mock>=3.12",
   "responses>=0.25",
   "import-linter>=2.0",
+  "jsonschema[format]>=4.18",
 ]
+
+[tool.uv.sources]
+observatory-contracts = { path = "../contracts/python", editable = true }
 
 [project.scripts]
 robs = "robs.cli:main"

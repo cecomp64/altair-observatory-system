@@ -57,6 +57,66 @@ def ensure_schema_compatible(conn: sqlite3.Connection) -> None:
             )
 
 
+def per_project_columns_available(conn: sqlite3.Connection) -> bool:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({schema.PROJECT_TABLE})").fetchall()}
+    return all(col in existing for col in schema.PROJECT_OPTIONAL_COLUMNS.values())
+
+
+def upsert_hub_project(conn: sqlite3.Connection, profile_id: str, name: str, priority: int, min_altitude: float | None,
+                       existing_id: int | None = None) -> int:
+    """One Target Scheduler project per Hub project (§8.3). Matched by the id
+    we recorded (so renames follow), else by name."""
+    cols = schema.PROJECT_COLUMNS
+    min_alt = schema.PROJECT_OPTIONAL_COLUMNS["minimum_altitude"]
+    row = None
+    if existing_id is not None:
+        row = conn.execute(f"SELECT {cols['id']} FROM {schema.PROJECT_TABLE} WHERE {cols['id']} = ?", (existing_id,)).fetchone()
+    if row is None:
+        row = conn.execute(
+            f"SELECT {cols['id']} FROM {schema.PROJECT_TABLE} WHERE {cols['name']} = ? AND {cols['profile_id']} = ?", (name, profile_id)
+        ).fetchone()
+    if row:
+        conn.execute(
+            f"UPDATE {schema.PROJECT_TABLE} SET {cols['name']} = ?, {cols['priority']} = ?, {min_alt} = ?, {cols['state']} = ? "
+            f"WHERE {cols['id']} = ?",
+            (name, priority, min_altitude or 0, schema.PROJECT_STATE_ACTIVE, row[cols["id"]]),
+        )
+        return row[cols["id"]]
+    cursor = conn.execute(
+        f"INSERT INTO {schema.PROJECT_TABLE} ({cols['profile_id']}, {cols['name']}, {cols['description']}, {cols['state']}, "
+        f"{cols['priority']}, {min_alt}, {cols['create_date']}) VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'))",
+        (profile_id, name, "Managed by robs (Hub project)", schema.PROJECT_STATE_ACTIVE, priority, min_altitude or 0),
+    )
+    return cursor.lastrowid
+
+
+def move_target(conn: sqlite3.Connection, target_id: int, project_id: int) -> None:
+    """Re-home a scheduler target (keeping its exposure plans and accepted counts)."""
+    cols = schema.TARGET_COLUMNS
+    conn.execute(f"UPDATE {schema.TARGET_TABLE} SET {cols['project_id']} = ? WHERE {cols['id']} = ?", (project_id, target_id))
+
+
+def enabled_target_count(conn: sqlite3.Connection, project_id: int) -> int:
+    cols = schema.TARGET_COLUMNS
+    return conn.execute(
+        f"SELECT count(*) FROM {schema.TARGET_TABLE} WHERE {cols['project_id']} = ? AND {cols['enabled']} = 1", (project_id,)
+    ).fetchone()[0]
+
+
+def set_project_state(conn: sqlite3.Connection, project_id: int, state: int) -> None:
+    cols = schema.PROJECT_COLUMNS
+    conn.execute(f"UPDATE {schema.PROJECT_TABLE} SET {cols['state']} = ? WHERE {cols['id']} = ?", (state, project_id))
+
+
+def find_managed_project(conn: sqlite3.Connection, profile_id: str) -> int | None:
+    cols = schema.PROJECT_COLUMNS
+    row = conn.execute(
+        f"SELECT {cols['id']} FROM {schema.PROJECT_TABLE} WHERE {cols['name']} = ? AND {cols['profile_id']} = ?",
+        (schema.MANAGED_PROJECT_NAME, profile_id),
+    ).fetchone()
+    return row[cols["id"]] if row else None
+
+
 def get_or_create_project(conn: sqlite3.Connection, profile_id: str) -> int:
     cols = schema.PROJECT_COLUMNS
     row = conn.execute(
