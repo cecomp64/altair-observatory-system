@@ -1,1 +1,7 @@
 # altair-pre-processor
+
+Fully automated, event-triggered astrophotography pre-processing: raw frames from a night's
+imaging session are calibrated and integrated headlessly with PixInsight WBPP into one master
+per (telescope, camera, filter, target).
+
+See [docs/SPEC.md](docs/SPEC.md) for the implementation specification.
