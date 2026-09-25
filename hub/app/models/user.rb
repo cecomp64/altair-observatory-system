@@ -6,6 +6,7 @@ class User < ApplicationRecord
 
   enum :role, { member: 0, admin: 1 }
 
+  has_many :projects, dependent: :destroy
   has_many :targets, dependent: :destroy
 
   validates :name, presence: true

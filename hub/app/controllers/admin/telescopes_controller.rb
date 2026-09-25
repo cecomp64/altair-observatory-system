@@ -8,6 +8,7 @@ module Admin
 
     def show
       @api_keys = @telescope.api_keys.order(created_at: :desc)
+      @optical_trains = @telescope.optical_trains.order(:key)
     end
 
     def new
@@ -42,13 +43,14 @@ module Admin
     private
 
     def set_telescope
-      @telescope = Telescope.find(params[:id])
+      @telescope = Telescope.find_by_param!(params[:id])
     end
 
     def telescope_params
       params.require(:telescope).permit(
         :name, :slug, :latitude, :longitude, :elevation_m,
-        :active, :self_serve_submit, :description, :horizon_file
+        :active, :self_serve_submit, :description, :horizon_file,
+        :timezone, :min_altitude_deg, :default_optical_train_id
       )
     end
   end

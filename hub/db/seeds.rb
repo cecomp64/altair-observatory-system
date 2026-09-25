@@ -34,6 +34,17 @@ unless telescope.horizon_file.attached?
   )
 end
 
+train = telescope.default_optical_train
+train.update!(
+  name: "Esprit 100 + ASI2600MM", camera_name: "ZWO ASI2600MM Pro", camera_type: "mono",
+  focal_length_mm: 550, pixel_size_um: 3.76, sensor_width_px: 6248, sensor_height_px: 4176, has_rotator: true,
+  filters: [
+    { "name" => "L", "aliases" => %w[Lum Luminance] }, { "name" => "R" }, { "name" => "G" }, { "name" => "B" },
+    { "name" => "Ha", "aliases" => %w[H-alpha HA] }, { "name" => "OIII", "aliases" => %w[O3] }, { "name" => "SII", "aliases" => %w[S2] }
+  ],
+  header_aliases: { "telescope" => [ "Esprit 100ED" ], "camera" => [ "ZWO ASI2600MM Pro" ] }
+)
+
 api_key = telescope.api_keys.find_or_initialize_by(name: "Local worker (dev)")
 if api_key.new_record?
   token = api_key.generate_token!
@@ -41,7 +52,10 @@ if api_key.new_record?
   puts "Created dev API key for #{telescope.name}: #{token}"
 end
 
+project = member.projects.find_or_create_by!(name: "Orion Nebula") { |p| p.status = :active; p.priority = 1 }
+
 target = Target.find_or_create_by!(user: member, telescope: telescope, name: "M42 - Orion Nebula") do |t|
+  t.project = project
   t.ra_deg = 83.822
   t.dec_deg = -5.391
   t.status = :in_progress
@@ -51,8 +65,9 @@ target = Target.find_or_create_by!(user: member, telescope: telescope, name: "M4
 end
 
 if target.exposure_plans.empty?
-  target.exposure_plans.create!(filter: "Luminance", exposure_seconds: 300, desired_count: 20, completed_count: 12)
+  target.exposure_plans.create!(filter: "L", exposure_seconds: 300, desired_count: 20, completed_count: 12)
   target.exposure_plans.create!(filter: "Ha", exposure_seconds: 600, desired_count: 10, completed_count: 3)
 end
 
-puts "Seeded #{User.count} users, #{Telescope.count} telescopes, #{Target.count} targets."
+puts "Seeded #{User.count} users, #{Telescope.count} telescopes, #{Project.count} projects, #{Target.count} targets."
+puts "Import the catalogue with: bin/rails \"catalogue:import[openngc]\""

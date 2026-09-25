@@ -1,0 +1,42 @@
+<% content_for :title, "New project — telescope" %>
+
+<div class="max-w-2xl mx-auto">
+  <%= render "steps", current_step: "telescope" %>
+
+  <h1 class="text-xl font-semibold">Which telescope would you like to use?</h1>
+  <p class="text-slate-500 text-sm mt-1 mb-6">Each telescope has its own horizon and imaging schedule, and each camera setup (optical train) its own field of view and filters.</p>
+
+  <%= form_with url: project_wizard_telescope_path, method: :patch, class: "space-y-4" do |f| %>
+    <% @telescopes.each do |telescope| %>
+      <% trains = telescope.optical_trains.select(&:active?).sort_by(&:key) %>
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <p class="font-medium"><%= link_to telescope.name, telescope_path(telescope), class: "hover:text-indigo-600", target: "_blank" %></p>
+        <p class="text-xs text-slate-500 mb-3"><%= telescope.description.presence || "#{telescope.latitude}, #{telescope.longitude}" %></p>
+        <div class="space-y-2">
+          <% trains.each do |train| %>
+            <label class="flex items-center gap-3 rounded-lg border border-slate-200 p-3 cursor-pointer hover:border-indigo-300 has-[:checked]:border-indigo-500 has-[:checked]:ring-1 has-[:checked]:ring-indigo-500">
+              <%= radio_button_tag :optical_train_id, train.id, @state["optical_train_id"] == train.id, class: "h-4 w-4 text-indigo-600" %>
+              <div class="text-sm">
+                <p class="font-medium"><%= train.name %></p>
+                <p class="text-xs text-slate-500">
+                  <%= [ train.camera_name, train.camera_type&.upcase ].compact_blank.join(" · ") %>
+                  <% if (fov = train.fov_deg) %>· FOV <%= (fov[0] * 60).round %>′ × <%= (fov[1] * 60).round %>′<% end %>
+                  <% if train.filter_names.any? %>· <%= train.filter_names.join(", ") %><% end %>
+                </p>
+              </div>
+            </label>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+    <% if @telescopes.empty? %>
+      <p class="text-sm text-slate-400">No telescopes are available right now — check back soon.</p>
+    <% end %>
+
+    <div class="pt-2 flex justify-between">
+      <%= link_to "Back", new_project_path, class: "rounded-lg px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" %>
+      <%= f.submit "Continue", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
+    </div>
+  <% end %>
+</div>

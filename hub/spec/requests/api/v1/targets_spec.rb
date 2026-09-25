@@ -47,7 +47,7 @@ RSpec.describe "Api::V1::Targets", type: :request do
         headers: auth_headers.merge("Content-Type" => "application/json")
 
       expect(response).to have_http_status(:created)
-      expect(target.target_files.count).to eq(1)
+      expect(target.data_products.count).to eq(1)
       expect(target.target_events.file_added.count).to eq(1)
     end
 

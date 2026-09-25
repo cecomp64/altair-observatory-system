@@ -2,7 +2,7 @@
 
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-2xl font-semibold">My Targets</h1>
-  <%= link_to "New target", new_target_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
+  <%= link_to "New project", new_project_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
 </div>
 
 <div class="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
@@ -23,5 +23,5 @@
 </div>
 
 <% if @targets.empty? %>
-  <p class="text-slate-400 mt-6">You haven't created any targets yet. <%= link_to "Create your first one.", new_target_path, class: "text-indigo-600 underline" %></p>
+  <p class="text-slate-400 mt-6">You haven't created any targets yet. <%= link_to "Start a project.", new_project_path, class: "text-indigo-600 underline" %></p>
 <% end %>

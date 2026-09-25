@@ -2,6 +2,7 @@ FactoryBot.define do
   factory :target do
     user
     telescope
+    project { association :project, user: user }
     sequence(:name) { |n| "Test Target #{n}" }
     ra_deg { 83.822 }
     dec_deg { -5.391 }

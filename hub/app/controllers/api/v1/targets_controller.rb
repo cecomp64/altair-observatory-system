@@ -1,6 +1,9 @@
 module Api
   module V1
     class TargetsController < BaseController
+      require_scope "progress:write", only: :progress
+      require_scope "files:write", only: :files
+      require_scope "events:write", only: :events
       before_action :set_target
 
       # PATCH /api/v1/targets/:id/progress
@@ -32,9 +35,14 @@ module Api
       # POST /api/v1/targets/:id/files
       # Body: { url, kind, filter?, captured_at? }
       def files
-        file = @target.target_files.create!(
+        kind = params[:kind].presence || "sub"
+        unless DataProduct::LEGACY_KINDS.include?(kind)
+          return render json: { error: "kind must be one of #{DataProduct::LEGACY_KINDS.join(', ')}" }, status: :unprocessable_content
+        end
+
+        file = @target.data_products.create!(
           url: params[:url],
-          kind: params[:kind] || "sub",
+          kind: kind,
           filter: params[:filter],
           captured_at: params[:captured_at]
         )
@@ -53,15 +61,17 @@ module Api
       def events
         event = @target.target_events.create!(event_type: params[:event_type], payload: params[:payload] || {})
         render json: { ok: true, event: { id: event.id, event_type: event.event_type } }, status: :created
-      rescue ActiveRecord::RecordInvalid => e
+      rescue ActiveRecord::RecordInvalid, ArgumentError => e
         render json: { error: e.message }, status: :unprocessable_content
       end
 
       private
 
       def set_target
+        return if performed?
+
         @target = Target.find(params[:id])
-        return if @target.telescope_id == current_api_key.telescope_id
+        return if current_api_key.telescope_ids.include?(@target.telescope_id)
 
         render json: { error: "This API key is not authorized for that target" }, status: :forbidden
       rescue ActiveRecord::RecordNotFound

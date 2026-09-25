@@ -1,0 +1,80 @@
+<% field = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+<% label = "block text-sm font-medium text-slate-700 mb-1" %>
+<%= form_with model: [ :admin, telescope, optical_train ], class: "space-y-5" do |f| %>
+  <% if optical_train.errors.any? %>
+    <div class="rounded-lg bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">
+      <%= optical_train.errors.full_messages.to_sentence %>
+    </div>
+  <% end %>
+
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <%= f.label :key, "Key (= Altair rig name)", class: label %>
+      <%= f.text_field :key, class: field, placeholder: "esprit100_2600mm" %>
+    </div>
+    <div>
+      <%= f.label :name, class: label %>
+      <%= f.text_field :name, class: field, placeholder: "Esprit 100 + ASI2600MM" %>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-3 gap-4">
+    <div>
+      <%= f.label :camera_name, class: label %>
+      <%= f.text_field :camera_name, class: field %>
+    </div>
+    <div>
+      <%= f.label :camera_type, class: label %>
+      <%= f.select :camera_type, OpticalTrain.camera_types.keys, {}, class: field %>
+    </div>
+    <div>
+      <%= f.label :bayer_pattern, "Bayer pattern (OSC)", class: label %>
+      <%= f.text_field :bayer_pattern, class: field, placeholder: "RGGB" %>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-4 gap-4">
+    <div>
+      <%= f.label :focal_length_mm, "Focal length (mm)", class: label %>
+      <%= f.number_field :focal_length_mm, step: "any", class: field %>
+    </div>
+    <div>
+      <%= f.label :pixel_size_um, "Pixel size (µm)", class: label %>
+      <%= f.number_field :pixel_size_um, step: "any", class: field %>
+    </div>
+    <div>
+      <%= f.label :sensor_width_px, "Sensor width (px)", class: label %>
+      <%= f.number_field :sensor_width_px, class: field %>
+    </div>
+    <div>
+      <%= f.label :sensor_height_px, "Sensor height (px)", class: label %>
+      <%= f.number_field :sensor_height_px, class: field %>
+    </div>
+  </div>
+
+  <div>
+    <%= f.label :filters_text, "Filters", class: label %>
+    <p class="text-xs text-slate-400 mb-1">One per line: canonical name, then optional aliases seen in FITS headers. E.g. <code>Ha: H-alpha, HA</code></p>
+    <%= f.text_area :filters_text, rows: 6, class: "#{field} font-mono" %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <%= label_tag "optical_train[header_aliases_telescope]", "TELESCOP header values", class: label %>
+      <%= text_field_tag "optical_train[header_aliases_telescope]", Array(optical_train.header_aliases["telescope"]).join(", "), class: field %>
+    </div>
+    <div>
+      <%= label_tag "optical_train[header_aliases_camera]", "INSTRUME header values", class: label %>
+      <%= text_field_tag "optical_train[header_aliases_camera]", Array(optical_train.header_aliases["camera"]).join(", "), class: field %>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-6">
+    <label class="flex items-center gap-2 text-sm"><%= f.check_box :has_rotator, class: "h-4 w-4" %> Has rotator</label>
+    <label class="flex items-center gap-2 text-sm"><%= f.check_box :active, class: "h-4 w-4" %> Active</label>
+  </div>
+
+  <div class="pt-2 flex justify-between">
+    <%= f.submit class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
+  </div>
+<% end %>

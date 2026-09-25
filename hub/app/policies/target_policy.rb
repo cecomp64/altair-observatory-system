@@ -6,7 +6,7 @@ class TargetPolicy < ApplicationPolicy
   end
 
   def show?
-    owner? || user.admin?
+    owner? || user.admin? || record.project.visibility_club?
   end
 
   def create?

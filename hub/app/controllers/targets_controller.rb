@@ -8,7 +8,7 @@ class TargetsController < ApplicationController
   def show
     authorize @target
     @exposure_plans = @target.exposure_plans
-    @files = @target.target_files.recent_first
+    @files = @target.data_products.legacy.recent_first
     @preview = @files.preview.first
     @events = @target.target_events.recent_first.limit(20)
   end

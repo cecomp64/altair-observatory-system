@@ -1,0 +1,65 @@
+<% content_for :title, @project.name %>
+<% basis = @project.completion_basis %>
+
+<%= link_to "← Projects", projects_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
+
+<div class="mt-3 flex items-start justify-between">
+  <div>
+    <h1 class="text-2xl font-semibold"><%= @project.name %></h1>
+    <p class="text-sm text-slate-500"><%= @project.user.display_name %> · <%= @project.status.humanize %> · priority <%= @project.priority %> · <%= @project.visibility.humanize %> · complete when <%= basis %></p>
+    <% if @project.description.present? %><p class="text-slate-600 mt-2"><%= @project.description %></p><% end %>
+  </div>
+  <% if policy(@project).update? %>
+    <%= link_to "Edit", edit_project_path(@project), class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
+  <% end %>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-medium text-slate-500">Progress by filter</h2>
+    <p class="text-sm text-slate-600">Overall <span class="font-medium"><%= @progress.overall_percent %>%</span>
+      <% if (next_filter = @progress.recommended_filter) %>· next: <span class="font-medium"><%= next_filter %></span><% end %></p>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="text-left text-slate-400">
+      <tr><th class="pb-2">Filter</th><th class="pb-2">Goal</th><th class="pb-2">Acquired</th><th class="pb-2">Collected</th><th class="pb-2">Integrated</th></tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      <% @progress.by_filter.each do |row| %>
+        <tr>
+          <td class="py-2 font-medium"><%= row.filter %></td>
+          <td class="py-2 text-slate-500"><%= (row.goal_seconds / 3600.0).round(1) %> h</td>
+          <% %w[acquired collected integrated].each do |b| %>
+            <td class="py-2 w-1/5">
+              <%= render "projects/progress_bar", percent: row.percent(b), color: b == basis ? "bg-indigo-500" : "bg-slate-400" %>
+              <span class="text-xs text-slate-500"><%= (row.actual_seconds[b] / 3600.0).round(1) %> h · <%= row.percent(b) %>%</span>
+            </td>
+          <% end %>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+  <h2 class="text-sm font-medium text-slate-500 mb-3">Targets</h2>
+  <ul class="divide-y divide-slate-100">
+    <% @targets.each do |target| %>
+      <li class="py-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <%= link_to target.name, target_path(target), class: "font-medium hover:text-indigo-600" %>
+            <span class="text-xs text-slate-400 font-mono ml-1"><%= target.nina_name %></span>
+            <p class="text-xs text-slate-500"><%= target.telescope.name %> · <%= target.effective_optical_train&.name %> · <%= target.status.humanize %><%= " · panel #{target.panel}" if target.panel.present? %></p>
+          </div>
+          <span class="text-sm text-slate-500"><%= target.percent_complete %>%</span>
+        </div>
+        <ul class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-600">
+          <% target.exposure_plans.sort_by(&:id).each do |plan| %>
+            <li class="rounded-lg bg-slate-50 px-2 py-1"><span class="font-medium"><%= plan.filter %></span> <%= plan.exposure_seconds %>s · <%= plan.completed_count %>/<%= plan.desired_count %></li>
+          <% end %>
+        </ul>
+      </li>
+    <% end %>
+  </ul>
+</div>

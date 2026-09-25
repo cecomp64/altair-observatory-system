@@ -31,7 +31,7 @@ module Admin
     private
 
     def set_telescope
-      @telescope = Telescope.find(params[:telescope_id])
+      @telescope = Telescope.find_by_param!(params[:telescope_id])
     end
   end
 end

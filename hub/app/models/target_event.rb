@@ -1,7 +1,10 @@
 class TargetEvent < ApplicationRecord
   belongs_to :target
 
-  enum :event_type, { progress: 0, file_added: 1, status_changed: 2, error: 3 }
+  enum :event_type, {
+    progress: 0, file_added: 1, status_changed: 2, error: 3,
+    frames_collected: 4, night_closed: 5, master_updated: 6, issue_opened: 7, issue_resolved: 8, session: 9
+  }
 
   after_create_commit :notify_owner
 

@@ -1,0 +1,82 @@
+<% content_for :title, "New project — objects" %>
+<% input = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+
+<div class="max-w-2xl mx-auto">
+  <%= render "steps", current_step: "objects" %>
+
+  <h1 class="text-xl font-semibold">What would you like to image?</h1>
+  <p class="text-slate-500 text-sm mt-1 mb-6">Search the catalogue by any name (M 31, NGC 7000, Pelican Nebula…). Add several objects, or mosaic panels, to image them as one project.</p>
+
+  <% if @objects.any? %>
+    <ul class="space-y-2 mb-6">
+      <% @objects.each_with_index do |object, index| %>
+        <li class="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <span class="text-sm">
+            <span class="font-medium"><%= object["name"] %></span>
+            <% if object["panel"].present? %><span class="text-slate-500">· panel <%= object["panel"] %></span><% end %>
+            <span class="text-slate-400">· RA <%= number_with_precision(object["ra_deg"], precision: 3) %>° Dec <%= number_with_precision(object["dec_deg"], precision: 3) %>°</span>
+            <% unless object["astro_object_id"] %><span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">custom</span><% end %>
+          </span>
+          <%= button_to "Remove", project_wizard_remove_object_path(index: index), method: :delete,
+                class: "text-xs text-rose-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <%= form_with url: new_project_path, method: :get, class: "flex gap-2" do %>
+    <input type="search" name="q" value="<%= @query %>" placeholder="Search the catalogue" class="<%= input %>" autofocus>
+    <%= submit_tag "Search", name: nil, class: "rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 cursor-pointer" %>
+  <% end %>
+
+  <% if @query.present? %>
+    <div class="mt-3 rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+      <% @results.each do |object| %>
+        <div class="flex items-center justify-between px-4 py-2 text-sm">
+          <div>
+            <span class="font-medium"><%= object.primary_name %></span>
+            <span class="text-slate-400"><%= [ object.object_type, object.constellation, (object.magnitude && "mag #{object.magnitude.to_f}") ].compact.join(" · ") %></span>
+            <p class="text-xs text-slate-400"><%= object.aliases.map(&:name).first(5).join(", ") %></p>
+          </div>
+          <%= button_to "Add", project_wizard_add_object_path, params: { astro_object_id: object.id, q: @query },
+                class: "text-xs text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
+        </div>
+      <% end %>
+      <div class="flex items-center justify-between px-4 py-2 text-sm bg-slate-50 rounded-b-xl">
+        <span class="text-slate-500"><%= @results.empty? ? "Nothing in the catalogue matches." : "Not the one?" %> Look “<%= @query %>” up online.</span>
+        <%= button_to "Look up", project_wizard_add_object_path, params: { resolve: @query, q: @query },
+              class: "text-xs text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
+      </div>
+    </div>
+  <% end %>
+
+  <details class="mt-6 rounded-xl border border-dashed border-slate-300 p-4">
+    <summary class="cursor-pointer text-sm font-medium text-slate-700">Enter custom coordinates</summary>
+    <p class="text-xs text-slate-500 mt-2 mb-3">Decimal degrees, or sexagesimal (RA <code>05:35:17</code>, Dec <code>-05:23:28</code>).</p>
+    <%= form_with url: project_wizard_add_object_path, method: :post, class: "grid grid-cols-2 sm:grid-cols-4 gap-3 items-end" do %>
+      <div class="col-span-2 sm:col-span-1">
+        <label class="block text-xs font-medium text-slate-700 mb-1">Name</label>
+        <input type="text" name="name" class="<%= input %>">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 mb-1">RA</label>
+        <input type="text" name="ra" class="<%= input %>">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 mb-1">Dec</label>
+        <input type="text" name="dec" class="<%= input %>">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 mb-1">Panel <span class="text-slate-400">(mosaic)</span></label>
+        <input type="text" name="panel" placeholder="optional" class="<%= input %>">
+      </div>
+      <div class="col-span-2 sm:col-span-4 flex justify-end">
+        <%= submit_tag "Add", class: "rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 cursor-pointer" %>
+      </div>
+    <% end %>
+  </details>
+
+  <%= form_with url: new_project_path, method: :patch, class: "pt-6 flex justify-end" do %>
+    <%= submit_tag "Continue", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
+  <% end %>
+</div>

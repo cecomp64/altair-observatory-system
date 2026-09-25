@@ -1,0 +1,59 @@
+<% content_for :title, "New project — review" %>
+<% input = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+
+<div class="max-w-xl mx-auto">
+  <%= render "steps", current_step: "review" %>
+
+  <h1 class="text-xl font-semibold">Review &amp; submit</h1>
+  <p class="text-slate-500 text-sm mt-1 mb-6">Double-check everything below, then submit — it'll be picked up the next time <%= @optical_train.telescope.name %> opens up.</p>
+
+  <%= form_with url: project_wizard_review_path, method: :post do %>
+    <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+      <div class="grid grid-cols-3 gap-4">
+        <div class="col-span-2">
+          <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Project name</label>
+          <input type="text" name="name" value="<%= @project_name %>" class="<%= input %>" required>
+        </div>
+        <div>
+          <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Priority</label>
+          <input type="number" name="priority" value="0" class="<%= input %>">
+        </div>
+      </div>
+      <div>
+        <p class="text-xs uppercase tracking-wide text-slate-400">Telescope</p>
+        <p class="font-medium"><%= @optical_train.telescope.name %> <span class="text-slate-500 font-normal">· <%= @optical_train.name %></span></p>
+      </div>
+      <div>
+        <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Targets</p>
+        <ul class="divide-y divide-slate-100 text-sm">
+          <% @objects.each do |object| %>
+            <li class="py-2 flex justify-between">
+              <span><%= object["name"] %><%= " · panel #{object['panel']}" if object["panel"].present? %></span>
+              <span class="text-slate-500">RA <%= number_with_precision(object["ra_deg"], precision: 3) %>° · Dec <%= number_with_precision(object["dec_deg"], precision: 3) %>°</span>
+            </li>
+          <% end %>
+        </ul>
+      </div>
+      <div>
+        <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Exposure plan (per target)</p>
+        <ul class="divide-y divide-slate-100 text-sm">
+          <% (@state["exposure_plans"] || []).each do |plan| %>
+            <li class="py-2 flex justify-between">
+              <span><%= plan["filter"] %> &middot; <%= plan["exposure_seconds"] %>s</span>
+              <span class="text-slate-500">x<%= plan["desired_count"] %></span>
+            </li>
+          <% end %>
+        </ul>
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Notes <span class="normal-case">(optional)</span></label>
+        <textarea name="description" rows="3" placeholder="Anything the imaging team should know?" class="<%= input %>"></textarea>
+      </div>
+    </div>
+
+    <div class="pt-6 flex justify-between">
+      <%= link_to "Back", project_wizard_exposures_path, class: "rounded-lg px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" %>
+      <%= submit_tag "Submit project", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
+    </div>
+  <% end %>
+</div>

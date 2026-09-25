@@ -1,12 +1,12 @@
 <%
   steps = [
+    ["Objects", "objects"],
     ["Telescope", "telescope"],
-    ["Details", "details"],
     ["Exposures", "exposures"],
     ["Review", "review"]
   ]
 %>
-<ol class="flex items-center gap-2 mb-8 text-sm">
+<ol class="flex flex-wrap items-center gap-2 mb-8 text-sm">
   <% steps.each_with_index do |(label, key), index| %>
     <li class="flex items-center gap-2">
       <span class="flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium

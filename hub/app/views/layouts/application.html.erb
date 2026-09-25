@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title><%= content_for(:title) || "Remote Observatory Queueing System" %></title>
+    <title><%= content_for(:title) || "Remote Observatory" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Remote Observatory Queueing System">
+    <meta name="application-name" content="Remote Observatory">
     <meta name="mobile-web-app-capable" content="yes">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
@@ -32,8 +32,9 @@
             <div class="hidden sm:flex items-center gap-4 text-sm text-slate-300">
               <%= link_to "Dashboard", root_path, class: "hover:text-white" %>
               <%= link_to "Telescopes", telescopes_path, class: "hover:text-white" %>
-              <%= link_to "My Targets", targets_path, class: "hover:text-white" %>
-              <%= link_to "New Target", new_target_path, class: "hover:text-white" %>
+              <%= link_to "Projects", projects_path, class: "hover:text-white" %>
+              <%= link_to "Targets", targets_path, class: "hover:text-white" %>
+              <%= link_to "New Project", new_project_path, class: "hover:text-white" %>
               <% if current_user.admin? %>
                 <%= link_to "Admin", admin_root_path, class: "hover:text-white" %>
               <% end %>

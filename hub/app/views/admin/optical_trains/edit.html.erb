@@ -1,0 +1,6 @@
+<% content_for :title, "Edit optical train" %>
+<%= link_to "← #{@telescope.name}", admin_telescope_path(@telescope), class: "text-sm text-slate-500 hover:text-slate-700" %>
+<h1 class="text-2xl font-semibold mt-3 mb-6">Edit optical train</h1>
+<div class="max-w-2xl">
+  <%= render "form", telescope: @telescope, optical_train: @optical_train %>
+</div>

@@ -1,0 +1,41 @@
+<% content_for :title, "Projects" %>
+
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Projects</h1>
+    <div class="flex gap-3 text-sm mt-1">
+      <%= link_to "Mine", projects_path, class: @scope == "mine" ? "font-medium text-slate-900" : "text-slate-500 hover:text-slate-700" %>
+      <%= link_to "Shared with the club", projects_path(scope: "club"), class: @scope == "club" ? "font-medium text-slate-900" : "text-slate-500 hover:text-slate-700" %>
+    </div>
+  </div>
+  <%= link_to "New project", new_project_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
+</div>
+
+<% if @projects.any? %>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <% @projects.each do |project| %>
+      <% progress = Progress::Calculator.new(project) %>
+      <%= link_to project_path(project), class: "block rounded-xl border border-slate-200 bg-white p-5 hover:border-indigo-300" do %>
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="font-medium"><%= project.name %></p>
+            <p class="text-xs text-slate-500"><%= project.targets.map { |t| t.telescope.name }.uniq.join(", ") %> · <%= pluralize(project.targets.size, "target") %></p>
+          </div>
+          <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"><%= project.status.humanize %></span>
+        </div>
+        <div class="mt-4 space-y-2">
+          <% progress.by_filter.each do |row| %>
+            <div class="grid grid-cols-6 items-center gap-2 text-xs">
+              <span class="text-slate-600"><%= row.filter %></span>
+              <div class="col-span-4"><%= render "projects/progress_bar", percent: row.percent(project.completion_basis) %></div>
+              <span class="text-right text-slate-500"><%= row.percent(project.completion_basis) %>%</span>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+    <% end %>
+  </div>
+<% else %>
+  <p class="text-slate-400 mt-6"><%= @scope == "club" ? "Nobody has shared a project with the club yet." : "You don't have any projects yet." %>
+    <%= link_to "Start one.", new_project_path, class: "text-indigo-600 underline" if @scope == "mine" %></p>
+<% end %>

@@ -1,0 +1,35 @@
+<% content_for :title, "Catalogue" %>
+<%= link_to "← Admin", admin_root_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
+<h1 class="text-2xl font-semibold mt-3">Object catalogue</h1>
+<p class="text-slate-500 text-sm mt-1"><%= number_with_delimiter(@counts.values.sum) %> objects, <%= number_with_delimiter(@alias_count) %> names.</p>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+  <table class="w-full text-sm">
+    <thead class="text-left text-slate-400"><tr><th class="pb-2">Source</th><th class="pb-2">Objects</th><th class="pb-2">Last import</th><th></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+      <% Admin::CatalogueController::CATALOGUES.each do |catalogue| %>
+        <% status = @statuses[catalogue] %>
+        <tr>
+          <td class="py-2 font-medium"><%= catalogue.upcase %></td>
+          <td class="py-2"><%= number_with_delimiter(@counts[catalogue].to_i) %></td>
+          <td class="py-2 text-slate-500">
+            <% if status %>
+              <%= status["state"] %> <%= time_ago_in_words(Time.zone.parse(status["at"])) %> ago
+              <% if status["result"] %>· <%= status["result"].map { |k, v| "#{k} #{v}" }.join(", ") %><% end %>
+              <% if status["error"] %><span class="text-rose-600">· <%= status["error"] %></span><% end %>
+            <% else %>never<% end %>
+          </td>
+          <td class="py-2 text-right">
+            <%= button_to "Import", import_admin_catalogue_path(catalogue: catalogue), class: "text-xs text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
+          </td>
+        </tr>
+      <% end %>
+      <tr>
+        <td class="py-2 font-medium">Telescopius / custom</td>
+        <td class="py-2"><%= number_with_delimiter(@counts["telescopius"].to_i + @counts["custom"].to_i) %></td>
+        <td class="py-2 text-slate-500" colspan="2">Added by members as they resolve names or enter custom coordinates.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="text-xs text-slate-400 mt-4">Imports merge by name: an object already known under any of its names gets the new names added, not a duplicate. Also available as <code>bin/rails "catalogue:import[openngc]"</code>.</p>
+</div>

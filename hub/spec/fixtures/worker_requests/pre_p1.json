@@ -1,0 +1,37 @@
+{
+  "_comment": "Requests exactly as rig-agent/src/robs/api_client.py sent them before P1 (headers, paths, bodies), and the response fields the worker reads. Replayed by spec/requests/api/legacy_worker_replay_spec.rb after every phase to prove backward compatibility (docs/SYSTEM_ARCHITECTURE.md §11).",
+  "headers": { "Authorization": "Bearer {token}", "Content-Type": "application/json", "Accept": "application/json" },
+  "requests": [
+    {
+      "name": "roof-open / cleanup: fetch active targets",
+      "method": "GET", "path": "/api/v1/telescopes/{slug}/active_targets", "status": 200,
+      "reads": ["targets.*.id", "targets.*.name", "targets.*.ra_deg", "targets.*.dec_deg", "targets.*.priority",
+                "targets.*.exposure_plans.*.id", "targets.*.exposure_plans.*.filter", "targets.*.exposure_plans.*.exposure_seconds",
+                "targets.*.exposure_plans.*.desired_count", "targets.*.exposure_plans.*.completed_count", "targets.*.exposure_plans.*.remaining_count"]
+    },
+    {
+      "name": "sync-progress",
+      "method": "PATCH", "path": "/api/v1/targets/{target_id}/progress", "status": 200,
+      "body": { "exposure_plans": [{ "id": "{plan_id}", "completed_count": 7 }] },
+      "reads": ["ok", "target.id", "target.status"]
+    },
+    {
+      "name": "end-of-night: publish a sub",
+      "method": "POST", "path": "/api/v1/targets/{target_id}/files", "status": 201,
+      "body": { "url": "https://bucket.s3.amazonaws.com/backyard/34/Ha/sub_0001.fits", "kind": "sub", "filter": "Ha", "captured_at": "2026-09-25T06:10:02+00:00" },
+      "reads": ["ok", "file.id", "file.url"]
+    },
+    {
+      "name": "end-of-night: publish a stack and preview",
+      "method": "POST", "path": "/api/v1/targets/{target_id}/files", "status": 201,
+      "body": { "url": "https://bucket.s3.amazonaws.com/backyard/34/stack.fits", "kind": "stacked", "captured_at": "2026-09-25T12:00:00+00:00" },
+      "reads": ["ok", "file.id"]
+    },
+    {
+      "name": "end-of-night: stacking failed",
+      "method": "POST", "path": "/api/v1/targets/{target_id}/events", "status": 201,
+      "body": { "event_type": "error", "payload": { "message": "Stacking failed after subs were published" } },
+      "reads": ["ok", "event.id"]
+    }
+  ]
+}

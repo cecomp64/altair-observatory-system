@@ -34,5 +34,27 @@ RSpec.describe "Api::V1::Telescopes", type: :request do
         "filter" => "Luminance", "desired_count" => 20, "completed_count" => 5, "remaining_count" => 15
       )
     end
+
+    it "adds the api_revision 1 fields: NINA name, project, optical train, timezone, schedule_count" do
+      project = create(:project, name: "Andromeda deep", priority: 7, completion_basis: "integrated")
+      train = create(:optical_train, telescope: telescope, key: "esprit100_2600mm")
+      target = create(:target, telescope: telescope, project: project, user: project.user, name: "M31",
+                               optical_train: train, rotation_deg: 35, status: :active)
+      create(:exposure_plan, target: target, filter: "Ha", desired_count: 20, completed_count: 12, usable_count: 9)
+
+      get "/api/v1/telescopes/#{telescope.slug}/active_targets",
+        headers: { "Authorization" => "Bearer #{api_key.plaintext_token}" }
+
+      json = response.parsed_body
+      expect(json["telescope"]["timezone"]).to eq(telescope.timezone)
+      entry = json["targets"].sole
+      expect(entry).to include(
+        "nina_name" => "##{target.id} M31", "rotation_deg" => 35.0, "min_altitude_deg" => 30.0,
+        "optical_train" => { "key" => "esprit100_2600mm" },
+        "project" => { "id" => project.id, "name" => "Andromeda deep", "priority" => 7, "ts_project_name" => "#P#{project.id} Andromeda deep" }
+      )
+      # Integrated basis: the 3 accepted-but-unusable frames are scheduled again.
+      expect(entry["exposure_plans"].sole["schedule_count"]).to eq(23)
+    end
   end
 end

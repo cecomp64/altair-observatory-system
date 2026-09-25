@@ -10,23 +10,28 @@ Rails.application.routes.draw do
 
   resources :telescopes, only: [ :index, :show ]
 
-  # Guided, step-by-step target creation wizard. Deliberately not a
-  # `resources :targets, only: [:new, :create]` — each step is its own
-  # small page (see ARCHITECTURE.md / UX notes in the controller). These
-  # routes must be declared before `resources :targets` below, otherwise
-  # `/targets/new` would be swallowed by `targets#show` (id="new").
-  controller :target_wizard do
-    get    "targets/new",                    action: :telescope,  as: :new_target
-    patch  "targets/new",                    action: :update_telescope
-    get    "targets/new/details",            action: :details,    as: :target_wizard_details
-    patch  "targets/new/details",            action: :update_details
-    get    "targets/new/exposures",          action: :exposures,  as: :target_wizard_exposures
-    post   "targets/new/exposures",          action: :add_exposure_plan, as: :target_wizard_add_exposure_plan
-    delete "targets/new/exposures/:index",   action: :remove_exposure_plan, as: :target_wizard_remove_exposure_plan
-    patch  "targets/new/exposures",          action: :update_exposures
-    get    "targets/new/review",             action: :review,     as: :target_wizard_review
-    post   "targets/new/review",             action: :create,     as: :target_wizard_create
+  # Guided, step-by-step project creation wizard. These routes must be
+  # declared before `resources :projects` below, otherwise `/projects/new`
+  # would be swallowed by `projects#show` (id="new").
+  controller :project_wizard do
+    get    "projects/new",                   action: :objects,    as: :new_project
+    patch  "projects/new",                   action: :update_objects
+    post   "projects/new/objects",           action: :add_object, as: :project_wizard_add_object
+    delete "projects/new/objects/:index",    action: :remove_object, as: :project_wizard_remove_object
+    get    "projects/new/telescope",         action: :telescope,  as: :project_wizard_telescope
+    patch  "projects/new/telescope",         action: :update_telescope
+    get    "projects/new/exposures",         action: :exposures,  as: :project_wizard_exposures
+    post   "projects/new/exposures",         action: :add_exposure_plan, as: :project_wizard_add_exposure_plan
+    delete "projects/new/exposures/:index",  action: :remove_exposure_plan, as: :project_wizard_remove_exposure_plan
+    patch  "projects/new/exposures",         action: :update_exposures
+    get    "projects/new/review",            action: :review,     as: :project_wizard_review
+    post   "projects/new/review",            action: :create,     as: :project_wizard_create
   end
+
+  # The single-target wizard became the project wizard.
+  get "targets/new", to: redirect("/projects/new"), as: :new_target
+
+  resources :projects, only: [ :index, :show, :edit, :update ]
 
   resources :targets, only: [ :index, :show ] do
     member do
@@ -39,6 +44,11 @@ Rails.application.routes.draw do
 
     resources :telescopes do
       resources :api_keys, only: [ :index, :new, :create, :destroy ]
+      resources :optical_trains, except: [ :index, :show ]
+    end
+
+    resource :catalogue, only: :show, controller: "catalogue" do
+      post :import
     end
   end
 
