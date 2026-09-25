@@ -1,5 +1,11 @@
 # Remote Observatory — Architecture
 
+> **Planned change:** the unified platform design, which merges this app with
+> `altair-pre-processor` and `astrophotography-database` on one central
+> database, is in [`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md).
+> The API contract below stays in force, and the new API only adds to it, until
+> that plan's Phase 5 lands.
+
 This document is the shared design reference for the two halves of the
 system:
 

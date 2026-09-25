@@ -9,7 +9,9 @@ uses the JSON API to sync targets into NINA's Target Scheduler plugin and
 report progress/files back.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design and API
-contract.
+contract, and [`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md)
+for the unified-platform plan (this app as the central Hub for the worker,
+`altair-pre-processor`, and the retired `astrophotography-database`).
 
 ## Requirements
 
