@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/shared/error.response.json",
+  "title": "ErrorResponse",
+  "description": "Body of every 4xx response (§5.5). 409 (manual assignment conflict) carries the winning value in details.",
+  "type": "object",
+  "required": ["error"],
+  "properties": {
+    "error": { "type": "string" },
+    "details": { "type": "object" }
+  }
+}

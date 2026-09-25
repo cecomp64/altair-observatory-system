@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/config.response.json",
+  "title": "ProcessingConfigResponse",
+  "description": "GET /api/v1/processing/config (scope targets:read). Served with an ETag; If-None-Match gets 304. targets covers every non-draft target on the node's telescopes, including completed and cancelled ones.",
+  "type": "object",
+  "required": ["api_revision", "node", "telescopes", "targets", "equipment_events"],
+  "properties": {
+    "api_revision": { "type": "integer", "minimum": 1 },
+    "node": {
+      "type": "object",
+      "required": ["name"],
+      "properties": { "name": { "type": "string" } }
+    },
+    "telescopes": { "type": "array", "items": { "$ref": "#/$defs/Telescope" } },
+    "targets": { "type": "array", "items": { "$ref": "#/$defs/Target" } },
+    "equipment_events": { "type": "array", "items": { "$ref": "#/$defs/EquipmentEvent" } }
+  },
+  "$defs": {
+    "Filter": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "Canonical filter name." },
+        "aliases": { "type": "array", "items": { "type": "string" }, "description": "Raw FILTER header values that map onto this filter (case-insensitive)." },
+        "bandpass_nm": { "type": ["number", "null"] }
+      }
+    },
+    "HeaderAliases": {
+      "type": "object",
+      "properties": {
+        "telescope": { "type": "array", "items": { "type": "string" } },
+        "camera": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "OpticalTrain": {
+      "type": "object",
+      "required": ["key", "camera_type", "focal_length_mm", "pixel_size_um", "sensor_width_px", "sensor_height_px", "has_rotator", "filters"],
+      "properties": {
+        "key": { "type": "string", "description": "Equals the Altair rig name." },
+        "camera_type": { "type": "string", "enum": ["mono", "osc"] },
+        "bayer_pattern": { "type": ["string", "null"] },
+        "focal_length_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "pixel_size_um": { "type": "number", "exclusiveMinimum": 0 },
+        "sensor_width_px": { "type": "integer", "minimum": 1 },
+        "sensor_height_px": { "type": "integer", "minimum": 1 },
+        "has_rotator": { "type": "boolean" },
+        "filters": { "type": "array", "items": { "$ref": "#/$defs/Filter" } },
+        "header_aliases": { "$ref": "#/$defs/HeaderAliases" }
+      }
+    },
+    "Telescope": {
+      "type": "object",
+      "required": ["slug", "timezone", "latitude", "longitude", "optical_trains"],
+      "properties": {
+        "slug": { "type": "string" },
+        "timezone": { "type": "string", "description": "IANA timezone; must equal Altair's site.timezone for the rig." },
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+        "elevation_m": { "type": ["number", "null"] },
+        "optical_trains": { "type": "array", "items": { "$ref": "#/$defs/OpticalTrain" } }
+      }
+    },
+    "Target": {
+      "type": "object",
+      "required": ["id", "project_id", "telescope", "name", "nina_name", "status", "ra_deg", "dec_deg", "aliases", "processing_settings"],
+      "properties": {
+        "id": { "type": "integer" },
+        "project_id": { "type": "integer" },
+        "telescope": { "type": "string", "description": "Telescope slug." },
+        "optical_train": { "type": ["string", "null"], "description": "Optical train key; null means any train of the telescope." },
+        "name": { "type": "string" },
+        "nina_name": { "type": "string", "pattern": "^#\\d+ " },
+        "status": { "$ref": "../shared/common.json#/$defs/TargetStatus" },
+        "ra_deg": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
+        "dec_deg": { "type": "number", "minimum": -90, "maximum": 90 },
+        "rotation_deg": { "type": ["number", "null"] },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "processing_settings": { "$ref": "../shared/common.json#/$defs/ProcessingSettings" }
+      }
+    },
+    "EquipmentEvent": {
+      "type": "object",
+      "required": ["id", "optical_train", "at", "kind"],
+      "properties": {
+        "id": { "type": "integer" },
+        "optical_train": { "type": "string" },
+        "at": { "$ref": "../shared/common.json#/$defs/Timestamp" },
+        "kind": { "$ref": "../shared/common.json#/$defs/EquipmentEventKind" },
+        "filter": { "type": ["string", "null"] },
+        "note": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

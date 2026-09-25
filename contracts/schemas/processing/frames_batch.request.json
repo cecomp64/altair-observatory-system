@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/frames_batch.request.json",
+  "title": "FramesBatchRequest",
+  "description": "POST /api/v1/processing/frames:batch (scope frames:write). Upserts by sha256. A frame is never rejected for an unknown target: it is stored with target_id null.",
+  "type": "object",
+  "required": ["frames"],
+  "properties": {
+    "frames": { "type": "array", "minItems": 1, "maxItems": 500, "items": { "$ref": "#/$defs/Frame" } }
+  },
+  "$defs": {
+    "Frame": {
+      "type": "object",
+      "required": ["sha256", "altair_frame_id", "origin", "telescope", "optical_train", "target_id", "assignment_source", "image_type", "night", "date_obs", "file_name", "logical_path", "status"],
+      "properties": {
+        "sha256": { "$ref": "../shared/common.json#/$defs/Sha256" },
+        "altair_frame_id": { "type": "integer" },
+        "origin": { "$ref": "../shared/common.json#/$defs/FrameOrigin" },
+        "telescope": { "type": "string", "description": "Telescope slug." },
+        "optical_train": { "type": "string", "description": "Optical train key (= Altair rig)." },
+        "target_id": { "type": ["integer", "null"] },
+        "assignment_source": { "$ref": "../shared/common.json#/$defs/AssignmentSource" },
+        "image_type": { "$ref": "../shared/common.json#/$defs/ImageType" },
+        "night": { "$ref": "../shared/common.json#/$defs/Night" },
+        "date_obs": { "$ref": "../shared/common.json#/$defs/Timestamp" },
+        "object_header": { "type": ["string", "null"] },
+        "filter": { "type": ["string", "null"], "description": "Canonical filter name." },
+        "exposure_s": { "type": ["number", "null"] },
+        "gain": { "type": ["number", "null"] },
+        "offset": { "type": ["number", "null"] },
+        "binning": { "type": ["string", "null"], "pattern": "^\\d+x\\d+$" },
+        "readout_mode": { "type": ["string", "null"] },
+        "sensor_temp_c": { "type": ["number", "null"] },
+        "rotator_pos": { "type": ["number", "null"] },
+        "rotator_units": { "type": ["string", "null"] },
+        "ra_deg": { "type": ["number", "null"] },
+        "dec_deg": { "type": ["number", "null"] },
+        "rotation_deg": { "type": ["number", "null"] },
+        "width_px": { "type": ["integer", "null"] },
+        "height_px": { "type": ["integer", "null"] },
+        "file_name": { "type": "string" },
+        "logical_path": { "type": "string" },
+        "status": { "$ref": "../shared/common.json#/$defs/FrameStatus" },
+        "status_reason": { "type": ["string", "null"] },
+        "quality": { "$ref": "../shared/common.json#/$defs/FrameQuality" },
+        "storage": { "$ref": "../shared/common.json#/$defs/FrameStorage" },
+        "headers": { "type": "object", "description": "Full or summary FITS/XISF headers (hub.frame_headers)." }
+      }
+    }
+  }
+}

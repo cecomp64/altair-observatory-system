@@ -1,0 +1,7 @@
+{
+  "kind": "HUB_UNREACHABLE",
+  "severity": "warning",
+  "status": "resolved",
+  "message": "Hub reachable again after 74 min",
+  "resolution": "auto"
+}

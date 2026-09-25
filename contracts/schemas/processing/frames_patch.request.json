@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/frames_patch.request.json",
+  "title": "FramesPatchRequest",
+  "description": "PATCH /api/v1/processing/frames:batch (scope frames:write). Partial updates by sha256: when frames are graded, rejected, uploaded or moved to S3-only.",
+  "type": "object",
+  "required": ["frames"],
+  "properties": {
+    "frames": {
+      "type": "array", "minItems": 1, "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": ["sha256"],
+        "minProperties": 2,
+        "properties": {
+          "sha256": { "$ref": "../shared/common.json#/$defs/Sha256" },
+          "status": { "$ref": "../shared/common.json#/$defs/FrameStatus" },
+          "status_reason": { "type": ["string", "null"] },
+          "quality": { "$ref": "../shared/common.json#/$defs/FrameQuality" },
+          "storage": { "$ref": "../shared/common.json#/$defs/FrameStorage" }
+        }
+      }
+    }
+  }
+}

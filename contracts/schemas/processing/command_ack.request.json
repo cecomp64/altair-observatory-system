@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/command_ack.request.json",
+  "title": "CommandAckRequest",
+  "description": "POST /api/v1/processing/commands/:id/ack (scope commands:read).",
+  "type": "object",
+  "required": ["state"],
+  "properties": {
+    "state": { "type": "string", "enum": ["succeeded", "failed"] },
+    "result": { "type": ["object", "null"] }
+  }
+}

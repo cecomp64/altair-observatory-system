@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/shared/heartbeat.request.json",
+  "title": "HeartbeatRequest",
+  "description": "POST /api/v1/heartbeat, sent by both principals (scope heartbeat:write).",
+  "type": "object",
+  "required": ["agent", "version", "status"],
+  "properties": {
+    "agent": { "type": "string", "enum": ["robs", "altair"] },
+    "version": { "type": "string" },
+    "api_revision": { "type": "integer", "minimum": 1, "description": "The newest api_revision the client understands." },
+    "status": {
+      "type": "object",
+      "description": "Free-form agent status. Altair sends versions, queue depth, running job, locations reachable, NAS free %, S3 backlog and outbox depth."
+    }
+  }
+}

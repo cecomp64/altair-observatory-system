@@ -1,0 +1,10 @@
+{
+  "kind": "NIGHT_STACK",
+  "status": "succeeded",
+  "target_id": 34,
+  "night": "2026-09-24",
+  "filter": "Ha",
+  "started_at": "2026-09-25T13:02:00Z",
+  "finished_at": "2026-09-25T13:48:11Z",
+  "error": null
+}

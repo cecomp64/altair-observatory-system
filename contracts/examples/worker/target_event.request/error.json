@@ -1,0 +1,6 @@
+{
+  "event_type": "error",
+  "payload": {
+    "message": "Target Scheduler DB locked"
+  }
+}

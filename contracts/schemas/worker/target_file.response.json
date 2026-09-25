@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/worker/target_file.response.json",
+  "title": "TargetFileResponse",
+  "type": "object",
+  "required": ["ok", "file"],
+  "properties": {
+    "ok": { "const": true },
+    "file": {
+      "type": "object",
+      "required": ["id", "url", "kind"],
+      "properties": {
+        "id": { "type": "integer" },
+        "url": { "type": ["string", "null"] },
+        "kind": { "type": "string" }
+      }
+    }
+  }
+}

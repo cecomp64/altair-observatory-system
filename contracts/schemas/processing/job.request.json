@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/job.request.json",
+  "title": "JobRequest",
+  "description": "PUT /api/v1/processing/jobs/:altair_id (scope issues:write). Summary only; Altair keeps the full job table.",
+  "type": "object",
+  "required": [
+    "kind",
+    "status"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "CALIB_MASTER",
+        "NIGHT_STACK",
+        "PROJECT_REFERENCE",
+        "MERGE"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "staging",
+        "waiting_data",
+        "running",
+        "succeeded",
+        "failed",
+        "skipped",
+        "blocked"
+      ]
+    },
+    "target_id": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "night": {
+      "anyOf": [
+        {
+          "$ref": "../shared/common.json#/$defs/Night"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "filter": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "$ref": "../shared/common.json#/$defs/Timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "$ref": "../shared/common.json#/$defs/Timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

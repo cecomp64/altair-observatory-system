@@ -1,0 +1,12 @@
+{
+  "agent": "altair",
+  "version": "0.8.0",
+  "api_revision": 1,
+  "status": {
+    "queue_depth": 3,
+    "running_job": null,
+    "nas_free_pct": 41.5,
+    "s3_backlog": 12,
+    "outbox_depth": 0
+  }
+}

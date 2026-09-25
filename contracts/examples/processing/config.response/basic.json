@@ -1,0 +1,86 @@
+{
+  "api_revision": 1,
+  "node": {
+    "name": "altair-proc-01"
+  },
+  "telescopes": [
+    {
+      "slug": "backyard-16in",
+      "timezone": "America/Los_Angeles",
+      "latitude": 37.3,
+      "longitude": -121.9,
+      "elevation_m": 120,
+      "optical_trains": [
+        {
+          "key": "esprit100_2600mm",
+          "camera_type": "mono",
+          "focal_length_mm": 550,
+          "pixel_size_um": 3.76,
+          "sensor_width_px": 6248,
+          "sensor_height_px": 4176,
+          "has_rotator": true,
+          "filters": [
+            {
+              "name": "Ha",
+              "aliases": [
+                "H-alpha",
+                "HA"
+              ]
+            }
+          ],
+          "header_aliases": {
+            "telescope": [
+              "Esprit 100ED"
+            ],
+            "camera": [
+              "ZWO ASI2600MM Pro"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "id": 34,
+      "project_id": 12,
+      "telescope": "backyard-16in",
+      "optical_train": "esprit100_2600mm",
+      "name": "M31",
+      "nina_name": "#34 M31",
+      "status": "active",
+      "ra_deg": 10.68471,
+      "dec_deg": 41.26875,
+      "rotation_deg": 35.0,
+      "aliases": [
+        "M31",
+        "M 31",
+        "NGC 224",
+        "Andromeda Galaxy"
+      ],
+      "processing_settings": {
+        "multi_night": {
+          "enabled": true,
+          "mode": "master_merge"
+        },
+        "reference_filter": "Ha",
+        "drizzle_scale": 1,
+        "keep_calibrated_frames": true,
+        "pin_to_nas": false,
+        "min_lights_per_stack": 5,
+        "max_fwhm_ratio_to_project_median": 1.6,
+        "wbpp_profile": "default"
+      }
+    }
+  ],
+  "equipment_events": [
+    {
+      "id": 7,
+      "optical_train": "esprit100_2600mm",
+      "at": "2026-09-20T18:00:00Z",
+      "kind": "sensor_cleaned",
+      "filter": null,
+      "note": "Dust donut near the lower edge removed"
+    }
+  ]
+}

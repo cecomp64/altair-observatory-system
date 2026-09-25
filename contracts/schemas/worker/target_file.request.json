@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/worker/target_file.request.json",
+  "title": "TargetFileRequest",
+  "description": "POST /api/v1/targets/:id/files (scope files:write). Legacy: only for workers with data_pipeline: legacy.",
+  "type": "object",
+  "required": ["url"],
+  "properties": {
+    "url": { "type": "string", "format": "uri" },
+    "kind": { "type": "string", "enum": ["sub", "stacked", "preview", "log"], "default": "sub" },
+    "filter": { "type": ["string", "null"] },
+    "captured_at": { "anyOf": [{ "$ref": "../shared/common.json#/$defs/Timestamp" }, { "type": "null" }] }
+  }
+}

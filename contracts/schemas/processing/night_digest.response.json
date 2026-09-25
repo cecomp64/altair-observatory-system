@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/night_digest.response.json",
+  "title": "NightDigestResponse",
+  "description": "GET /api/v1/processing/nights/:optical_train/:night/digest, for reconciliation (§6.3).",
+  "type": "object",
+  "required": ["frame_count", "sha256_xor", "by_type"],
+  "properties": {
+    "frame_count": { "type": "integer", "minimum": 0 },
+    "sha256_xor": { "$ref": "../shared/common.json#/$defs/Sha256" },
+    "by_type": {
+      "type": "object",
+      "propertyNames": { "$ref": "../shared/common.json#/$defs/ImageType" },
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    }
+  }
+}

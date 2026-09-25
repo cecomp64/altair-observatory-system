@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/worker/session_event.request.json",
+  "title": "SessionEventRequest",
+  "description": "POST /api/v1/telescopes/:slug/sessions (scope sessions:write, api_revision 1). session_end queues a night_ready command for every processing node serving the telescope, one per optical train.",
+  "type": "object",
+  "required": ["event", "at", "night"],
+  "properties": {
+    "event": { "type": "string", "enum": ["roof_open", "roof_close", "session_end"] },
+    "at": { "$ref": "../shared/common.json#/$defs/Timestamp" },
+    "night": { "$ref": "../shared/common.json#/$defs/Night" },
+    "target_ids": { "type": "array", "items": { "type": "integer" } }
+  }
+}

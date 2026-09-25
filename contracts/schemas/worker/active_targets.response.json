@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/worker/active_targets.response.json",
+  "title": "ActiveTargetsResponse",
+  "description": "GET /api/v1/telescopes/:slug/active_targets (scope targets:read). Fields added by api_revision 1 are optional so today's Hub responses stay valid; clients must tolerate unknown fields. Also the format of the rig agent's standalone targets_file (§3.6.3).",
+  "type": "object",
+  "required": ["telescope", "targets"],
+  "properties": {
+    "telescope": { "$ref": "#/$defs/Telescope" },
+    "targets": { "type": "array", "items": { "$ref": "#/$defs/ActiveTarget" } }
+  },
+  "$defs": {
+    "Telescope": {
+      "type": "object",
+      "required": ["id", "slug", "name"],
+      "properties": {
+        "id": { "type": "integer" },
+        "slug": { "type": "string" },
+        "name": { "type": "string" },
+        "timezone": { "type": "string", "description": "IANA timezone (api_revision 1)." }
+      }
+    },
+    "ProjectRef": {
+      "type": "object",
+      "required": ["id", "name", "priority", "ts_project_name"],
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string" },
+        "priority": { "type": "integer", "description": "Effective Target Scheduler priority; the target's own priority breaks ties." },
+        "ts_project_name": { "type": "string", "pattern": "^#P\\d+ ", "description": "\"#P<project_id> <project name>\" (§4.4)." }
+      }
+    },
+    "OpticalTrainRef": {
+      "type": "object",
+      "required": ["key"],
+      "properties": {
+        "key": { "type": "string", "description": "Equals the Altair rig name." }
+      }
+    },
+    "ExposurePlan": {
+      "type": "object",
+      "required": ["id", "filter", "exposure_seconds", "desired_count", "completed_count", "remaining_count"],
+      "properties": {
+        "id": { "type": "integer" },
+        "filter": { "type": "string" },
+        "exposure_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "desired_count": { "type": "integer", "minimum": 0 },
+        "completed_count": { "type": "integer", "minimum": 0 },
+        "remaining_count": { "type": "integer", "minimum": 0 },
+        "schedule_count": {
+          "type": "integer", "minimum": 0,
+          "description": "What the worker writes as the Target Scheduler desired count (§4.3). Equals desired_count with completion basis 'acquired' (api_revision 1)."
+        }
+      }
+    },
+    "ActiveTarget": {
+      "type": "object",
+      "required": ["id", "name", "ra_deg", "dec_deg", "status", "priority", "exposure_plans"],
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string" },
+        "ra_deg": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
+        "dec_deg": { "type": "number", "minimum": -90, "maximum": 90 },
+        "status": { "$ref": "../shared/common.json#/$defs/TargetStatus" },
+        "priority": { "type": "integer" },
+        "notes": { "type": ["string", "null"] },
+        "nina_name": { "type": "string", "pattern": "^#\\d+ ", "description": "\"#<target_id> <target name>\" (§4.4, api_revision 1)." },
+        "rotation_deg": { "type": ["number", "null"], "description": "Sky position angle (api_revision 1)." },
+        "min_altitude_deg": { "type": ["number", "null"], "description": "api_revision 1." },
+        "project": { "$ref": "#/$defs/ProjectRef" },
+        "optical_train": { "anyOf": [{ "$ref": "#/$defs/OpticalTrainRef" }, { "type": "null" }] },
+        "exposure_plans": { "type": "array", "items": { "$ref": "#/$defs/ExposurePlan" } }
+      }
+    }
+  }
+}

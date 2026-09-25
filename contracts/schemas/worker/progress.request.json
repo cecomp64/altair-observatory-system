@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/worker/progress.request.json",
+  "title": "ProgressRequest",
+  "description": "PATCH /api/v1/targets/:id/progress (scope progress:write). Counts are set, never incremented, so the request can be resent safely.",
+  "type": "object",
+  "required": ["exposure_plans"],
+  "properties": {
+    "exposure_plans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "completed_count"],
+        "properties": {
+          "id": { "type": "integer" },
+          "completed_count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "status": { "$ref": "../shared/common.json#/$defs/TargetStatus" }
+  }
+}

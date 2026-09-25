@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/commands.response.json",
+  "title": "CommandsResponse",
+  "description": "GET /api/v1/processing/commands?state=pending (scope commands:read). Returned commands are marked delivered.",
+  "type": "array",
+  "items": { "$ref": "command.json" }
+}

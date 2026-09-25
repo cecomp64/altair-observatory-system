@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/data_product.metadata.json",
+  "title": "DataProductMetadata",
+  "description": "The 'metadata' JSON part of PUT /api/v1/processing/data_products/:kind/:altair_id (scope products:write). Multipart; optional 'preview' (JPEG, long edge <= 2048 px) and 'thumbnail' (<= 512 px) parts.",
+  "type": "object",
+  "required": ["target_id", "filter", "sha256", "size_bytes", "archive_uri"],
+  "properties": {
+    "target_id": { "type": "integer" },
+    "night": { "anyOf": [{ "$ref": "../shared/common.json#/$defs/Night" }, { "type": "null" }], "description": "Set for night_master and provisional_noflat." },
+    "version": { "type": ["integer", "null"], "description": "Set for multi_night_master and project_reference." },
+    "filter": { "type": "string" },
+    "sha256": { "$ref": "../shared/common.json#/$defs/Sha256" },
+    "size_bytes": { "type": "integer", "minimum": 0 },
+    "archive_uri": { "type": ["string", "null"], "pattern": "^s3://" },
+    "nas_path": { "type": ["string", "null"] },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "frames": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 },
+        "total_exposure_s": { "type": "number", "minimum": 0 },
+        "fwhm": { "type": "number" },
+        "eccentricity": { "type": "number" },
+        "snr": { "type": "number" },
+        "night_weights": { "type": "object", "additionalProperties": { "type": "number" } },
+        "frame_sha256s": { "type": "array", "items": { "$ref": "../shared/common.json#/$defs/Sha256" }, "description": "Lights used, so the Hub can compute usable/integrated counters." }
+      }
+    },
+    "supersedes_altair_id": { "type": ["integer", "null"] }
+  }
+}

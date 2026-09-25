@@ -1,0 +1,20 @@
+{
+  "altair_id": 901,
+  "kind": "PROJECT_UNRESOLVED",
+  "severity": "blocking",
+  "status": "open",
+  "message": "12 lights on esprit100_2600mm night 2026-09-24 match no Hub target (OBJECT 'Andromeda?')",
+  "requirement": {
+    "assign_target": true
+  },
+  "scope": {
+    "rig": "esprit100_2600mm",
+    "night": "2026-09-24",
+    "object": "Andromeda?"
+  },
+  "optical_train": "esprit100_2600mm",
+  "target_id": null,
+  "night": "2026-09-24",
+  "filter": "Ha",
+  "resolution": null
+}

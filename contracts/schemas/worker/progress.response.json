@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/worker/progress.response.json",
+  "title": "ProgressResponse",
+  "type": "object",
+  "required": ["ok", "target"],
+  "properties": {
+    "ok": { "const": true },
+    "target": {
+      "type": "object",
+      "required": ["id", "status", "percent_complete"],
+      "properties": {
+        "id": { "type": "integer" },
+        "status": { "$ref": "../shared/common.json#/$defs/TargetStatus" },
+        "percent_complete": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    }
+  }
+}

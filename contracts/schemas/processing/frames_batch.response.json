@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/frames_batch.response.json",
+  "title": "FramesBatchResponse",
+  "description": "Response to POST and PATCH /api/v1/processing/frames:batch. Each item succeeds or fails on its own. When the Hub holds a manual assignment, target_id is the manual one and Altair adopts it.",
+  "type": "object",
+  "required": ["results"],
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sha256", "status"],
+        "properties": {
+          "sha256": { "$ref": "../shared/common.json#/$defs/Sha256" },
+          "status": { "type": "string", "enum": ["ok", "error"] },
+          "id": { "type": "integer" },
+          "target_id": { "type": ["integer", "null"] },
+          "exposure_plan_id": { "type": ["integer", "null"] },
+          "error": { "type": "string" }
+        },
+        "if": { "properties": { "status": { "const": "error" } } },
+        "then": { "required": ["error"] },
+        "else": { "required": ["id"] }
+      }
+    }
+  }
+}

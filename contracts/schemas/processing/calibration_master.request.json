@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/calibration_master.request.json",
+  "title": "CalibrationMasterRequest",
+  "description": "PUT /api/v1/processing/calibration_masters/:altair_id (scope frames:write). Projection upsert.",
+  "type": "object",
+  "required": ["optical_train", "kind", "n_frames", "sha256"],
+  "properties": {
+    "optical_train": { "type": "string" },
+    "kind": { "type": "string", "enum": ["bias", "dark", "flat", "darkflat"] },
+    "filter": { "type": ["string", "null"] },
+    "exposure_s": { "type": ["number", "null"] },
+    "gain": { "type": ["number", "null"] },
+    "offset": { "type": ["number", "null"] },
+    "binning": { "type": ["string", "null"] },
+    "sensor_temp_c": { "type": ["number", "null"] },
+    "rotator_pos": { "type": ["number", "null"] },
+    "night": { "anyOf": [{ "$ref": "../shared/common.json#/$defs/Night" }, { "type": "null" }] },
+    "n_frames": { "type": "integer", "minimum": 1 },
+    "sha256": { "$ref": "../shared/common.json#/$defs/Sha256" },
+    "superseded": { "type": "boolean", "default": false }
+  }
+}

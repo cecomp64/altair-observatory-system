@@ -1,0 +1,28 @@
+{
+  "telescope": {
+    "id": 3,
+    "slug": "backyard-16in",
+    "name": "Backyard 16in"
+  },
+  "targets": [
+    {
+      "id": 34,
+      "name": "M31",
+      "ra_deg": 10.68471,
+      "dec_deg": 41.26875,
+      "status": "active",
+      "priority": 5,
+      "notes": null,
+      "exposure_plans": [
+        {
+          "id": 88,
+          "filter": "Ha",
+          "exposure_seconds": 300,
+          "desired_count": 120,
+          "completed_count": 41,
+          "remaining_count": 79
+        }
+      ]
+    }
+  ]
+}

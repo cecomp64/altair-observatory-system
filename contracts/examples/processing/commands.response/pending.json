@@ -1,0 +1,106 @@
+[
+  {
+    "id": 301,
+    "kind": "assign_frames",
+    "payload": {
+      "target_id": 34,
+      "sha256s": [
+        "4b1e2d3c4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d"
+      ]
+    },
+    "created_at": "2026-09-25T15:00:00Z"
+  },
+  {
+    "id": 302,
+    "kind": "assign_frames",
+    "payload": {
+      "target_id": 34,
+      "selector": {
+        "optical_train": "esprit100_2600mm",
+        "night": "2026-09-24",
+        "object": "Andromeda?"
+      }
+    },
+    "created_at": "2026-09-25T15:00:05Z"
+  },
+  {
+    "id": 303,
+    "kind": "rerun",
+    "payload": {
+      "target_id": 34,
+      "night": "2026-09-24",
+      "filter": "Ha"
+    },
+    "created_at": "2026-09-25T15:01:00Z"
+  },
+  {
+    "id": 304,
+    "kind": "night_exclude",
+    "payload": {
+      "target_id": 34,
+      "night": "2026-09-23",
+      "filter": "Ha"
+    },
+    "created_at": "2026-09-25T15:02:00Z"
+  },
+  {
+    "id": 305,
+    "kind": "issue_waive",
+    "payload": {
+      "fingerprint": "MISSING_FLATS:esprit100_2600mm:2026-09-24:Ha",
+      "note": "Using library flats"
+    },
+    "created_at": "2026-09-25T15:03:00Z"
+  },
+  {
+    "id": 306,
+    "kind": "rereference",
+    "payload": {
+      "target_id": 34,
+      "from_night": "2026-09-22"
+    },
+    "created_at": "2026-09-25T15:04:00Z"
+  },
+  {
+    "id": 307,
+    "kind": "set_mode",
+    "payload": {
+      "target_id": 34,
+      "mode": "frame_reintegration"
+    },
+    "created_at": "2026-09-25T15:05:00Z"
+  },
+  {
+    "id": 308,
+    "kind": "approve_fetch",
+    "payload": {
+      "fingerprint": "FETCH_APPROVAL:T34:Ha"
+    },
+    "created_at": "2026-09-25T15:06:00Z"
+  },
+  {
+    "id": 309,
+    "kind": "equipment_event",
+    "payload": {
+      "equipment_event_id": 7
+    },
+    "created_at": "2026-09-25T15:07:00Z"
+  },
+  {
+    "id": 310,
+    "kind": "refresh_config",
+    "payload": {},
+    "created_at": "2026-09-25T15:08:00Z"
+  },
+  {
+    "id": 311,
+    "kind": "night_ready",
+    "payload": {
+      "optical_train": "esprit100_2600mm",
+      "night": "2026-09-24",
+      "at": "2026-09-25T12:41:00Z",
+      "closed_by": "session_end"
+    },
+    "created_at": "2026-09-25T12:41:01Z"
+  }
+]

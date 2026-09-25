@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/night.request.json",
+  "title": "NightRequest",
+  "description": "PUT /api/v1/processing/nights/:optical_train/:night (scope frames:write). Collection state of one night on one optical train.",
+  "type": "object",
+  "required": [
+    "state"
+  ],
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closing",
+        "closed"
+      ]
+    },
+    "closed_by": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "session_end_marker",
+        "session_end",
+        "quiescence",
+        "scheduled",
+        "manual",
+        null
+      ],
+      "description": "What closed the night: the SPEC v0.7 values, plus session_end for a night_ready command from the Hub (queued by the rig agent's session_end)."
+    },
+    "session_end_at": {
+      "anyOf": [
+        {
+          "$ref": "../shared/common.json#/$defs/Timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "lights_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "calibration_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "light_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "manifest_sha256": {
+      "anyOf": [
+        {
+          "$ref": "../shared/common.json#/$defs/Sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "frames": [
+    {
+      "sha256": "9f2c6a1be0d4c3f5a7b8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0",
+      "altair_frame_id": 81234,
+      "origin": "collect",
+      "telescope": "backyard-16in",
+      "optical_train": "esprit100_2600mm",
+      "target_id": 34,
+      "assignment_source": "header_token",
+      "image_type": "light",
+      "night": "2026-09-24",
+      "date_obs": "2026-09-25T06:10:02Z",
+      "object_header": "#34 M31",
+      "filter": "Ha",
+      "exposure_s": 300,
+      "gain": 100,
+      "offset": 50,
+      "binning": "1x1",
+      "sensor_temp_c": -10.1,
+      "rotator_pos": 31250,
+      "rotator_units": "steps",
+      "ra_deg": 10.69,
+      "dec_deg": 41.27,
+      "width_px": 6248,
+      "height_px": 4176,
+      "file_name": "2026-09-24_23-10-02_Ha_300.00s_0001.fits",
+      "logical_path": "raw/esprit100_2600mm/2026-09-24/#34 M31/LIGHT/Ha/2026-09-24_23-10-02_Ha_300.00s_0001.fits",
+      "status": "valid",
+      "storage": {
+        "nas": true,
+        "s3": null
+      },
+      "headers": {
+        "IMAGETYP": "LIGHT",
+        "OBJECT": "#34 M31",
+        "FILTER": "Ha",
+        "EXPTIME": 300.0
+      }
+    },
+    {
+      "sha256": "4b1e2d3c4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d",
+      "altair_frame_id": 81235,
+      "origin": "collect",
+      "telescope": "backyard-16in",
+      "optical_train": "esprit100_2600mm",
+      "target_id": null,
+      "assignment_source": "unlinked",
+      "image_type": "light",
+      "night": "2026-09-24",
+      "date_obs": "2026-09-25T06:10:02Z",
+      "object_header": "Andromeda?",
+      "filter": "Ha",
+      "exposure_s": 300,
+      "gain": 100,
+      "offset": 50,
+      "binning": "1x1",
+      "sensor_temp_c": -10.1,
+      "rotator_pos": 31250,
+      "rotator_units": "steps",
+      "ra_deg": 10.69,
+      "dec_deg": 41.27,
+      "width_px": 6248,
+      "height_px": 4176,
+      "file_name": "2026-09-24_23-15-10_Ha_300.00s_0002.fits",
+      "logical_path": "raw/esprit100_2600mm/2026-09-24/Andromeda/LIGHT/Ha/2026-09-24_23-15-10_Ha_300.00s_0002.fits",
+      "status": "held",
+      "storage": {
+        "nas": true,
+        "s3": null
+      },
+      "headers": {
+        "IMAGETYP": "LIGHT",
+        "OBJECT": "Andromeda?"
+      }
+    }
+  ]
+}

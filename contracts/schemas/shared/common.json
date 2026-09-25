@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/shared/common.json",
+  "title": "Common",
+  "description": "Definitions shared by the worker and processing contracts (SYSTEM_ARCHITECTURE.md §4 and §5).",
+  "$defs": {
+    "Sha256": {
+      "description": "Lower-case hex SHA-256 of a file's bytes. The natural key of a frame everywhere.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "Night": {
+      "description": "Observing night: (date_obs in the telescope timezone - 12 h).date (§4.4).",
+      "type": "string",
+      "format": "date"
+    },
+    "Timestamp": {
+      "description": "ISO 8601 timestamp with a UTC offset.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "TargetStatus": {
+      "type": "string",
+      "enum": ["draft", "submitted", "active", "in_progress", "completed", "cancelled"]
+    },
+    "ImageType": {
+      "type": "string",
+      "enum": ["light", "dark", "flat", "bias", "darkflat"]
+    },
+    "AssignmentSource": {
+      "description": "How a frame was linked to a Hub target (§8.2.3). A manual assignment is never overridden.",
+      "type": "string",
+      "enum": ["header_token", "name", "coords", "manual", "unlinked"]
+    },
+    "FrameStatus": {
+      "type": "string",
+      "enum": ["collected", "valid", "invalid", "held", "processed", "rejected"]
+    },
+    "FrameOrigin": {
+      "type": "string",
+      "enum": ["collect", "import", "legacy_index"]
+    },
+    "S3StorageClass": {
+      "anyOf": [
+        { "type": "string", "enum": ["STANDARD_IA", "DEEP_ARCHIVE"] },
+        { "type": "null" }
+      ]
+    },
+    "FrameStorage": {
+      "description": "Where the frame's bytes live.",
+      "type": "object",
+      "properties": {
+        "nas": { "type": "boolean" },
+        "s3": { "$ref": "#/$defs/S3StorageClass" },
+        "verified_at": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
+      }
+    },
+    "FrameQuality": {
+      "description": "Subframe measurements from Altair.",
+      "type": "object",
+      "properties": {
+        "fwhm": { "type": "number" },
+        "eccentricity": { "type": "number" },
+        "stars": { "type": "integer" },
+        "psf_signal_weight": { "type": "number" },
+        "weight": { "type": "number" }
+      }
+    },
+    "MultiNightSettings": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "type": "string", "enum": ["master_merge", "frame_reintegration"] }
+      }
+    },
+    "ProcessingSettings": {
+      "description": "Effective per-target processing settings, already merged Altair defaults <- project <- target.",
+      "type": "object",
+      "properties": {
+        "multi_night": { "$ref": "#/$defs/MultiNightSettings" },
+        "reference_filter": { "type": ["string", "null"] },
+        "drizzle_scale": { "type": "integer", "minimum": 1 },
+        "keep_calibrated_frames": { "type": "boolean" },
+        "pin_to_nas": { "type": "boolean" },
+        "min_lights_per_stack": { "type": "integer", "minimum": 1 },
+        "max_fwhm_ratio_to_project_median": { "type": "number", "exclusiveMinimum": 0 },
+        "wbpp_profile": { "type": "string" }
+      }
+    },
+    "IssueSeverity": {
+      "type": "string",
+      "enum": ["blocking", "warning", "info"]
+    },
+    "IssueStatus": {
+      "type": "string",
+      "enum": ["open", "resolved", "waived"]
+    },
+    "DataProductKind": {
+      "description": "Kinds Altair reports. Legacy worker uploads (sub, stacked, preview, log) use POST /targets/:id/files.",
+      "type": "string",
+      "enum": ["night_master", "multi_night_master", "project_reference", "provisional_noflat"]
+    },
+    "EquipmentEventKind": {
+      "type": "string",
+      "enum": ["sensor_cleaned", "filter_changed", "camera_rotated_manually", "reducer_changed", "collimated", "other"]
+    }
+  }
+}

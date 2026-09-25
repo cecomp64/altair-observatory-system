@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/issue.request.json",
+  "title": "IssueRequest",
+  "description": "PUT /api/v1/processing/issues/:fingerprint (scope issues:write). open -> resolved/waived emits issue_resolved; a new open issue emits issue_opened.",
+  "type": "object",
+  "required": ["kind", "severity", "status", "message"],
+  "properties": {
+    "altair_id": { "type": "integer" },
+    "kind": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "description": "Altair issue kind, e.g. PROJECT_UNRESOLVED, HUB_CONFIG_MISMATCH, STALE_REFERENCE (SPEC §10.1)." },
+    "severity": { "$ref": "../shared/common.json#/$defs/IssueSeverity" },
+    "status": { "$ref": "../shared/common.json#/$defs/IssueStatus" },
+    "message": { "type": "string" },
+    "requirement": { "type": ["object", "null"], "description": "What must be true for the issue to resolve itself." },
+    "scope": { "type": "object", "description": "Altair's issue scope (rig, project, night, filter, hub_target_id...)." },
+    "optical_train": { "type": ["string", "null"] },
+    "target_id": { "type": ["integer", "null"] },
+    "night": { "anyOf": [{ "$ref": "../shared/common.json#/$defs/Night" }, { "type": "null" }] },
+    "filter": { "type": ["string", "null"] },
+    "resolution": { "type": ["string", "null"] }
+  }
+}

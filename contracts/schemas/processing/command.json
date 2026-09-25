@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory.local/contracts/processing/command.json",
+  "title": "Command",
+  "description": "One Hub -> Altair command (§5.4). Commands are idempotent by id: Altair records executed ids and re-acks without re-executing.",
+  "type": "object",
+  "required": ["id", "kind", "payload", "created_at"],
+  "properties": {
+    "id": { "type": "integer" },
+    "kind": { "type": "string", "enum": ["assign_frames", "rerun", "night_include", "night_exclude", "issue_waive", "rereference", "set_mode", "approve_fetch", "deny_fetch", "equipment_event", "refresh_config", "night_ready"] },
+    "payload": { "type": "object" },
+    "created_at": { "$ref": "../shared/common.json#/$defs/Timestamp" }
+  },
+  "allOf": [
+    { "if": { "properties": { "kind": { "const": "assign_frames" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/AssignFramesPayload" } } } },
+    { "if": { "properties": { "kind": { "const": "rerun" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/RerunPayload" } } } },
+    { "if": { "properties": { "kind": { "enum": ["night_include", "night_exclude"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/NightSelectionPayload" } } } },
+    { "if": { "properties": { "kind": { "const": "issue_waive" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/IssueWaivePayload" } } } },
+    { "if": { "properties": { "kind": { "const": "rereference" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/RereferencePayload" } } } },
+    { "if": { "properties": { "kind": { "const": "set_mode" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/SetModePayload" } } } },
+    { "if": { "properties": { "kind": { "enum": ["approve_fetch", "deny_fetch"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/FetchDecisionPayload" } } } },
+    { "if": { "properties": { "kind": { "const": "equipment_event" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/EquipmentEventPayload" } } } },
+    { "if": { "properties": { "kind": { "const": "refresh_config" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/RefreshConfigPayload" } } } },
+    { "if": { "properties": { "kind": { "const": "night_ready" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/NightReadyPayload" } } } }
+  ],
+  "$defs": {
+    "FrameSelector": {
+      "description": "Selects frames by rig, night and OBJECT header instead of listing hashes.",
+      "type": "object",
+      "required": ["optical_train", "night"],
+      "properties": {
+        "optical_train": { "type": "string" },
+        "night": { "$ref": "../shared/common.json#/$defs/Night" },
+        "object": { "type": "string" }
+      }
+    },
+    "AssignFramesPayload": {
+      "type": "object",
+      "required": ["target_id"],
+      "properties": {
+        "target_id": { "type": "integer" },
+        "sha256s": { "type": "array", "minItems": 1, "items": { "$ref": "../shared/common.json#/$defs/Sha256" } },
+        "selector": { "$ref": "#/$defs/FrameSelector" }
+      },
+      "oneOf": [{ "required": ["sha256s"] }, { "required": ["selector"] }]
+    },
+    "RerunPayload": {
+      "type": "object",
+      "properties": {
+        "target_id": { "type": "integer" },
+        "night": { "$ref": "../shared/common.json#/$defs/Night" },
+        "filter": { "type": "string" },
+        "issue_id": { "type": "integer" }
+      }
+    },
+    "NightSelectionPayload": {
+      "type": "object",
+      "required": ["target_id", "night", "filter"],
+      "properties": {
+        "target_id": { "type": "integer" },
+        "night": { "$ref": "../shared/common.json#/$defs/Night" },
+        "filter": { "type": "string" }
+      }
+    },
+    "IssueWaivePayload": {
+      "type": "object",
+      "required": ["fingerprint", "note"],
+      "properties": {
+        "fingerprint": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "RereferencePayload": {
+      "type": "object",
+      "required": ["target_id"],
+      "properties": {
+        "target_id": { "type": "integer" },
+        "from_night": { "$ref": "../shared/common.json#/$defs/Night" }
+      }
+    },
+    "SetModePayload": {
+      "type": "object",
+      "required": ["target_id", "mode"],
+      "properties": {
+        "target_id": { "type": "integer" },
+        "mode": { "type": "string", "enum": ["master_merge", "frame_reintegration"] }
+      }
+    },
+    "FetchDecisionPayload": {
+      "type": "object",
+      "required": ["fingerprint"],
+      "properties": { "fingerprint": { "type": "string" } }
+    },
+    "EquipmentEventPayload": {
+      "type": "object",
+      "required": ["equipment_event_id"],
+      "properties": { "equipment_event_id": { "type": "integer" } }
+    },
+    "RefreshConfigPayload": {
+      "type": "object",
+      "maxProperties": 0
+    },
+    "NightReadyPayload": {
+      "description": "Queued automatically by POST /telescopes/:slug/sessions with event session_end. Same effect as the session-end marker (SPEC §6.1).",
+      "type": "object",
+      "required": ["optical_train", "night", "at", "closed_by"],
+      "properties": {
+        "optical_train": { "type": "string" },
+        "night": { "$ref": "../shared/common.json#/$defs/Night" },
+        "at": { "$ref": "../shared/common.json#/$defs/Timestamp" },
+        "closed_by": { "const": "session_end" }
+      }
+    }
+  }
+}

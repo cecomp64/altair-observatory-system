@@ -1,0 +1,7 @@
+{
+  "error": "Frame has a manual assignment",
+  "details": {
+    "sha256": "9f2c6a1be0d4c3f5a7b8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0",
+    "target_id": 35
+  }
+}

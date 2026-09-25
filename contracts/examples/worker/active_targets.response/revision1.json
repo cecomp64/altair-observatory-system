@@ -1,0 +1,42 @@
+{
+  "telescope": {
+    "id": 3,
+    "slug": "backyard-16in",
+    "name": "Backyard 16in",
+    "timezone": "America/Los_Angeles"
+  },
+  "targets": [
+    {
+      "id": 34,
+      "name": "M31",
+      "ra_deg": 10.68471,
+      "dec_deg": 41.26875,
+      "status": "active",
+      "priority": 5,
+      "notes": null,
+      "nina_name": "#34 M31",
+      "rotation_deg": 35.0,
+      "min_altitude_deg": 30,
+      "project": {
+        "id": 12,
+        "name": "Andromeda deep",
+        "priority": 5,
+        "ts_project_name": "#P12 Andromeda deep"
+      },
+      "optical_train": {
+        "key": "esprit100_2600mm"
+      },
+      "exposure_plans": [
+        {
+          "id": 88,
+          "filter": "Ha",
+          "exposure_seconds": 300,
+          "desired_count": 120,
+          "completed_count": 41,
+          "remaining_count": 79,
+          "schedule_count": 126
+        }
+      ]
+    }
+  ]
+}

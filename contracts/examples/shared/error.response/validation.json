@@ -1,0 +1,8 @@
+{
+  "error": "Validation failed",
+  "details": {
+    "filter": [
+      "is not a filter of optical train esprit100_2600mm"
+    ]
+  }
+}
