@@ -1,0 +1,33 @@
+name: contracts
+
+# The API contract shared by all three components. A change here also triggers
+# hub.yml, rig-agent.yml and processing.yml, so a breaking schema change fails
+# in whichever component it breaks.
+on:
+  pull_request:
+    paths: [ "contracts/**", "tools/validate_contracts.py", "tools/generate_contracts.py", ".github/workflows/contracts.yml" ]
+  push:
+    branches: [ main ]
+    paths: [ "contracts/**", "tools/validate_contracts.py", "tools/generate_contracts.py", ".github/workflows/contracts.yml" ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -e "contracts/python[dev,codegen]"
+
+      - name: Schemas are valid and every example validates
+        run: python tools/validate_contracts.py
+
+      - name: Generated pydantic models are up to date
+        run: python tools/generate_contracts.py --check
+
+      - name: Models round-trip every example
+        run: pytest contracts/python

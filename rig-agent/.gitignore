@@ -9,3 +9,4 @@ venv/
 *.sqlite3
 build/
 dist/
+.import_linter_cache/

@@ -1,0 +1,36 @@
+name: rig-agent
+
+# The rig agent (robs) CI. Runs from rig-agent/ on changes to it or to the API contract.
+on:
+  pull_request:
+    paths: [ "rig-agent/**", "contracts/**", ".github/workflows/rig-agent.yml" ]
+  push:
+    branches: [ main ]
+    paths: [ "rig-agent/**", "contracts/**", ".github/workflows/rig-agent.yml" ]
+
+defaults:
+  run:
+    working-directory: rig-agent
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.10", "3.12" ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install (locked)
+        run: uv sync --locked --extra dev
+
+      - name: Component independence (no imports of altair or hub)
+        run: uv run --locked lint-imports
+
+      - name: Tests
+        run: uv run --locked pytest

@@ -1,0 +1,74 @@
+name: processing
+
+# The processing core (Altair) CI. Runs from processing/ on changes to it or to the
+# API contract. Altair is spec-only until its Phase 1 lands; the test jobs start
+# running as soon as processing/pyproject.toml exists.
+on:
+  pull_request:
+    paths: [ "processing/**", "contracts/**", ".github/workflows/processing.yml" ]
+  push:
+    branches: [ main ]
+    paths: [ "processing/**", "contracts/**", ".github/workflows/processing.yml" ]
+
+defaults:
+  run:
+    working-directory: processing
+    shell: bash
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Relative links in processing docs resolve
+        run: |
+          status=0
+          for doc in README.md docs/*.md; do
+            dir=$(dirname "$doc")
+            for link in $(grep -oE '\]\([^)#]+\.md[^)]*\)' "$doc" | sed -E 's/^\]\(([^)#]*).*/\1/' | grep -v '^http'); do
+              if [ ! -e "$dir/$link" ]; then
+                echo "::error file=processing/$doc::broken link $link"
+                status=1
+              fi
+            done
+          done
+          exit $status
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux runs the portable tests; Windows runs them plus the Windows-only ones
+        # (Credential Manager, SMB paths, PixInsight launcher).
+        os: [ ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Is there code yet?
+        id: code
+        run: |
+          if [ -f pyproject.toml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "processing/ is spec-only; nothing to test yet."
+          fi
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.code.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install (locked)
+        if: steps.code.outputs.present == 'true'
+        run: uv sync --locked --extra dev
+
+      - name: Component independence (no imports of robs or hub)
+        if: steps.code.outputs.present == 'true'
+        run: uv run --locked lint-imports
+
+      - name: Tests
+        if: steps.code.outputs.present == 'true'
+        run: uv run --locked pytest

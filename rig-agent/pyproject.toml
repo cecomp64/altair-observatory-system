@@ -15,6 +15,7 @@ dev = [
   "pytest>=8.0",
   "pytest-mock>=3.12",
   "responses>=0.25",
+  "import-linter>=2.0",
 ]
 
 [project.scripts]
@@ -29,3 +30,15 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Component independence (docs/SYSTEM_ARCHITECTURE.md §3.6.2): the rig agent talks to
+# the Hub over HTTP only and never imports the processing core. Run: lint-imports
+[tool.importlinter]
+root_package = "robs"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The rig agent never imports the processing core or the Hub"
+type = "forbidden"
+source_modules = ["robs"]
+forbidden_modules = ["altair", "hub"]
