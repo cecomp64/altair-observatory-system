@@ -1,21 +1,26 @@
 # Observatory Platform — System Architecture & Integration Guide
 
-**Status:** Draft v1.1 (v1.1: personal telescopes removed from scope)
+**Status:** Draft v1.2 (v1.1: personal telescopes removed from scope · v1.2: the repositories merge into one monorepo)
 **Date:** 2026-09-25
-**Scope:** How the four existing repositories become one system that runs on a single
-central database, and what has to change in each repository to get there.
+**Scope:** How the four existing repositories become **one repository** holding one system
+that runs on a single central database. It has three components that each stand alone and
+talk to each other only through APIs. The document covers what has to change in each
+component to get there.
 
-| Repository | Role today | Role in the unified system |
-|---|---|---|
-| `remote-observatory-queueing-system` (this repo) | Rails app: telescopes, targets, exposure plans, worker API | **The Hub.** Central Postgres database, all human-facing UI, all APIs. Takes in the whole astrophotography-database feature set. |
-| `remote-observatory-worker` | Python CLI on each rig PC: syncs NINA Target Scheduler, uploads subs, optional stacking | **Acquisition agent.** Hub → Target Scheduler sync and acquisition progress reporting only. Hands data off to Altair. |
-| `altair-pre-processor` | Spec (v0.7) for a collector → NAS → S3 → WBPP pipeline with a local catalog | **Data and processing agent.** Collects, archives and processes frames *in the context of hub projects and targets*. Reports frames, masters and issues to the Hub. |
-| `astrophotography-database` | Electron desktop app: catalogue, projects, altitude charts, FITS indexer, file search | **Retired.** Every feature moves into the Hub (UI and data) or into Altair (file indexing). The existing data is imported once. |
+| Today (separate repository) | Role today | Component in the monorepo | Role in the unified system |
+|---|---|---|---|
+| `remote-observatory-queueing-system` (this repo; becomes the monorepo) | Rails app: telescopes, targets, exposure plans, worker API | **`hub/`**: central server | **The Hub.** Central Postgres database, all human-facing UI, all APIs. Takes in the whole astrophotography-database feature set. |
+| `remote-observatory-worker` | Python CLI on each rig PC: syncs NINA Target Scheduler, uploads subs, optional stacking | **`rig-agent/`** (package `robs`, called "the worker" below) | **Acquisition agent.** Hub → Target Scheduler sync and acquisition progress reporting only. Hands data off to Altair. |
+| `altair-pre-processor` | Spec (v0.7) for a collector → NAS → S3 → WBPP pipeline with a local catalog | **`processing/`** (package `altair`, called "Altair" below) | **Processing core.** Collects, archives and processes frames *in the context of Hub projects and targets*. Reports frames, masters and issues to the Hub. |
+| `astrophotography-database` | Electron desktop app: catalogue, projects, altitude charts, FITS indexer, file search | — (not moved in) | **Retired.** Every feature moves into the Hub (UI and data) or into Altair (file indexing). The existing data is imported once. The repository is archived. |
+
+The repository layout, the rules for component independence, and how the histories are
+merged are in §3.6.
 
 Related documents: [`ARCHITECTURE.md`](../ARCHITECTURE.md) (current Hub ↔ worker contract,
-superseded by §5 of this document once implemented) and
-`altair-pre-processor/docs/SPEC.md` (the processing pipeline; §8.2 below lists the
-changes it needs).
+superseded by §5 of this document once implemented) and the processing pipeline spec,
+today `altair-pre-processor/docs/SPEC.md` and `processing/docs/SPEC.md` after the merge
+(§8.2 below lists the changes it needs).
 
 ---
 
@@ -57,6 +62,13 @@ changes it needs).
    include/exclude night, waive issue, re-reference, approve fetch, assign frames,
    equipment event. The web UI can drive processing without anyone opening a port on
    the observatory network.
+9. **One repository, three standalone components.** `hub/`, `rig-agent/` and `processing/`
+   live in one monorepo with a shared `contracts/` directory (API schemas). Each component
+   has its own dependencies, tests, CI job, release tag and deployment, and runs without the
+   others. They never import each other's code. **All communication between components goes
+   through the Hub's HTTP API**, including the "session ended" signal from the rig agent to
+   Altair, which used to be a marker file (§3.6.3). The only thing that moves directly
+   between machines is image data: Altair pulls frames from the rig PCs over SMB.
 
 ---
 
@@ -235,8 +247,9 @@ sequenceDiagram
     W->>H: PATCH /targets/34/progress
   end
   N->>W: End of sequence → robs end-of-night
-  W->>A: writes _altair/session-end marker (in the NINA folder)
   W->>H: POST /sessions {session_end}
+  H->>H: queue night_ready command for the node serving this telescope
+  A->>H: GET /processing/commands → night_ready
   A->>A: close night → plan → WBPP night master → merge
   A-->>H: PUT night_master + preview, multi_night_master v7 + preview, issues
   H->>M: email / Discord: "M31 Ha: +3h12m, now 14h40m integrated"
@@ -249,6 +262,99 @@ sequenceDiagram
   M->>H: Exclude night 2026-09-24 SII (UI)
   A->>H: GET /processing/commands → executes → acks
 ```
+
+### 3.6 Repository layout and component boundaries
+
+#### 3.6.1 Layout
+
+`remote-observatory-queueing-system` becomes the monorepo. It is renamed
+**`remote-observatory`** on GitHub, which redirects the old URL. The Rails app moves from the
+repository root into `hub/`.
+
+```
+remote-observatory/
+├── hub/                    # Central server: Rails 8 app (was the repository root)
+│   ├── app/ config/ db/ spec/ …
+│   ├── Gemfile  package.json  Dockerfile  config/deploy.yml (Kamal)
+│   └── README.md
+├── rig-agent/              # Rig worker: Python package `robs` (was remote-observatory-worker)
+│   ├── src/robs/  tests/  config/example.telescope.yml
+│   ├── pyproject.toml
+│   └── README.md
+├── processing/             # Processing core: Python package `altair` (was altair-pre-processor)
+│   ├── src/altair/  pjsr/  deploy/windows/  tests/
+│   ├── docs/SPEC.md  docs/pixinsight-cli.md
+│   ├── pyproject.toml
+│   └── README.md
+├── contracts/              # The API contract, the only thing all three components share
+│   ├── schemas/            # JSON Schema for every request/response in §5
+│   ├── examples/           # Example payloads (the ones in §5), validated in CI
+│   ├── python/             # Package `observatory-contracts`: pydantic models generated from schemas/
+│   └── CHANGELOG.md        # api_revision history
+├── docs/
+│   ├── SYSTEM_ARCHITECTURE.md   # this document
+│   └── runbooks/           # cutover (§10), disaster recovery, per-site setup
+├── tools/                  # Repo-wide scripts: schema codegen, release helpers
+├── .github/workflows/      # hub.yml, rig-agent.yml, processing.yml, contracts.yml, release-*.yml
+├── CLAUDE.md               # Repo-wide guidance + per-component commands
+└── README.md               # What the system is, and which component to read about
+```
+
+Paths given elsewhere in this document are **relative to their component**: `app/models/…`
+in §8.1 means `hub/app/models/…`, `src/altair/…` in §8.2 means `processing/src/altair/…`, and
+the worker files in §8.3 are under `rig-agent/src/robs/`.
+
+#### 3.6.2 Independence rules
+
+Each component must be buildable, testable, releasable and runnable on its own.
+
+| Rule | How it is enforced |
+|---|---|
+| No component imports another component's code. | Python: an import-linter contract in `rig-agent` and `processing` forbids `altair` ↔ `robs` imports. Ruby: `hub/` never loads files outside itself at runtime. CI builds each component from its own directory. |
+| The only shared code is `contracts/`. | `rig-agent` and `processing` depend on `observatory-contracts` as a path dependency (`contracts/python`). The Hub reads `contracts/schemas/` in its request specs only, never at runtime, so the Hub's Docker build context stays `hub/`. |
+| Each component has its own dependency manifest and lockfile. | `hub/Gemfile.lock` + `hub/package.json`, `rig-agent/pyproject.toml` + lock, `processing/pyproject.toml` + lock. No root-level lockfile. |
+| Each component has its own CI. | Path-filtered workflows: `hub.yml` (rubocop, brakeman, bundler-audit, rspec) runs on `hub/**` or `contracts/**` changes. `rig-agent.yml` (pytest) on `rig-agent/**` or `contracts/**`. `processing.yml` (pytest on Linux, plus Windows-only tests on a Windows runner) on `processing/**` or `contracts/**`. `contracts.yml` validates schemas and examples. A change to `contracts/` therefore runs every component's suite. |
+| Each component is released and deployed on its own. | Tags `hub-vX.Y.Z`, `rig-agent-vX.Y.Z`, `processing-vX.Y.Z`. The Hub deploys with Kamal from `hub/`. The rig agent ships as a wheel / PyInstaller `robs.exe`. The processing core ships as `altair.exe`. The monorepo does **not** mean lockstep deploys: the Hub runs in the cloud, while rig PCs and the processing PC are upgraded on their own schedule. |
+| Versions interoperate across releases. | `contracts/CHANGELOG.md` records each `api_revision`. The Hub serves the current and previous revision. Each client declares the revision range it supports, and `robs check-config` / `altair doctor` fail clearly on a mismatch (§5.5). |
+
+#### 3.6.3 Standalone operation
+
+Each component still works when the others are missing, not only when they are temporarily
+down (§6.4 covers outages).
+
+| Component | Runs alone? | Without the others it… | Configuration |
+|---|---|---|---|
+| **Hub** | Yes | Serves the catalogue, projects, targets, visibility charts, wizard, admin. Frames, progress and masters stay empty until agents report. | Default. |
+| **Rig agent** | Yes | Reads targets from a local file instead of the Hub, syncs them into Target Scheduler, and writes progress and session events to local JSON logs. | `hub.enabled: false` + `targets_file:` (JSON in the `active_targets` schema from `contracts/`). |
+| **Processing core** | Yes | Behaves as Altair SPEC v0.7: YAML aliases, text-target projects, the local status page, and nights closed by the session-end marker file or quiescence. | `hub.enabled: false` (and `require_target_link: false`). |
+
+**Session end goes through the API.** With the Hub in use, the rig agent posts
+`session_end` to the Hub (§5.2), and the Hub queues a `night_ready` command for every
+processing node that serves that telescope (§5.4). Altair treats it exactly like the
+session-end marker. The marker file (`_altair/session-end-*.json`, SPEC §4.2) remains the
+signal only in standalone operation, when no Hub is configured. Either way, quiescence and
+the scheduled fallback (SPEC §6.1) still close a night if no signal arrives.
+
+#### 3.6.4 Merging the repositories
+
+Done once, in P0 (§9), with history preserved:
+
+1. In this repository, `git mv` everything except `.github/`, `docs/` and the root README
+   into `hub/`. Fix the paths in `Dockerfile`, `config/deploy.yml`, `Procfile.dev`,
+   `bin/*` and the CI workflow. `git log --follow` keeps per-file history.
+2. `git subtree add --prefix=rig-agent <remote-observatory-worker> main` and
+   `git subtree add --prefix=processing <altair-pre-processor> main`. The full histories
+   come in as merge commits. Neither is squashed.
+3. Move the worker's and Altair's `ARCHITECTURE.md` copies out: the worker's becomes a
+   short `rig-agent/README.md` section pointing here, and Altair's spec stays at
+   `processing/docs/SPEC.md`.
+4. Create `contracts/` with the schemas from P0, and the per-component workflows.
+5. Rename the repository to `remote-observatory`. Put a README banner ("moved to
+   `remote-observatory/rig-agent`", "moved to `remote-observatory/processing`") on
+   `remote-observatory-worker` and `altair-pre-processor`, then archive them.
+6. `astrophotography-database` is **not** merged in. It gets its final release and is
+   archived (§8.4). The one thing kept from it, the visibility-fixtures script, runs from
+   its final release, and only its JSON output is committed, under `hub/spec/fixtures/visibility/`.
 
 ---
 
@@ -511,7 +617,9 @@ auto-completion follows `completion_basis` (§4.3).
 **`POST /api/v1/telescopes/:slug/sessions`** (new):
 `{ "event": "roof_open"|"roof_close"|"session_end", "at": "…", "night": "2026-09-24", "target_ids": [34, 35] }`.
 It upserts `observing_nights` (roof times) and emits a `session` target event on the listed
-targets. The Hub dashboard uses this for "imaging now".
+targets. The Hub dashboard uses this for "imaging now". A `session_end` also queues a
+`night_ready` command (§5.4), one per optical train of the telescope, for each processing
+node that serves it.
 
 **`POST /api/v1/heartbeat`** (new, both principals):
 `{ "agent": "robs"|"altair", "version": "…", "status": { … } }`.
@@ -636,6 +744,7 @@ Each command runs the same code path as the matching Altair CLI command.
 | `approve_fetch` / `deny_fetch` | `{ fingerprint }` | `altair storage approve\|deny` | Issue page (admins) |
 | `equipment_event` | `{ equipment_event_id }` (Altair reads the details from `/config`) | `altair equipment log` | Telescope → optical train page |
 | `refresh_config` | `{}` | — (forces a config pull) | Admin → node page |
+| `night_ready` | `{ optical_train, night, at, closed_by: "session_end" }` | — (same effect as the session-end marker, SPEC §6.1) | — (queued automatically by `POST /telescopes/:slug/sessions` with `event: session_end`) |
 
 Commands are idempotent by `id`: Altair records the command ids it has executed and acks
 again without re-executing if it sees one twice. Processing-settings changes don't need a
@@ -786,9 +895,9 @@ so people aren't alerted twice. The Windows toast stays for whoever is at the pr
 
 ---
 
-## 8. Changes per repository
+## 8. Changes per component
 
-### 8.1 `remote-observatory-queueing-system` (the Hub)
+### 8.1 `hub/` (was `remote-observatory-queueing-system`)
 
 **Gems / packages**
 
@@ -878,11 +987,10 @@ from §7.4. Recurring entries go in `config/recurring.yml`.
 
 **Docs & specs**
 
-- This document. `ARCHITECTURE.md` points here and keeps the (unchanged) worker contract
+- This document (at the monorepo root, `docs/`). `hub/ARCHITECTURE.md` points here and keeps the (unchanged) worker contract
   until Phase 5 lands.
-- `docs/api/schemas/*.json`: JSON Schemas for every request/response in §5. Request specs
-  validate against them (`json_schemer`). Altair and the worker vendor the same files for
-  their client tests (§11).
+- Request specs validate every request and response against `../contracts/schemas/`
+  (`json_schemer`), the same files the worker and Altair test against (§11).
 - RSpec: model specs for the new models, request specs for every API endpoint (auth, scope,
   resource scoping, idempotent upserts, manual-assignment precedence, counters), golden
   visibility specs, a system spec for the wizard and frame search.
@@ -890,7 +998,7 @@ from §7.4. Recurring entries go in `config/recurring.yml`.
   objects), a project with two targets, a processing node + key, and synthetic frames
   and products, so every page has content in development.
 
-### 8.2 `altair-pre-processor`
+### 8.2 `processing/` (was `altair-pre-processor`)
 
 Altair is spec-only today, so the Hub integration should go into the spec now and be
 built alongside Phase 1 rather than bolted on later. The changes below are for
@@ -917,7 +1025,8 @@ built alongside Phase 1 rather than bolted on later. The changes below are for
 | §12.1 CLI | Additions in §8.2.5. `--project` and `--target` take **Hub ids**. |
 | §12.2 HTTP endpoint | Superseded by the Hub. Kept optional for Home Assistant. |
 | §15 Plan | Phase 1 gains frame + night reporting and config pull ("Phase 1h"). Phase 3 gains data-product reporting + previews. Phase 6 gains issue mirroring + commands. New exit criteria in §9. |
-| §15.1 Layout | `src/altair/hub/` and `src/altair/index/` (§8.2.6). |
+| §15.1 Layout | The tree now sits under `processing/` in the monorepo (§3.6). Add `src/altair/hub/` and `src/altair/index/` (§8.2.6). `pyproject.toml` gains the path dependency on `observatory-contracts`. |
+| §4.2, §6.1 Triggers | Add the Hub `night_ready` command as a session-end trigger. The session-end marker file is kept for standalone operation (§3.6.3). With the Hub in use, rig PCs need no `altair-session-end.cmd`. |
 
 #### 8.2.2 Configuration
 
@@ -1033,12 +1142,12 @@ matches: every target of that Hub project, on every rig.
 
 ```
 src/altair/hub/
-  client.py        # httpx client: auth, retries, ETag, multipart uploads, typed responses (pydantic)
+  client.py        # httpx client: auth, retries, ETag, multipart uploads, typed responses (observatory-contracts models)
   config_sync.py   # /config poll → hub_cache → in-memory HubConfig (targets, aliases, trains, settings)
   resolver.py      # §8.2.3 target resolution
   outbox.py        # enqueue helpers (called inside catalog transactions) + drain worker + coalescing
-  reporters.py     # frame / night / calibration / product / issue / job → payloads (schemas from the Hub repo)
-  commands.py      # poll, dispatch to the same functions the CLI uses, record, ack
+  reporters.py     # frame / night / calibration / product / issue / job → payloads (models from observatory-contracts)
+  commands.py      # poll, dispatch to the same functions the CLI uses (night_ready → the trigger detector), record, ack
   previews.py      # XISF → auto-STF stretch → JPEG (numpy + the `xisf` package; or PJSR export at the end of the job)
   reconcile.py     # §6.3
 src/altair/index/
@@ -1059,28 +1168,29 @@ src/altair/index/
 - This is the replacement for the desktop app's indexer. It runs on the processing PC as part
   of `altair.exe`. There is no stand-alone mode for members' own PCs (§1.2).
 
-### 8.3 `remote-observatory-worker`
+### 8.3 `rig-agent/` (was `remote-observatory-worker`)
 
 | File | Change |
 |---|---|
-| `config.py` | + `data_pipeline: altair \| legacy` (default `legacy` until cutover, then `altair`). + `ts_project_mode: per_hub_project \| single` (default `per_hub_project`). + `altair_marker_dir` (default `<subs_dir>/_altair`). + `timezone` (checked against the Hub). In `altair` mode, `s3_*` and `stacking` become optional and are ignored. |
+| `config.py` | + `data_pipeline: altair \| legacy` (default `legacy` until cutover, then `altair`). + `ts_project_mode: per_hub_project \| single` (default `per_hub_project`). + `hub.enabled` (default true) and `targets_file` for standalone use (§3.6.3). + `altair_marker_dir` (default `<subs_dir>/_altair`, standalone only). + `timezone` (checked against the Hub). In `altair` mode, `s3_*` and `stacking` become optional and are ignored. |
 | `api_client.py` | + `post_session_event(slug, event, at, night, target_ids)`, + `heartbeat(status)`. Parse the new `active_targets` fields. |
 | `sync.py` | Use `nina_name` from the API instead of `_scheduler_target_name` (same format, but the Hub owns it now). With `per_hub_project`: one Target Scheduler project per Hub project (`ts_project_name`, priority from `project.priority`, min altitude from the target). Write `schedule_count` as the Target Scheduler desired count. `roof-open` posts `roof_open`. |
 | `scheduler_db.py` | `get_or_create_project(conn, profile_id, name, priority, min_altitude)` and project updates. Add the project columns used here to `scheduler_schema.py` and `check-schema` (verify against a live Target Scheduler install, as that module already warns). |
 | `state.py` | + `project_links(rails_project_id, scheduler_project_id)`. `target_links` keeps its shape. |
-| `end_of_night.py` | In `altair` mode: **no S3 upload, no stacking.** Write the Altair session-end marker `<altair_marker_dir>/session-end-<local ts>.json` with `{host, at, telescope, night, target_ids}`, run a final `sync-progress`, post `session_end`, then run `cleanup`. This replaces the separate `altair-session-end.cmd` on rigs that run the worker, so there's one NINA end-of-sequence script instead of two. `legacy` mode keeps today's behaviour. |
+| `end_of_night.py` | In `altair` mode: **no S3 upload, no stacking.** Run a final `sync-progress`, post `session_end` to the Hub (which queues `night_ready` for Altair, §3.6.3), then run `cleanup`. The worker never signals Altair directly. Only with `hub.enabled: false` does it instead write the Altair session-end marker `<altair_marker_dir>/session-end-<local ts>.json` with `{host, at, telescope, night, target_ids}`. Either way this replaces the separate `altair-session-end.cmd`, so there's one NINA end-of-sequence script instead of two. `legacy` mode keeps today's behaviour. |
 | `cleanup.py` | Also disable Target Scheduler projects that have no active targets left (`per_hub_project` mode). |
-| `cli.py` | + `robs session-end` (alias for the marker + session event only, for sequences that call it separately). + `robs check-config` (Hub reachable, telescope timezone, `subs_dir` matches the Altair rig `raw_root` layout). |
+| `cli.py` | + `robs session-end` (only the session event, or the marker when standalone, for sequences that call it separately). + `robs check-config` (Hub reachable, telescope timezone, `subs_dir` matches the Altair rig `raw_root` layout). |
+| `pyproject.toml` | + path dependency on `observatory-contracts` (`../contracts/python`). The API client uses its models. |
 | `stacking/`, `s3_publisher.py` | Deprecated in the release that ships `altair` mode. Removed after cutover (Phase 6). |
-| `ARCHITECTURE.md` | Replaced by a pointer to this document, plus a short worker-specific section. |
+| `ARCHITECTURE.md` | Removed when the repository moves into `rig-agent/` (§3.6.4). `rig-agent/README.md` links to this document. |
 | `README.md` | Updated command table, NINA wiring (a single end-of-sequence script), `data_pipeline`. |
-| `tests/` | `test_sync.py` (per-project TS projects, `schedule_count`, `nina_name`), `test_end_of_night.py` (the altair-mode marker, no uploads), `test_api_client.py` (session/heartbeat, validated against the Hub's vendored JSON Schemas). |
+| `tests/` | `test_sync.py` (per-project TS projects, `schedule_count`, `nina_name`), `test_end_of_night.py` (altair mode posts `session_end` and uploads nothing; standalone mode writes the marker), `test_api_client.py` (session/heartbeat, validated against `contracts/schemas/`). |
 
 Note: the worker's `subs_dir` on the rig PC (e.g. `D:/NINA`) is the same folder Altair
 collects from as `raw_root` (`//rig-esprit/NINA`). Both must use the same NINA file
 pattern; Altair's recommended pattern (SPEC §4.2) satisfies the worker too.
 
-### 8.4 `astrophotography-database` (retired)
+### 8.4 `astrophotography-database` (retired, not merged in)
 
 **Feature parity checklist.** Each item must be ticked in the Hub before the retirement
 release:
@@ -1137,15 +1247,15 @@ The Hub's phases are sequential. Altair and worker work starts as soon as the AP
 phase it depends on is merged. Altair's own SPEC phases 0–8 continue, with the additions
 noted.
 
-| Phase | Repos | Deliverable | Exit criteria |
+| Phase | Components | Deliverable | Exit criteria |
 |---|---|---|---|
-| **P0: Contract** | Hub (+ copies in worker/Altair) | This document accepted. `docs/api/schemas/*.json`. Altair SPEC v0.8 edits (§8.2.1). Worker ARCHITECTURE pointer. | Schemas validate the examples in §5. SPEC v0.8 merged. |
+| **P0: Monorepo + contract** | All | Repositories merged with history (§3.6.4). Per-component CI green from its own directory. `contracts/` with schemas, examples and the generated `observatory-contracts` package. Altair SPEC v0.8 edits (§8.2.1). This document accepted. | Each component's existing test suite passes unchanged in the monorepo. The Hub still deploys from `hub/`. Schemas validate the examples in §5. SPEC v0.8 merged. |
 | **P1: Hub domain foundation** | Hub | Migrations 1–8. `Project`/`OpticalTrain`/catalogue models. Catalogue importers + Telescopius resolver. Existing targets backfilled into projects. Wizard: project → objects → telescope → exposures (filter dropdown). Scoped/polymorphic API keys. | Every existing spec passes. The worker's current API calls pass unchanged (recorded fixtures). OpenNGC + LDN + LBN import completes and dedupes aliases. Alias search p95 < 100 ms on the full catalogue. |
-| **P2: Astronomy features** | Hub, astrophotography-database (fixtures script) | `Astro::*` engine with horizon masks. Object pages, catalogue browser, dashboard "Tonight", project Visibility/Overview (acquired basis), showcases, `import:astrodb`. | Golden visibility tests pass (§7.2). A real astrophotography-database file imports with projects, targets, goals and showcases intact. Parity checklist rows for phases 1–2 ticked. |
+| **P2: Astronomy features** | Hub (+ fixtures from the astrophotography-database final release) | `Astro::*` engine with horizon masks. Object pages, catalogue browser, dashboard "Tonight", project Visibility/Overview (acquired basis), showcases, `import:astrodb`. | Golden visibility tests pass (§7.2). A real astrophotography-database file imports with projects, targets, goals and showcases intact. Parity checklist rows for phases 1–2 ticked. |
 | **P3: Processing API + file search** | Hub | Migrations 9–10. `/api/v1/processing/*`, sessions, heartbeat. Progress counters (collected/usable/integrated). `FrameFovMatchJob`. `/frames` search + detail + unassigned inbox. Issues, nights, commands UI. Node admin page. Notification routing. | Request specs for every endpoint (auth, scopes, idempotency, manual-assignment precedence). 100k synthetic frames: filtered search p95 < 300 ms, cone search p95 < 500 ms. A replayed synthetic night produces correct counters. |
 | **P4: Altair Hub sync** | Altair | `hub/` modules. SPEC Phase 1 + frame/night reporting + config pull (collector frames appear in the Hub within 2 min). Phase 3 + products/previews. Phase 6 + issues/commands. `altair index`. | Unplugging the processing PC's WAN for 24 h mid-night loses nothing, and the Hub catches up with exact counts (`reconcile` clean). An unresolved frame → Hub assignment → command → re-plan → night master under the right target. The CLI accepts Hub ids. `altair index --rig R` on an old NAS archive populates `/frames`. |
-| **P5: Worker integration** | Worker | `data_pipeline: altair`, per-project Target Scheduler projects, `schedule_count`, session events, marker writing, heartbeat. | One real night: the Target Scheduler shows `#P…` projects and `#…` targets. Every light in the Hub is linked by `header_token`. No worker S3 uploads. Session events show on the dashboard. `integrated` basis re-schedules rejected frames. |
-| **P6: Cutover & retirement** | All | Runbook (§10). Worker legacy code removed. astrophotography-database archived. | A week of unattended nights on the unified system. Parity checklist complete. |
+| **P5: Worker integration** | Worker | `data_pipeline: altair`, per-project Target Scheduler projects, `schedule_count`, session events (`session_end` → `night_ready`), standalone `targets_file` mode, heartbeat. | One real night: the Target Scheduler shows `#P…` projects and `#…` targets. Every light in the Hub is linked by `header_token`. No worker S3 uploads. Session events show on the dashboard, and Altair closes the night from `night_ready` with no marker file on the rig. `integrated` basis re-schedules rejected frames. |
+| **P6: Cutover & retirement** | All | Runbook (§10). Worker legacy code removed. The old worker, Altair and astrophotography-database repositories archived. | A week of unattended nights on the unified system. Parity checklist complete. |
 
 **Critical path:** P0 → P1 → P3 → P4 (Altair reporting) → P5. P2 can run in parallel with
 P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on any of this.
@@ -1166,7 +1276,8 @@ P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on 
    backfills every frame. Existing legacy text-target projects show up in the unassigned
    inbox; assign them to targets and Altair re-links them.
 5. **Upgrade the workers** and set `data_pipeline: altair`. Replace the NINA end-of-sequence
-   External Script with `robs end-of-night` (it now writes the Altair marker). The first
+   External Script with `robs end-of-night` (it now posts `session_end`, which reaches Altair
+   as `night_ready`), and remove `altair-session-end.cmd` from the rig PCs. The first
    `roof-open` creates the per-project Target Scheduler projects. The worker disables the
    old single project after migrating its targets (keeping acquired counts).
 6. **Legacy worker uploads:** existing `target_files` rows (now `data_products` of kind
@@ -1180,13 +1291,16 @@ P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on 
 
 ---
 
-## 11. Testing strategy (cross-repo)
+## 11. Testing strategy (cross-component)
 
-- **Contract tests:** the Hub owns `docs/api/schemas/`. Hub request specs validate every
-  response and example request against them. Altair (`tests/test_hub_*.py`) and the worker
-  (`tests/test_api_client.py`) vendor the schemas (pinned to a Hub commit by
-  `scripts/sync-hub-schemas`) and validate every payload they build. A schema change
-  that breaks a client fails that client's CI when it picks up the new schemas.
+- **Contract tests:** `contracts/schemas/` is the single source. Hub request specs validate
+  every response and example request against it. Altair (`tests/test_hub_*.py`) and the
+  worker (`tests/test_api_client.py`) build their payloads with the `observatory-contracts`
+  models and validate them against the same schemas. Because a change under `contracts/`
+  runs all three suites (§3.6.2), a schema change that breaks any component fails in the
+  same pull request. Nothing is vendored or synced.
+- **Standalone tests:** each component's CI also runs its standalone mode (§3.6.3): the Hub
+  with no agents, the worker from a `targets_file`, and Altair with `hub.enabled: false`.
 - **Recorded fixtures:** the worker's current requests, captured before P1, are replayed
   against the Hub after every phase to prove backward compatibility.
 - **Idempotency properties** (Hub): replaying any frame batch or issue upsert N times gives
@@ -1195,7 +1309,7 @@ P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on 
   slow responses) during a simulated night never loses an outbox item and never blocks
   collection or processing. After recovery, the Hub state equals the local catalog.
 - **Golden astronomy fixtures** (§7.2).
-- **End-to-end staging:** `docker compose` with the Hub + Postgres, Altair in a
+- **End-to-end staging:** `docker compose` (at `tools/e2e/`) with the Hub + Postgres, Altair in a
   **replay mode** that feeds recorded collection manifests (no PixInsight; fake
   `result.json` jobs as in Altair's executor contract tests), and the worker against its
   existing throwaway Target Scheduler SQLite fixture. One scripted night checks every
