@@ -17,7 +17,7 @@ component to get there.
 The repository layout, the rules for component independence, and how the histories are
 merged are in §3.6.
 
-Related documents: [`ARCHITECTURE.md`](../ARCHITECTURE.md) (current Hub ↔ worker contract,
+Related documents: [`hub/ARCHITECTURE.md`](../hub/ARCHITECTURE.md) (current Hub ↔ worker contract,
 superseded by §5 of this document once implemented) and the processing pipeline spec,
 today `altair-pre-processor/docs/SPEC.md` and `processing/docs/SPEC.md` after the merge
 (§8.2 below lists the changes it needs).

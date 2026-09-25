@@ -1,18 +1,18 @@
 # Remote Observatory — Architecture
 
-> **Planned change:** the unified platform design, which merges this app with
-> `altair-pre-processor` and `astrophotography-database` on one central
-> database, is in [`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md).
+> **Planned change:** the unified platform design, which joins this app with
+> the processing core (`processing/`) and retires `astrophotography-database`, on
+> one central database, is in [`docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md).
 > The API contract below stays in force, and the new API only adds to it, until
 > that plan's Phase 5 lands.
 
 This document is the shared design reference for the two halves of the
 system:
 
-- **`remote-observatory-queueing-system`** (this repo) — a Ruby on Rails
+- **`hub/`** (this component; was `remote-observatory-queueing-system`) — a Ruby on Rails
   app. It is the source of truth for telescopes, users, targets, and
   exposure plans, and the human-facing UI (admin + end-user).
-- **`remote-observatory-worker`** — a Python service/CLI that runs at (or
+- **`rig-agent/`** (was `remote-observatory-worker`) — a Python service/CLI that runs at (or
   near) each telescope's control computer. It talks to N.I.N.A.
   (Nighttime Imaging 'N' Astronomy) and its **Target Scheduler** plugin,
   runs at "roof open" / "roof close" / "end of night" triggers, and calls
@@ -116,7 +116,7 @@ credentials or PII are pushed to SJAA.
 ## Worker configuration
 
 Each telescope's control PC runs the worker with a small YAML config
-(see `remote-observatory-worker/README.md`) naming: the Rails API base
+(see [`rig-agent/README.md`](../rig-agent/README.md)) naming: the Rails API base
 URL + API key, the local NINA Target Scheduler SQLite path, the subs
 directory NINA writes to, the S3 bucket/prefix, and optional Siril/
 PixInsight settings.

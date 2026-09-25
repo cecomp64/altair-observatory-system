@@ -1,17 +1,21 @@
-# Remote Observatory — Queueing System
+# Hub — Remote Observatory Queueing System
 
 The Rails frontend and API for a remote/robotic telescope observing
 queue: members pick a telescope, submit imaging targets through a guided
 wizard, and track progress; admins manage telescopes and API keys; a
-companion worker (see
-[`remote-observatory-worker`](https://github.com/cecomp64/remote-observatory-worker))
+companion worker (the [rig agent](../rig-agent/))
 uses the JSON API to sync targets into NINA's Target Scheduler plugin and
 report progress/files back.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design and API
-contract, and [`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md)
-for the unified-platform plan (this app as the central Hub for the worker,
-`altair-pre-processor`, and the retired `astrophotography-database`).
+contract, and [`docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md)
+for the unified-platform plan (this app as the central Hub for the
+[rig agent](../rig-agent/), the [processing core](../processing/), and the retired
+`astrophotography-database`).
+
+This component was the `remote-observatory-queueing-system` repository; it now
+lives in `hub/` of the `altair-observatory-system` monorepo with its full history.
+Run every command below from `hub/`.
 
 ## Requirements
 

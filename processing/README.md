@@ -1,4 +1,4 @@
-# altair-pre-processor
+# processing (Altair)
 
 Fully automated, event-triggered astrophotography pre-processing: raw frames from a night's
 imaging session are calibrated and integrated headlessly with PixInsight WBPP into one master
@@ -10,3 +10,10 @@ the first pipeline step. Older raw lights and calibrated subs move to S3-only, w
 cleanup and automatic re-fetch.
 
 See [docs/SPEC.md](docs/SPEC.md) for the implementation specification.
+
+This component was the `altair-pre-processor` repository; it now lives in the
+`altair-observatory-system` monorepo with its full history. How it fits into the
+whole system (Hub integration, target resolution, outbox, commands) is in
+[`../docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md) §8.2. It never imports
+code from `hub/` or `rig-agent/`; everything it shares with them is the API contract in
+[`../contracts/`](../contracts/).

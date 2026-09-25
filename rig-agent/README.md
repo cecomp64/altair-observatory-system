@@ -1,13 +1,24 @@
-# remote-observatory-worker
+# rig-agent (`robs`)
 
 The observatory-side worker for the remote observatory system: it runs
 on (or near) each telescope's control PC, talks to NINA's **Target
-Scheduler** plugin, and syncs with the
-[`remote-observatory-queueing-system`](https://github.com/cecomp64/remote-observatory-queueing-system)
-Rails app's JSON API.
+Scheduler** plugin, and syncs with the [Hub](../hub/) (the Rails app's
+JSON API).
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design and the
-API contract this worker relies on.
+This component was the `remote-observatory-worker` repository; it now
+lives in the `altair-observatory-system` monorepo with its full history.
+
+## Design and API contract
+
+* [`docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md) is the
+  system design. §8.3 lists the planned changes to this component
+  (`data_pipeline: altair`, per-project Target Scheduler projects,
+  session events, standalone `targets_file` mode).
+* [`hub/ARCHITECTURE.md`](../hub/ARCHITECTURE.md) is the current
+  Hub ↔ worker API contract this worker relies on. It stays in force
+  until the new contract in [`contracts/`](../contracts/) replaces it.
+* The rig agent never imports code from `hub/` or `processing/`; it only
+  talks to the Hub over HTTP.
 
 ## What it does
 
