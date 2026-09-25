@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end check of Altair against a running Hub (docs/SYSTEM_ARCHITECTURE.md
+"""End-to-end check of Altair against a running Hub (docs/archive/2026-09-integration-plan.md
 §9 P4 exit criteria), without PixInsight:
 
 1. index a synthetic archive (frames with the "#<id>" token, and some the

@@ -1,3 +1,8 @@
+> **Archived (2026-09-25).** This was `hub/ARCHITECTURE.md`, the original design of the
+> queueing system (the Hub) and its worker contract, from before the monorepo. The current
+> design is [`../SYSTEM_ARCHITECTURE.md`](../SYSTEM_ARCHITECTURE.md) and the contract is
+> [`../../contracts/`](../../contracts/).
+
 # Remote Observatory — Architecture
 
 > **Planned change:** the unified platform design, which joins this app with

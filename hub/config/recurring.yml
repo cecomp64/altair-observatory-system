@@ -18,7 +18,7 @@ production:
     class: ProgressRecomputeJob
     queue: default
     schedule: every day at 4am
-  # §8.1: nodes with no heartbeat for 30 minutes -> admin alert.
+  # §7.5: nodes with no heartbeat for 30 minutes -> admin alert.
   node_health:
     class: NodeHealthJob
     queue: default

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """End-to-end check of the rig agent against a running Hub
-(docs/SYSTEM_ARCHITECTURE.md §9 P5), with a throwaway Target Scheduler
+(docs/archive/2026-09-integration-plan.md §9 P5), with a throwaway Target Scheduler
 database instead of NINA:
 
 1. robs roof-open: per-project Target Scheduler projects ("#P<id> ..."),

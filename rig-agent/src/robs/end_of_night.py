@@ -6,7 +6,7 @@ queues `night_ready` for Altair), or, with no Hub, writes Altair's
 session-end marker, then cleans up. One NINA end-of-sequence script covers
 both the worker and Altair.
 
-With `data_pipeline: legacy` (deprecated, removed after cutover) it
+With `data_pipeline: legacy` (deprecated, to be removed) it
 uploads subs to S3, and optionally runs calibration + stacking, publishing
 the result too:
 

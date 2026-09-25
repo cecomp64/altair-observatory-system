@@ -11,12 +11,10 @@ lives in the `altair-observatory-system` monorepo with its full history.
 ## Design and API contract
 
 * [`docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md) is the
-  system design. §8.3 lists the planned changes to this component
-  (`data_pipeline: altair`, per-project Target Scheduler projects,
-  session events, standalone `targets_file` mode).
-* [`hub/ARCHITECTURE.md`](../hub/ARCHITECTURE.md) is the current
-  Hub ↔ worker API contract this worker relies on. It stays in force
-  until the new contract in [`contracts/`](../contracts/) replaces it.
+  system design; §8.3 describes this component and §9.2 the legacy code
+  still to be removed.
+* [`contracts/`](../contracts/) is the Hub API contract this agent
+  relies on (`schemas/worker/`).
 * The rig agent never imports code from `hub/` or `processing/`; it only
   talks to the Hub over HTTP.
 
@@ -36,13 +34,14 @@ Every command sends a heartbeat, so the Hub's admin pages show the worker's heal
 
 ### Data pipeline
 
-- `data_pipeline: altair` (use this once Altair runs): Altair collects the frames from
+- `data_pipeline: altair` (use this): Altair collects the frames from
   `subs_dir` over the network, archives them on the NAS and S3, and processes them. The
   worker doesn't upload or stack; `s3_*` and `stacking` are ignored. `subs_dir` is the
   folder Altair has as this rig's `raw_root`, so NINA must use the file pattern from
   Altair's SPEC §4.2.
-- `data_pipeline: legacy` (default until cutover, deprecated): today's S3 upload and
-  optional Siril/PixInsight stacking. Removed after cutover.
+- `data_pipeline: legacy` (still the default, deprecated): S3 upload and optional
+  Siril/PixInsight stacking from the rig PC. Nothing depends on it, and it is to be
+  removed (docs/SYSTEM_ARCHITECTURE.md §9.2).
 
 ### Standalone (no Hub)
 

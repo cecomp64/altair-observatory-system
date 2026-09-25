@@ -7,11 +7,10 @@ companion worker (the [rig agent](../rig-agent/))
 uses the JSON API to sync targets into NINA's Target Scheduler plugin and
 report progress/files back.
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design and API
-contract, and [`docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md)
-for the unified-platform plan (this app as the central Hub for the
-[rig agent](../rig-agent/), the [processing core](../processing/), and the retired
-`astrophotography-database`).
+See [`docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md) for the design (this
+app as the central Hub for the [rig agent](../rig-agent/) and the
+[processing core](../processing/)), and [`contracts/`](../contracts/) for the API
+contract. The app's earlier design doc is archived in `docs/archive/`.
 
 This component was the `remote-observatory-queueing-system` repository; it now
 lives in `hub/` of the `altair-observatory-system` monorepo with its full history.
@@ -49,14 +48,14 @@ bundle exec rspec
 
 ## Key areas of the app
 
-* `app/controllers/target_wizard_controller.rb` — the multi-step,
-  session-backed "new target" flow (`/targets/new` → `.../details` →
-  `.../exposures` → `.../review`).
+* `app/controllers/project_wizard_controller.rb` — the multi-step,
+  session-backed "new project" flow (`/projects/new`: objects → telescope →
+  exposures → review; `/targets/new` redirects here).
 * `app/controllers/admin/` — admin-only telescope + API key management
   (`/admin`).
-* `app/controllers/api/v1/` — the API the worker calls: API-key
-  authenticated, scoped per telescope. See `ARCHITECTURE.md` for the
-  full contract.
+* `app/controllers/api/v1/` — the API the rig agent and Altair call:
+  API-key authenticated, with scopes. The contract is `../contracts/schemas/`
+  (docs/SYSTEM_ARCHITECTURE.md §5).
 * `app/models/telescope.rb#horizon_points` — parses a telescope's
   uploaded horizon file (az,alt CSV) for the horizon chart on the
   telescope page.

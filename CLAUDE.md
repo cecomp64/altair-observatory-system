@@ -7,7 +7,7 @@ Guidance for Claude Code (claude.ai/code) in this repository.
 A monorepo with three independent components and a shared API contract. Read
 [`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md) before changing behaviour
 across components; §3.6 has the layout and the independence rules, §5 the API, §9 the
-phased plan.
+status and the outstanding work. Superseded plans are in `docs/archive/`.
 
 | Directory | Component | Stack |
 |---|---|---|
@@ -78,7 +78,6 @@ cd processing && uv run python ../tools/e2e/altair_hub_e2e.py --hub http://local
 cd rig-agent && uv run python ../tools/e2e/worker_hub_e2e.py --hub http://localhost:3055 \
     --hub-dir ../hub --telescope SLUG
 ```
-Cutover steps: `docs/runbooks/cutover.md`.
 
 ## Changing the API
 

@@ -109,7 +109,7 @@ def check_config(config_path: str):
         with open_scheduler_db(config.scheduler_db_path) as conn:
             check("Target Scheduler supports per-project settings", per_project_columns_available(conn),
                   "falls back to a single managed project otherwise")
-    check("data_pipeline", True, config.data_pipeline + ("" if config.altair_mode else " (deprecated: switch to altair after cutover)"))
+    check("data_pipeline", True, config.data_pipeline + ("" if config.altair_mode else " (deprecated: use altair)"))
     if config.hub_enabled:
         try:
             response = hub.api.active_targets_response(config.slug)

@@ -1,4 +1,4 @@
-# Flags processing nodes that stopped sending heartbeats (§8.1), once per
+# Flags processing nodes that stopped sending heartbeats (§7.5), once per
 # silence: the alert repeats only after the node has been heard from again.
 class NodeHealthJob < ApplicationJob
   queue_as :default

@@ -1,5 +1,5 @@
 # Seeds synthetic frames (default 100k) and measures /frames search latency
-# (§9 P3 exit: filtered search p95 < 300 ms, cone search p95 < 500 ms).
+# (docs/archive/2026-09-integration-plan.md §9 P3 exit: filtered search p95 < 300 ms, cone search p95 < 500 ms).
 #
 #   bin/rails runner script/perf/frames_search.rb [count]
 #

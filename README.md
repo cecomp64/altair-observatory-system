@@ -14,8 +14,9 @@ talk to each other **only through the Hub's HTTP API**:
 | [`processing/`](processing/) | **Processing core** (Altair). Collects frames from the rigs onto the NAS, backs them up to S3, and calibrates, integrates and merges them with PixInsight, in the context of Hub projects. Hub sync, catalog and indexing are implemented; the PixInsight pipeline is in progress. | The processing PC | [`processing/docs/SPEC.md`](processing/docs/SPEC.md) |
 | [`contracts/`](contracts/) | **The API contract**: JSON Schemas, examples, and the generated `observatory-contracts` Python models. The only thing the components share. | — | [`contracts/README.md`](contracts/README.md) |
 
-The design, including what changes in each component and the phased plan, is
-[`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md).
+The design, the current status and the outstanding work are in
+[`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md); superseded plans are in
+[`docs/archive/`](docs/archive/).
 
 ## History
 
@@ -36,7 +37,7 @@ git log --oneline b413a6e^2 -- src/robs/sync.py        # history in the old repo
 
 Each component has its own path-filtered workflow in `.github/workflows/` (`hub.yml`,
 `rig-agent.yml`, `processing.yml`, `contracts.yml`). A change under `contracts/` runs all of
-them. Components are released on their own, with tags `hub-vX.Y.Z`, `rig-agent-vX.Y.Z` and
-`processing-vX.Y.Z`: the Hub runs in the cloud while rig PCs and the processing PC upgrade on
+them. Components are meant to be released on their own, with tags `hub-vX.Y.Z`,
+`rig-agent-vX.Y.Z` and `processing-vX.Y.Z` (release workflows are not set up yet): the Hub runs in the cloud while rig PCs and the processing PC upgrade on
 their own schedule, so versions interoperate through the contract's `api_revision`
 ([`contracts/CHANGELOG.md`](contracts/CHANGELOG.md)).
