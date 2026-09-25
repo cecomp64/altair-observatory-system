@@ -1,6 +1,6 @@
 # Observatory Platform — System Architecture & Integration Guide
 
-**Status:** Draft v1.0
+**Status:** Draft v1.1 (v1.1: personal telescopes removed from scope)
 **Date:** 2026-09-25
 **Scope:** How the four existing repositories become one system that runs on a single
 central database, and what has to change in each repository to get there.
@@ -86,6 +86,10 @@ changes it needs).
 - Offline mobile sync (the astrophotography-database sql.js PWA). The Hub is responsive
   and already ships a PWA manifest. A read-only offline cache is future work (§13).
 - Combining data from different optical trains into one master (still an Altair non-goal).
+- **Members' personal telescopes.** The Hub only models the observatory's own telescopes. Every
+  telescope is admin-managed, scheduled through a worker and processed by Altair. Frames from
+  members' own equipment are not catalogued, and astrophotography-database's saved
+  locations are not carried over (§8.4).
 - Mosaic assembly (panels are modelled as separate targets; assembling them is future work).
 
 ---
@@ -188,7 +192,7 @@ design stays the same.
 
 | Concept | Definition | Identifier |
 |---|---|---|
-| **Telescope** | A mount at a site, with lat/lon/elevation/timezone/horizon. `kind: observatory` (schedulable, has a worker) or `personal` (a member's own gear, never scheduled). | `telescopes.slug` |
+| **Telescope** | An observatory telescope at a site, with lat/lon/elevation/timezone/horizon, run by a worker. Every telescope in the Hub is an observatory telescope; members' own equipment is out of scope (§1.2). | `telescopes.slug` |
 | **Optical train** | Telescope + camera + reducer as used for imaging: focal length, pixel size, sensor size, rotator, filter set. **One optical train = one Altair rig.** | `optical_trains.key` = Altair rig name (e.g. `esprit100_2600mm`) |
 | **Project** | A member's imaging goal: one or more targets, priority, status, processing settings. | `projects.id` |
 | **Target** | One pointing (catalogue object or custom coordinates, optional rotation) on one telescope/optical train, with exposure plans. The unit that is scheduled and processed. | `targets.id`. NINA name `#<id> <name>` |
@@ -255,7 +259,6 @@ sequenceDiagram
 ```mermaid
 erDiagram
   USERS ||--o{ PROJECTS : owns
-  USERS ||--o{ TELESCOPES : "owns (personal)"
   PROJECTS ||--|{ TARGETS : contains
   TELESCOPES ||--o{ OPTICAL_TRAINS : has
   TELESCOPES ||--o{ TARGETS : "scheduled on"
@@ -289,7 +292,7 @@ erDiagram
 
 | Table | Change |
 |---|---|
-| `telescopes` | + `timezone` (IANA, required, backfilled from a site default) · + `kind` enum `observatory`/`personal` (default `observatory`) · + `owner_id` → users (required when `personal`) · + `min_altitude_deg` (default 30) · + `default_optical_train_id`. A telescope is schedulable when it is `observatory` and `active`. |
+| `telescopes` | + `timezone` (IANA, required, backfilled from a site default) · + `min_altitude_deg` (default 30) · + `default_optical_train_id`. Telescopes stay admin-managed, and a telescope is schedulable when it is `active` (unchanged). |
 | `targets` | + `project_id` (required after backfill) · + `astro_object_id` (nullable: custom coordinates allowed) · + `optical_train_id` (nullable → the telescope's default) · + `rotation_deg` (sky position angle, nullable) · + `panel` (mosaic label, nullable) · + `is_primary` (the project's primary target for visibility) · + `min_altitude_deg` override · + `processing_settings` jsonb (overrides the project's) · + `schedule_count_basis`, see §4.3. `user_id` stays, validated to equal `project.user_id` (kept for existing policies and the API). Method `nina_name` → `"##{id} #{name}"`. |
 | `exposure_plans` | `completed_count` keeps its meaning: **acquired** (Target Scheduler accepted), set by the worker. + `collected_count`, `usable_count`, `integrated_count` (integers, default 0) · + `integrated_seconds` (decimal) · `filter` must be a canonical filter of the target's optical train. |
 | `target_files` → **`data_products`** | Renamed. `url` becomes nullable (legacy worker uploads only). + `project_id`, `optical_train_id`, `processing_node_id`, `altair_id` · `kind` enum extended: `sub` (legacy), `stacked` (legacy), `preview` (legacy), `log`, `night_master`, `multi_night_master`, `project_reference`, `provisional_noflat` · + `night`, `filter`, `version`, `sha256`, `size_bytes`, `archive_uri` (`s3://…`), `nas_path` · + `metrics` jsonb (frames, rejected, total exposure, FWHM, eccentricity, SNR, per-night weights) · + `superseded_by_id` · `has_one_attached :preview`, `:thumbnail`. `Target#preview_image_url` is replaced by the latest final product's thumbnail (the column is kept for legacy rows). |
@@ -698,7 +701,7 @@ re-reference (e.g. `drizzle_scale`) is shown in the UI as needing a confirmed
 | Internet down at the observatory | Same as above. | Same as above. |
 | Worker not run / crashed | No accepted counts. `collected_count` still rises from Altair. | The next `sync-progress` sets the counts. |
 | Target deleted or cancelled in the Hub after frames were captured | Frames still resolve (`/config` includes cancelled targets). They are archived and processed. | — |
-| Frame's `OBJECT` has no `#id` (manual NINA sequence, personal telescope) | Name/alias + coordinates resolution (§8.2.3). If that fails, `PROJECT_UNRESOLVED` and the lights are `held`. | Assign in the Hub → `assign_frames` → Altair links and plans. |
+| Frame's `OBJECT` has no `#id` (manual NINA sequence, legacy archive) | Name/alias + coordinates resolution (§8.2.3). If that fails, `PROJECT_UNRESOLVED` and the lights are `held`. | Assign in the Hub → `assign_frames` → Altair links and plans. |
 | Hub and Altair disagree on a frame's target | A manual Hub assignment wins. Otherwise Altair's (it read the file). | §5.3 assignment precedence. |
 | Timezone mismatch between Hub telescope and Altair site | Night boundaries differ. | `altair doctor` / `HUB_CONFIG_MISMATCH` block until fixed. |
 | Filter in headers not in the Hub's filter list | Frame stored with the raw filter, flagged. | Add the alias in the Hub. The next config pull re-normalises it and the frames are re-reported. |
@@ -761,7 +764,7 @@ A port of `visibility_service.py` (astroplan) and `fov_matcher.py` into
 | `ImagesPage`, `ImageTable` (grouped view, stats) | `/frames` **File search** | Filters: object name/alias (via targets and `frame_objects`), cone search (RA/Dec + radius), project, target, telescope, optical train, filter, image type, night/date range, exposure, gain, binning, status, storage tier, unassigned-only. Grouping by night / target / telescope. Stats: total exposure by filter, frames per month. Bulk actions: assign to target, export CSV of NAS paths / S3 keys. |
 | `ImageDetailPage` | `/frames/:id` | Headers, FOV objects, storage (NAS path, S3 key, tier), processing (night master used, weight, rejection), links to the target and project. |
 | `IndexerPage`, `FilePicker`, `files.py` | *(removed)* | The Hub can't see anyone's disks. Indexing is `altair index` (§8.2.5). Its progress shows on the node page. |
-| `SettingsPage` (locations, timezone, Telescopius key) | `/telescopes/new` (personal) · telescope settings · credentials | Saved locations become **personal telescopes**. The timezone lives on the telescope. The Telescopius key goes in Rails credentials / `TELESCOPIUS_API_KEY`. |
+| `SettingsPage` (locations, timezone, Telescopius key) | admin telescope settings · credentials | Saved locations are **dropped**: visibility is always computed for the Hub's observatory telescopes, which carry their own location, timezone and horizon. The Telescopius key goes in Rails credentials / `TELESCOPIUS_API_KEY`. |
 | `CataloguePage` import actions | `/admin/catalogue` | `CatalogueImportJob` for OpenNGC, LDN and LBN (port of `catalogue_importer.py`), progress by Turbo Stream. Also a rake task. |
 | PWA sync, `export.py`, `sql.js` offline DB | *(removed)* | The Hub is the live web app. Offline read cache is future work. |
 | — (new) | `/admin/processing_nodes/:id` | Heartbeat, versions, outbox depth, location reachability, open infrastructure issues, command history, API keys. |
@@ -798,7 +801,7 @@ so people aren't alerted twice. The Windows toast stays for whoever is at the pr
 **Migrations** (in order)
 
 1. `enable_extension "pg_trgm"`.
-2. `telescopes`: `timezone`, `kind`, `owner_id`, `min_altitude_deg`, `default_optical_train_id`.
+2. `telescopes`: `timezone`, `min_altitude_deg`, `default_optical_train_id`.
 3. `optical_trains`. Backfill one default train per telescope (key = telescope slug) so
    existing rows stay valid.
 4. `astro_objects`, `object_aliases`, `object_showcases`.
@@ -820,12 +823,10 @@ so people aren't alerted twice. The Windows toast stays for whoever is at the pr
   `FrameObject`, `ObservingNight`, `CalibrationMaster`, `EquipmentEvent`, `DataProduct`
   (renamed from `TargetFile`), `ProcessingNode`, `ProcessingIssue`, `ProcessingJob`,
   `ProcessingCommand`.
-- Changed: `Telescope` (`kind`, `timezone`, `optical_trains`, `night_for(time)`,
-  `schedulable?`), `Target` (`project`, `astro_object`, `optical_train`, `nina_name`,
+- Changed: `Telescope` (`timezone`, `optical_trains`, `night_for(time)`), `Target` (`project`, `astro_object`, `optical_train`, `nina_name`,
   effective settings/min altitude, completion by basis), `ExposurePlan` (counters,
   `schedule_count`, filter validation), `ApiKey` (polymorphic owner, `scopes`,
-  `allows?(scope)`), `TargetEvent` (new types), `User` (`has_many :projects`,
-  `:personal_telescopes`).
+  `allows?(scope)`), `TargetEvent` (new types), `User` (`has_many :projects`).
 
 **Library / services** (`app/lib`, `app/services`)
 
@@ -861,7 +862,7 @@ from §7.4. Recurring entries go in `config/recurring.yml`.
   `TargetWizardController`; `/targets/new` redirects to it), `ObjectsController`,
   `ShowcasesController`, `FramesController` (search, show, unassigned, bulk assign),
   `NightsController` (include/exclude → commands), `IssuesController` (show, waive, approve),
-  `OpticalTrainsController`, `EquipmentEventsController`, `PersonalTelescopesController`,
+  `OpticalTrainsController`, `EquipmentEventsController`,
   `Admin::ProcessingNodesController` (+ API keys), `Admin::CatalogueController`.
 - `DashboardController`: tonight panels, admin health.
 - Pundit policies for every new resource. Frames, data products and issues are visible to
@@ -1022,7 +1023,7 @@ altair run  --project HUB_PROJECT_ID | --target HUB_TARGET_ID [--night DATE] [--
 altair rerun --target HUB_TARGET_ID [--night DATE] [--filter F]
 altair frames unlinked [--night DATE --rig R]       # what PROJECT_UNRESOLVED is holding
 altair frames assign --target HUB_TARGET_ID (--sha256 H... | --night DATE --rig R --object "M 31")
-altair index <dir> [--rig R | --telescope SLUG --optical-train KEY] [--catalog-only] [--dry-run]
+altair index <dir> --rig R [--adopt] [--dry-run]
 ```
 
 `--project HUB_PROJECT_ID` expands to every processing project whose `hub_project_id`
@@ -1046,16 +1047,17 @@ src/altair/index/
 
 #### 8.2.7 `altair index`: replaces the astrophotography-database indexer
 
-- Catalogues **existing** FITS/XISF files **in place and read-only**: legacy archives on the
-  NAS, or a member's personal image folder. It hashes, reads headers (same
+- Catalogues **existing** FITS/XISF files from the observatory's own rigs, **in place and
+  read-only**: legacy archives on the NAS or elsewhere on the observatory network. It hashes, reads headers (same
   `header_mapping`/aliases), resolves targets, and reports frames with `origin = import`.
 - Files under the NAS root become `nas` replicas and are eligible for processing like any
   other frame. Files elsewhere get a new location kind **`external:<name>`**: read-only,
   never cleaned up, never written to, and only processed when `--adopt` copies them into
   the NAS layout.
-- `--catalog-only` is a mode for a member's own PC. It needs only `hub:` settings and no
-  NAS, S3 or PixInsight. It indexes and reports, and that's all. This is the replacement for the desktop
-  app's indexer. It ships in the same `altair.exe`.
+- `--rig` is required: every indexed frame belongs to one of the observatory's optical trains.
+  Files whose headers match no configured rig raise `UNKNOWN_RIG` and are skipped.
+- This is the replacement for the desktop app's indexer. It runs on the processing PC as part
+  of `altair.exe`. There is no stand-alone mode for members' own PCs (§1.2).
 
 ### 8.3 `remote-observatory-worker`
 
@@ -1099,30 +1101,29 @@ release:
 | FITS indexing | `altair index` | 4 |
 | FOV object detection | `FrameFovMatchJob` | 3 |
 | Image search, grouped view, stats, detail | `/frames` | 3 |
-| Multiple saved locations + timezone | Personal telescopes | 1 |
+| Multiple saved locations + timezone | **Dropped.** Visibility uses the observatory telescopes' locations, timezones and horizons | 1 |
 | Mobile use | Responsive Hub (the offline PWA is dropped) | 2 |
 
-**Data import** (`bin/rails "import:astrodb[/path/to/database.db,user@example.com]"`, service
+**Data import** (`bin/rails "import:astrodb[/path/to/database.db,user@example.com,telescope=SLUG]"`, service
 `Imports::AstroDb`, reads SQLite via `sqlite3`):
 
-1. `configurations` saved locations → **personal telescopes** owned by the given user
-   (lat/lon/elevation, timezone from the timezone setting). One default optical train each,
-   filled from the most common `TELESCOP`/`INSTRUME`/`FOCALLEN` in `images` where available.
+1. `configurations` (saved locations, timezone) are **not imported**.
 2. `objects` + `object_aliases` → merged into the Hub catalogue. A match is the same
    normalised alias **and** coordinates within 1′ (then aliases are merged); otherwise a
    new `custom` object.
-3. `projects` → `projects` (status and priority kept). `project_targets` → `targets` on the
-   personal telescope. Status is `draft`, because personal telescopes are never scheduled.
+3. `projects` → `projects` (status and priority kept). `project_targets` → `targets` on an
+   **observatory telescope named on the command line** (`telescope=SLUG`). Status is `draft`,
+   so nothing is scheduled until the owner reviews and submits it. Without `telescope=`, only
+   the projects' objects and goals are kept, as a project in `planning` with no targets.
    `exposure_goals` (seconds per filter) → one `exposure_plan` per filter, with
    `exposure_seconds` = the median exposure of that project's existing images in that
    filter (300 s if none) and `desired_count = ceil(goal / exposure_seconds)`.
 4. `object_showcases` → Active Storage attachments (files from the app's showcases directory).
-5. **Images are not imported as frames by default.** Run `altair index --catalog-only` on the
-   original folders. That gives frames real SHA-256 identities and the same header parsing
-   as everything else, and the project/target links resolve by name and coordinates.
-   `--images` imports them as `origin = legacy_index` frames (no sha256, flagged) for anyone
-   who can't re-index. `altair index` later merges with them on
-   (file name, `date_obs`, exposure, filter).
+5. **Images are not imported.** Images that came from observatory rigs are catalogued by
+   running `altair index --rig R` on the processing PC over the original folders. That gives
+   them real SHA-256 identities and the same header parsing as everything else, and the
+   target links resolve by name and coordinates. Images from members' own equipment stay
+   out of the Hub (§1.2).
 
 **Repository:** a final release with a README deprecation banner pointing to the Hub, and
 a `tools/dump_visibility_fixtures.py` script (§7.2 golden tests). Then disable the release
@@ -1139,10 +1140,10 @@ noted.
 | Phase | Repos | Deliverable | Exit criteria |
 |---|---|---|---|
 | **P0: Contract** | Hub (+ copies in worker/Altair) | This document accepted. `docs/api/schemas/*.json`. Altair SPEC v0.8 edits (§8.2.1). Worker ARCHITECTURE pointer. | Schemas validate the examples in §5. SPEC v0.8 merged. |
-| **P1: Hub domain foundation** | Hub | Migrations 1–8. `Project`/`OpticalTrain`/catalogue models. Catalogue importers + Telescopius resolver. Existing targets backfilled into projects. Wizard: project → objects → telescope → exposures (filter dropdown). Personal telescopes. Scoped/polymorphic API keys. | Every existing spec passes. The worker's current API calls pass unchanged (recorded fixtures). OpenNGC + LDN + LBN import completes and dedupes aliases. Alias search p95 < 100 ms on the full catalogue. |
+| **P1: Hub domain foundation** | Hub | Migrations 1–8. `Project`/`OpticalTrain`/catalogue models. Catalogue importers + Telescopius resolver. Existing targets backfilled into projects. Wizard: project → objects → telescope → exposures (filter dropdown). Scoped/polymorphic API keys. | Every existing spec passes. The worker's current API calls pass unchanged (recorded fixtures). OpenNGC + LDN + LBN import completes and dedupes aliases. Alias search p95 < 100 ms on the full catalogue. |
 | **P2: Astronomy features** | Hub, astrophotography-database (fixtures script) | `Astro::*` engine with horizon masks. Object pages, catalogue browser, dashboard "Tonight", project Visibility/Overview (acquired basis), showcases, `import:astrodb`. | Golden visibility tests pass (§7.2). A real astrophotography-database file imports with projects, targets, goals and showcases intact. Parity checklist rows for phases 1–2 ticked. |
 | **P3: Processing API + file search** | Hub | Migrations 9–10. `/api/v1/processing/*`, sessions, heartbeat. Progress counters (collected/usable/integrated). `FrameFovMatchJob`. `/frames` search + detail + unassigned inbox. Issues, nights, commands UI. Node admin page. Notification routing. | Request specs for every endpoint (auth, scopes, idempotency, manual-assignment precedence). 100k synthetic frames: filtered search p95 < 300 ms, cone search p95 < 500 ms. A replayed synthetic night produces correct counters. |
-| **P4: Altair Hub sync** | Altair | `hub/` modules. SPEC Phase 1 + frame/night reporting + config pull (collector frames appear in the Hub within 2 min). Phase 3 + products/previews. Phase 6 + issues/commands. `altair index`. | Unplugging the processing PC's WAN for 24 h mid-night loses nothing, and the Hub catches up with exact counts (`reconcile` clean). An unresolved frame → Hub assignment → command → re-plan → night master under the right target. The CLI accepts Hub ids. `altair index --catalog-only` on an old archive populates `/frames`. |
+| **P4: Altair Hub sync** | Altair | `hub/` modules. SPEC Phase 1 + frame/night reporting + config pull (collector frames appear in the Hub within 2 min). Phase 3 + products/previews. Phase 6 + issues/commands. `altair index`. | Unplugging the processing PC's WAN for 24 h mid-night loses nothing, and the Hub catches up with exact counts (`reconcile` clean). An unresolved frame → Hub assignment → command → re-plan → night master under the right target. The CLI accepts Hub ids. `altair index --rig R` on an old NAS archive populates `/frames`. |
 | **P5: Worker integration** | Worker | `data_pipeline: altair`, per-project Target Scheduler projects, `schedule_count`, session events, marker writing, heartbeat. | One real night: the Target Scheduler shows `#P…` projects and `#…` targets. Every light in the Hub is linked by `header_token`. No worker S3 uploads. Session events show on the dashboard. `integrated` basis re-schedules rejected frames. |
 | **P6: Cutover & retirement** | All | Runbook (§10). Worker legacy code removed. astrophotography-database archived. | A week of unattended nights on the unified system. Parity checklist complete. |
 
@@ -1171,8 +1172,8 @@ P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on 
 6. **Legacy worker uploads:** existing `target_files` rows (now `data_products` of kind
    `sub`/`stacked`/`preview`) stay visible as "legacy uploads". The old worker bucket is left
    as it is, or copied into Altair's archive with `altair index` + `--adopt` if wanted.
-7. **Import astrophotography-database** for each member who used it (`import:astrodb`), then run
-   `altair index --catalog-only` on their image folders.
+7. **Import astrophotography-database** for each member who used it (`import:astrodb`). For
+   old archives from observatory rigs, run `altair index --rig R` on the processing PC.
 8. **Run both** for one week: watch node health, reconcile results and counter spot checks.
 9. **Remove legacy paths:** the worker `stacking/` and `s3_publisher.py`, and the Hub legacy
    `files` scope for keys that no longer need it. Archive astrophotography-database.
@@ -1235,7 +1236,7 @@ P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on 
 | 4 | `astronoby` accuracy and coverage (twilight, moon). | Golden tests decide. Fallback: a Meeus low-precision implementation (about 200 lines). |
 | 5 | Default `completion_basis`. | `acquired` (today's behaviour). Projects opt into `integrated`. |
 | 6 | Previews: Python XISF stretch vs PJSR export. | Python (`xisf` + numpy) in `previews.py`. It runs outside PixInsight's single instance slot. |
-| 7 | Should members' personal telescopes and data share the club Hub? | Yes. Projects default to `private`, and `club` visibility is opt-in. |
+| 7 | Should projects be visible to other club members? | Projects default to `private`, and `club` visibility is opt-in. |
 | 8 | Automatic flats: turning `FLAT_MISSING` into Target Scheduler flat requests. | Future work. The optical-train page's flats shopping list comes first. |
 | 9 | Mosaic assembly across panel targets. | Future work. Panels are separate targets in one project today. |
 | 10 | Offline mobile (the old sql.js PWA). | Future work: service-worker cache of catalogue and project pages. |
