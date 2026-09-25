@@ -1,6 +1,6 @@
 # Altair Pre-Processor — Implementation Specification
 
-**Status:** Draft v0.7
+**Status:** Draft v0.8
 **Date:** 2026-09-25
 **Target platform:** Windows 10/11 (x64). Each telescope has its own NINA mini PC that
 saves locally. A **NAS (required)** is the single raw-data store and archive. A separate,
@@ -8,10 +8,18 @@ more powerful processing PC runs PixInsight 1.9.x with WBPP 2.x. It collects fra
 each rig PC onto the NAS, processes them in place from the NAS, and backs everything up
 to Amazon S3. Everything is on the same wired Ethernet network.
 
+**Where this fits:** Altair is the processing core (`processing/`) of the
+`altair-observatory-system` monorepo. The **Hub** (`hub/`) is the system of record and the UI;
+Altair works on Hub projects and targets and reports to the Hub over its HTTP API. The system
+design, and the Hub API contract Altair implements, are in
+[`../../docs/SYSTEM_ARCHITECTURE.md`](../../docs/SYSTEM_ARCHITECTURE.md) (§3.6, §5, §6, §8.2).
+Without a Hub (`hub.enabled: false`), Altair runs exactly as v0.7 describes (§5.1).
+
 ### Changelog
 
 | Version | Changes |
 |---|---|
+| v0.8 | **Hub integration.** Altair moves into the monorepo as `processing/`. Processing projects are keyed by **Hub target id** and rig: `(hub_target_id, rig)`; the legacy `(target, telescope, camera)` stays for unlinked data and standalone sites. Ingest **resolves the Hub target** for every light (header token, name + coordinates, coordinates; otherwise held as `PROJECT_UNRESOLVED`). New **Hub Sync** component: config pull, a transactional **outbox** that reports frames, nights, masters, previews, issues and jobs, and a **command** queue (rerun, assign frames, include/exclude night, waive, re-reference, `night_ready`, …). With a Hub, the session end arrives as the Hub's `night_ready` command and rig PCs need no Altair script; the marker file remains for standalone operation. `altair index` catalogues existing archives in place. New issue kinds `PROJECT_UNRESOLVED`, `HUB_UNREACHABLE`, `HUB_REJECTED`, `HUB_CONFIG_MISMATCH`. The local status page becomes a fallback to the Hub UI. (§1.2, §2, §3, §4.2, §5, §6, §9, §10, §12, §15, §17) |
 | v0.7 | Raw lights and calibrated subs **move to S3-only** after a retention period on the NAS (default 180 days, and only once the project has been idle for 60 days). The NAS becomes the store for recent and active data, and S3 is the long-term archive for bulk data. Masters, reference frames, and metadata stay on the NAS forever. Adds stricter pre-delete S3 verification, Object Lock recommended for kept prefixes, and a bounded NAS size. (§2, §5, §7, §10, §16) |
 | v0.6 | The **NAS is required** and is the canonical raw-data store and on-site archive (location `nas`, replacing the optional `nfs`). NINA still saves to the rig PC's local disk. The collector writes each verified frame straight into the NAS archive layout, then S3. Processing reads raw frames **in place from the NAS**, while WBPP's intermediates stay on the processing PC's local SSD. The processing PC no longer keeps a local copy of raw frames. The rig PCs become a short buffer (3-day retention once NAS and S3 copies are verified). Raw calibration subs are kept on the NAS (not S3). (§1–§7, §9–§16) |
 | v0.5 | Removes the separate shared folder and the rig PC agent. Each rig PC's own NINA folder, exposed as a network share, is the raw data source. The processing PC has a config entry per rig (host, raw data location, credentials, collection settings). A **collector** on the processing PC pulls frames from each rig as they are written, verifies them with a double read, and backs them up first. Rig PC cleanup is done by the processing PC over the share. (§2–§7, §10–§16) |
@@ -79,8 +87,10 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
 - Post-processing (gradient removal, color calibration, stretching, deconvolution).
 - Acquisition control. The pipeline only reads what NINA writes. It may *generate* helper
   files for NINA (§10.4) but never drives the equipment.
-- A GUI. Configuration is YAML. Status comes through notifications, a generated issues
-  and status page, and the CLI.
+- A GUI of its own: the **Hub is the UI** (project pages, frame search, issues, commands).
+  Configuration is YAML plus what the Hub supplies (§5.1). The local status page, the
+  notifications and the CLI stay as a fallback for when the Hub is unreachable and for
+  standalone sites.
 - Combining data from different telescopes or cameras into one master.
 
 ---
@@ -94,7 +104,14 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
 | **Optical train signature** | Everything that changes where vignetting and dust shadows fall: telescope, camera, focal length (reducer or flattener), binning, sensor ROI, and rotator position. |
 | **Night** | All frames from one observing night, defined as the local noon-to-noon window. This matches NINA's `$$DATEMINUS12$$` token. |
 | **Stack key** | `(telescope, camera, filter, target)`. |
-| **Project** | `(target, telescope, camera)`. Holds one project reference frame and one multi-night master per filter. |
+| **Project** | A processing project. **Linked:** `(hub_target_id, rig)`, one Hub target on one rig. **Legacy / unlinked:** `(target, telescope, camera)` with the target taken from header text, for standalone sites and data that predates the Hub link. Either way it holds one project reference frame and one multi-night master per filter. |
+| **Hub** | The central server (`hub/` in the monorepo): the system of record for projects, targets, equipment and settings, and the UI. Altair talks to it only over its HTTP API (§17). |
+| **Hub project** | A user's imaging project in the Hub. It has one or more Hub targets. |
+| **Hub target** | One pointing on one telescope (and usually one optical train), with exposure plans. NINA names it `#<target_id> <name>`, which lands in the `OBJECT` header. A linked Altair project is exactly one Hub target on one rig. |
+| **Optical train** | The Hub's name for a rig. An optical train's `key` equals the Altair rig name. |
+| **Processing node** | This Altair installation, as registered in the Hub. It has its own API key and serves a set of telescopes. |
+| **Outbox** | The SQLite table of Hub reports waiting to be sent, written in the same transaction as the catalog change it describes (§17.3). |
+| **Command** | An instruction queued in the Hub for this node (rerun, assign frames, `night_ready`, …), polled and executed by Altair (§17.4). |
 | **Project reference** | The single calibrated frame whose geometry every night of the project is registered to, across **all filters**. |
 | **Night master** | The integrated master for one stack key on one night, in project reference geometry. |
 | **Multi-night master** | The weighted combination of every eligible night master for one stack key. |
@@ -184,6 +201,11 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
            └───────────────────────────────────────────────────────────────────────┘
 ```
 
+**10 Hub Sync** (v0.8, §17) runs beside these: it pulls the Hub config (projects, targets,
+aliases, optical trains, settings), drains the outbox (frames, nights, masters, previews,
+issues, jobs), and polls and executes commands. Ingest gains a **target-link** step
+(§6.2). Hub Sync never blocks collection, backup or processing.
+
 The **orchestrator** (`altaird`) is a long-running Python service on the processing PC.
 PixInsight is an external worker that the orchestrator starts once per job, as a separate
 process. Nothing from Altair runs on the rig PCs.
@@ -201,6 +223,8 @@ process. Nothing from Altair runs on the rig PCs.
 | State store | SQLite (WAL mode) | Single host, transactional, needs no server. |
 | Config | YAML validated with `pydantic` | Typed, and bad config fails at startup. |
 | Job execution | PixInsight CLI in automation mode running PJSR wrapper scripts | Required by the project goal. |
+| Hub client | `httpx` (HTTP/2, timeouts, retries) with the `observatory-contracts` pydantic models (`contracts/python` in the monorepo) | The same schemas the Hub validates against, so payloads can't drift. |
+| Hub credential | The node API key in Windows Credential Manager (`hub.credential_target`) | Never in YAML or logs. |
 
 ---
 
@@ -292,7 +316,14 @@ frame during the night, about a minute behind capture.
 `D:\NINA`). That folder is shared, and its network path is the rig's `raw_root` in the
 processing PC's config.
 
-**Session-end signal.** In the NINA Advanced Sequencer, add an **External Script**
+**Session-end signal with a Hub (v0.8).** The rig agent's end-of-sequence command
+(`robs end-of-night`, which NINA already runs) posts `session_end` to the Hub. The Hub queues
+a **`night_ready` command** for this node, one per optical train of that telescope, and
+Altair treats it exactly like the marker below (§6.1). Rig PCs then need **no Altair script**:
+don't install `altair-session-end.cmd`. The marker remains the signal only in standalone
+operation.
+
+**Session-end signal without a Hub.** In the NINA Advanced Sequencer, add an **External Script**
 instruction to the sequence's *End* area (and optionally after each target's flats). It
 runs a tiny script on the **rig PC** (`deploy/windows/altair-session-end.cmd`, copied
 there once). The script only writes a marker file into the NINA folder:
@@ -350,7 +381,9 @@ and how to interpret it.
 ## 5. Configuration
 
 A single `altair.yaml` on the processing PC (default
-`C:\ProgramData\Altair\altair.yaml`), validated at startup. Rig PCs have no Altair
+`C:\ProgramData\Altair\altair.yaml`), validated at startup. With a Hub, the `hub:` block and
+each rig's `hub:` mapping (§5.1) are added, and the Hub supplies targets, aliases, filter
+lists and per-project settings on top of this file. Rig PCs have no Altair
 configuration. Everything about a rig, including **where its raw data is**, how to reach
 it, and how to collect and clean up, lives in that rig's entry under `rigs:`.
 
@@ -489,6 +522,7 @@ triggers:
 
 rigs:
   esprit100_2600mm:
+    hub: { telescope: "backyard-16in", optical_train: "esprit100_2600mm" }   # v0.8, §5.1 (omit when hub.enabled: false)
     # ── where the raw data is and how to reach it ──
     host: "rig-esprit"                    # rig PC network name (used for reachability probes)
     raw_root: "//rig-esprit/NINA"         # the rig PC's shared NINA save folder = location rig:esprit100_2600mm
@@ -535,6 +569,8 @@ rigs:
     default_filter: "OSC"
 
 aliases:                                   # raw header value (regex) → canonical name
+                                           # v0.8: with a Hub these are LOCAL OVERRIDES; the Hub supplies the base
+                                           # filter aliases (optical_trains.filters) and target aliases (§5.1)
   telescope: { "Esprit 100ED|ESPRIT100": esprit100, "RASA 8": rasa8 }
   camera:    { "ZWO ASI2600MM Pro": asi2600mm, "ZWO ASI533MC Pro": asi533mc }
   filter:    { "^(Ha|H-alpha|HA)$": Ha, "^(OIII|O3)$": OIII, "^(SII|S2)$": SII, "^(L|Lum)$": L }
@@ -600,7 +636,49 @@ notifications:
     - type: email
       smtp_url_env: SMTP_URL
       to: me@example.com
+    # - type: hub                           # v0.8: issues and results go to the Hub, which notifies users;
+    #                                       #       Pushover/email become optional (§10.3)
 ```
+
+### 5.1 Hub connection (v0.8)
+
+```yaml
+hub:
+  enabled: true                            # false = standalone (v0.7 behaviour; everything below is ignored)
+  base_url: "https://observatory.example.org"
+  node: "altair-proc-01"                   # must match the Hub's processing node name
+  credential_target: "altair-hub"          # Windows Credential Manager entry holding the node API key
+  config_poll_s: 300
+  command_poll_s: 60
+  unreachable_alert_minutes: 60
+  require_target_link: true                # unresolved lights are held, never processed into a guessed project
+  resolve:
+    by_header_token: true                  # "#<target_id> …" in OBJECT
+    by_name: true                          # name / alias match + coordinate check
+    by_coordinates: true                   # single active target within max_offset
+    max_offset_fov_fraction: 0.5
+  outbox: { batch_size: 500, max_backoff_s: 900 }
+  previews: { enabled: true, long_edge_px: 2048, thumb_px: 512, jpeg_quality: 85 }
+  frame_headers: full                      # full | summary
+```
+
+Each rig maps to a Hub telescope and optical train with `rigs.<name>.hub` (above).
+
+- **What the Hub supplies** (cached in `hub_cache`, used while the Hub is unreachable):
+  the node's telescopes and optical trains (focal length, camera type, sensor, rotator,
+  canonical filters with aliases, header aliases), every non-draft target with its aliases
+  and merged `processing_settings`, and equipment events. `aliases.target` and
+  `aliases.filter` in this file are applied **after** the Hub's lists, as local overrides.
+- **What is validated against the Hub:** `site.timezone` must equal the telescope's
+  timezone, and each rig's `focal_length_mm` and camera type must match its optical train.
+  A mismatch raises `HUB_CONFIG_MISMATCH` (blocking for that rig).
+- **`altair doctor` checks:** the Hub is reachable and the key has the needed scopes; the
+  node exists and serves the configured telescopes; each rig's `hub.optical_train` exists
+  and matches focal length, camera type and timezone; the filter aliases cover the filters
+  seen in recent headers.
+- **Standalone:** `hub.enabled: false` (and `require_target_link: false`) gives the v0.7
+  behaviour: YAML aliases, text-target projects, the local status page, and nights closed
+  by the session-end marker or quiescence.
 
 ---
 
@@ -613,7 +691,12 @@ and they are debounced into a single "night ready" event:
 
 Nights are processed **per rig**. Each rig PC finishes its night on its own schedule.
 
-1. **Session-end marker (primary).** The NINA end-of-sequence script writes
+0. **Hub `night_ready` command (primary with a Hub, v0.8).** The rig agent posted
+   `session_end` to the Hub, which queued `night_ready { optical_train, night, at }` for this
+   node (§17.4). It is handled exactly like the marker below: final full scan, collection
+   manifest, and the night is ready once everything is collected and verified. The night's
+   `closed_by` is `session_end`.
+1. **Session-end marker (primary without a Hub).** The NINA end-of-sequence script writes
    `_altair\session-end-*.json` in the rig's NINA folder (§4.2). On its next poll the
    collector does a final full scan of that rig's raw root. It collects every remaining
    stable frame of the night and writes the night's **collection manifest** (§7.3). The
@@ -653,6 +736,10 @@ For each frame the collector has copied and verified (§7.3):
    together with `rotator_units`.
 5. Classify the image type from NINA's `IMAGETYP` values.
 6. Compute `night` (noon-to-noon local time).
+6a. **Resolve the Hub target** (lights only; v0.8, §17.2). Store `hub_target_id` and
+   `assignment_source` on the frame. Unresolved lights are `held` with a
+   `PROJECT_UNRESOLVED` issue when `require_target_link` is on; they are still backed up
+   and still reported to the Hub (with `target_id = null`). Calibration frames need no target.
 7. Store the row in `frames`. Frames missing required fields are `invalid` and get an issue
    (`HEADER_INCOMPLETE`). Their blobs are kept, so you can add aliases or fix the config,
    and `altair rerun` picks them up. Headers are cached in the catalog, so re-planning never
@@ -661,6 +748,7 @@ For each frame the collector has copied and verified (§7.3):
    it there, §7.3). A `raw_light` goes to the front of the S3 upload queue the moment it
    is registered, before any planning or processing (§7.2, §7.5). `raw_calibration` blobs
    stay on the NAS only (§7.4, §7.6).
+9. **Enqueue a `frame` outbox item** in the same transaction as the `frames` row (§17.3).
 
 **Required fields:**
 
@@ -676,6 +764,8 @@ For each frame the collector has copied and verified (§7.3):
 \*\*\* Only when the rig has `rotator.present: true` and `require_on_lights_and_flats: true`.
 
 ### 6.3 Data Model (SQLite)
+
+v0.8 adds the Hub columns and tables listed in §17.5.
 
 All files are referenced by **blob hash** (SHA-256). Physical paths live only in `replicas`.
 So moving, cleaning up, or restoring data never changes the catalog's view of *what* the
@@ -863,7 +953,8 @@ The planner runs when a night is ready, and again whenever an issue might be res
    dark-flat by sensor settings; flats by optical train signature plus filter plus
    `rotator_pos` bucket) into `CALIB_MASTER` jobs. They are ordered bias/dark-flat →
    dark → flat.
-2. **Light groups.** Group lights by stack key, then split by exposure, gain, offset,
+2. **Light groups.** Group lights by stack key (v0.8: for linked projects, by
+   `(rig, hub_target_id, filter)` instead of target text), then split by exposure, gain, offset,
    binning, and **rotator position**. Each rotator position needs its own flat. Groups at
    different rotator positions but the same stack key still integrate into **one** night
    master. They are calibrated separately and then registered to the same project
@@ -878,6 +969,11 @@ The planner runs when a night is ready, and again whenever an issue might be res
      `held`: they are replicated to durable storage like any other raw file, but stay
      linked to the open issue so the rerun knows exactly which blobs to fetch.
    - Missing dark or bias/dark-flat → blocked. No provisional master. The issue is raised.
+4a. **Effective settings** (v0.8). For each linked project, the Hub's merged
+   `processing_settings` (Altair defaults ← project ← target) override the YAML defaults for
+   that project (multi-night mode, reference filter, drizzle scale, gates, WBPP profile).
+   They are stored in `projects.settings_json` and are part of `plan_hash`. Frames
+   re-assigned by a command re-plan the affected nights of **both** the old and the new project.
 5. **Project reference.** If the project has no reference yet, a `PROJECT_REFERENCE` job
    runs before the first `NIGHT_STACK` (§9.2).
 6. **Merge.** After a night's stacks finish, a `MERGE` job is emitted for each affected
@@ -961,6 +1057,12 @@ After a `NIGHT_STACK` job:
    in S3 shortly after. The rig PC's original stays in the NINA folder until cleanup (§7.6)
    removes it.
 5. **Record the night master** with `merge_status`, set by the gates in §9.4.
+6. **Report to the Hub** (v0.8). Render a preview (auto-STF stretched JPEG, long edge
+   2048 px) and a thumbnail (512 px) for each night master, multi-night master and
+   provisional master into the local cache, and enqueue a `data_product` outbox item with
+   them (§17.3). Logical paths for linked projects are
+   `projects/<rig>/T<target_id>_<slug(target name at creation)>/…`: the target id anchors
+   the path, and renaming a target in the Hub never renames archived paths.
 
 ### 6.7 Merger
 
@@ -1699,6 +1801,11 @@ where it will come from (for example "412 calibrated subs, 31 GB: 6 GB from the 
 25 GB from S3 Glacier IR"). The fetch goes through the normal approval guards. This is the only operation that repeats registration for existing nights, and it
 never happens automatically.
 
+**With a Hub (v0.8).** Per-project multi-night settings (`mode`, `reference_filter`,
+`drizzle_scale`, gates) come from the Hub. A Hub setting change that requires a
+re-reference (for example `drizzle_scale`) also raises `STALE_REFERENCE`, and nothing is
+reprocessed until a person confirms it in the Hub, which sends a `rereference` command.
+
 ---
 
 ## 10. Issues, Alerts & Rerun Workflow
@@ -1710,6 +1817,10 @@ never happens automatically.
 | `FLAT_MISSING` | blocking | final night master + merge | a matching master flat is registered (built from new raw flats or imported) |
 | `ROTATOR_POSITION_UNKNOWN` | blocking | final night master + merge | headers are fixed and frames re-ingested, or rig config changed |
 | `DARK_MISSING` / `BIAS_MISSING` / `DARKFLAT_MISSING` | blocking | night master + merge | matching master registered |
+| `PROJECT_UNRESOLVED` (v0.8) | blocking (for those frames only) | processing of the unlinked lights | the frames are assigned to a Hub target (command or CLI) |
+| `HUB_CONFIG_MISMATCH` (v0.8) | blocking (for that rig) | planning for the rig | the rig's timezone, focal length and camera type match its Hub optical train |
+| `HUB_UNREACHABLE` (v0.8) | warning (never blocks processing) | nothing | the Hub answers again |
+| `HUB_REJECTED` (v0.8) | warning | nothing (the outbox item is parked) | the parked item is retried successfully or dropped (`altair hub outbox retry\|drop`) |
 | `HEADER_INCOMPLETE` / `UNKNOWN_RIG` / `UNKNOWN_ALIAS` | blocking (for those frames) | those frames | config or headers fixed → re-ingest |
 | `LOW_OVERLAP` | blocking | merge | user includes, excludes, or re-references |
 | `QUALITY_OUTLIER` | warning | merge (until acknowledged) | user includes or excludes |
@@ -1739,6 +1850,9 @@ never happens automatically.
 Severity `info` issues show on the status page but don't send a push notification
 (except `RESTORE_IN_PROGRESS`, which sends one message when it opens and one when it
 finishes).
+
+With a Hub, every issue is mirrored to it (upsert by fingerprint, §17.3) and `scope_json`
+carries `hub_target_id`.
 
 Issues are **deduplicated by fingerprint**. For example, `FLAT_MISSING` for
 (rig, filter, rotator bucket, night) is one issue no matter how many times the night is
@@ -1774,8 +1888,15 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
   (a "shopping list" of flats and darks to shoot), each project's multi-night master with
   per-night weights and contributions, and excluded nights with their reasons.
 - **CLI:** `altair issues [--open]`.
+- **Hub** (`type: hub`, v0.8): issues, night results and masters go to the Hub, which shows
+  them on project pages and notifies the owner. With it enabled, Pushover and email are
+  optional.
 
 ### 10.4 Fix → rerun loop
+
+With a Hub (v0.8), every manual control in this loop (rerun, include or exclude a night,
+waive, approve a fetch, assign frames) can also arrive as a Hub command (§17.4). It runs
+the same code path as the CLI command.
 
 ```
  issue opened ──► user takes flats in NINA ──► collector pulls + verifies ──► ingest
@@ -1890,13 +2011,32 @@ altair storage scrub [--location LOC] [--sample PCT]
 altair storage backup-catalog | restore-catalog [--latest|--at TIME] | rebuild-catalog --from LOC
 altair publish --refresh
 altair doctor                                     # PixInsight/CLI flags, session type, paths, disk, NINA headers sample,
-                                                  # rig shares (read/modify), S3 access, bucket versioning/encryption, S3 delete-denied check
+                                                  # rig shares (read/modify), S3 access, bucket versioning/encryption, S3 delete-denied check,
+                                                  # v0.8: Hub reachability, key scopes, node/telescopes, optical train match (§5.1)
+
+# v0.8: Hub integration. --project and --target take Hub ids.
+altair hub status                                   # reachability, last config/command poll, outbox depth, parked items
+altair hub sync-now | pull-config                   # force a drain / config refresh
+altair hub reconcile [--night DATE --rig R]         # digest compare, re-queue on mismatch (§17.6)
+altair hub outbox list [--parked] | retry <id> | drop <id>
+altair project list [--hub-project ID]              # processing projects with their Hub target/project ids
+altair project show --target HUB_TARGET_ID [--rig R]
+altair status --project HUB_PROJECT_ID | --target HUB_TARGET_ID
+altair run  --project HUB_PROJECT_ID | --target HUB_TARGET_ID [--night DATE] [--filter F]
+altair rerun --target HUB_TARGET_ID [--night DATE] [--filter F]
+altair frames unlinked [--night DATE --rig R]       # what PROJECT_UNRESOLVED is holding
+altair frames assign --target HUB_TARGET_ID (--sha256 H... | --night DATE --rig R --object "M 31")
+altair index <dir> --rig R [--adopt] [--dry-run]    # catalogue an existing archive in place (§17.7)
 ```
+
+`--project HUB_PROJECT_ID` expands to every processing project whose `hub_project_id`
+matches: every target of that Hub project, on every rig.
 
 ### 12.2 Optional HTTP status endpoint
 
 A read-only FastAPI endpoint on `127.0.0.1` (`/status`, `/issues`, `/projects/<id>`), for
-Home Assistant or dashboards.
+Home Assistant or dashboards. With a Hub (v0.8) it is superseded by the Hub's UI and API,
+and kept only as an option for Home Assistant.
 
 ---
 
@@ -1940,14 +2080,27 @@ Home Assistant or dashboards.
 | **7: Daemon & hardening** | Triggers (session-end markers, quiescence, scheduled fallback), Task Scheduler install script (processing PC), rig PC setup guide (share, permissions, session-end script), sleep prevention, crash recovery, `altair doctor`. | A week of unattended real nights from two rigs. Survives killing `altaird` and `PixInsight.exe` mid-job, and a rig PC rebooting mid-night. |
 | **8: Disaster-recovery drill** | Documented runbook. | On a clean machine, with only `altair.yaml` and S3: `restore-catalog`, then produce a multi-night master update for one project. |
 
+**v0.8 additions (Hub integration).** These start once the Hub's processing API (Hub
+phase P3, SYSTEM_ARCHITECTURE.md §9) is merged:
+
+| Phase | Adds | Extra exit criteria |
+|---|---|---|
+| **1h: Hub reporting** (with Phase 1) | Hub Sync skeleton (§17): config pull + `hub_cache`, target resolution (§17.2), frame and night outbox items, `night_ready` handling, `HUB_*` issues, `altair hub status\|sync-now\|pull-config`. | Collected frames appear in the Hub within 2 minutes. Unplugging the processing PC's WAN for 24 h mid-night loses nothing, and the Hub catches up with exact counts (`altair hub reconcile` clean). A night closes from `night_ready` with no marker file on the rig. |
+| **3** | Data-product reporting with previews and thumbnails. | Each night master shows in the Hub with its preview. |
+| **6** | Issue mirroring and commands (§17.4); `altair frames unlinked\|assign`; `altair index` (§17.7). | An unresolved frame → assigned in the Hub → command → re-plan → night master under the right target. `altair index --rig R` over an old NAS archive populates the Hub's frame search. |
+
 Phase 1 does not depend on the PixInsight spike (Phase 0). It is built first, or in
 parallel, so the raw-data backup is running on real nights before any processing code
 exists.
 
 ### 15.1 Proposed source layout
 
+The tree sits under `processing/` in the `altair-observatory-system` monorepo. `pyproject.toml`
+takes `observatory-contracts` as a path dependency (`../contracts/python`) and carries an
+import-linter contract that forbids importing `robs` (the rig agent) or anything from `hub/`.
+
 ```
-altair-pre-processor/
+processing/
 ├── pyproject.toml
 ├── altair.example.yaml
 ├── src/altair/
@@ -1963,7 +2116,10 @@ altair-pre-processor/
 │   ├── projects/     # reference.py, merge.py, weights.py
 │   ├── issues/       # model.py, requirements.py, resolver.py, status_page.py
 │   ├── publish/      # verify.py, stamp.py, archive.py, report.py
-│   └── notify/       # toast.py, pushover.py, ntfy.py, email.py
+│   ├── notify/       # toast.py, pushover.py, ntfy.py, email.py, hub.py
+│   ├── hub/          # v0.8 (§17): client.py, config_sync.py, resolver.py, outbox.py, reporters.py,
+│   │                 # commands.py, previews.py, reconcile.py
+│   └── index/        # v0.8 (§17.7): indexer.py (`altair index`)
 ├── pjsr/
 │   ├── altair_runner.js          # dispatch on job.kind
 │   ├── wbpp_driver.js            # headless WBPP engine driver
@@ -1972,7 +2128,7 @@ altair-pre-processor/
 │   └── lib/json_io.js
 ├── deploy/windows/
 │   ├── install-task.ps1          # registers the Task Scheduler task (processing PC)
-│   ├── altair-session-end.cmd    # the NINA end-of-sequence script (copied to each rig PC)
+│   ├── altair-session-end.cmd    # the NINA end-of-sequence script (standalone only; with a Hub the rig agent signals)
 │   ├── rig-setup.md              # share the NINA folder, share account, permissions
 │   └── nina-external-script.md
 ├── tests/
@@ -1981,7 +2137,9 @@ altair-pre-processor/
 │   ├── test_weights.py           # weighting math on synthetic noise/signal
 │   ├── test_storage_*.py         # backup, stager, restore, cleanup invariants (moto + MinIO)
 │   ├── test_collector.py         # stability, partial writes, locked files, rig outage, double-read mismatch, late frames
-│   └── test_executor_contract.py # fake PixInsight.exe writing result.json
+│   ├── test_executor_contract.py # fake PixInsight.exe writing result.json
+│   └── test_hub_*.py             # v0.8: resolver, outbox (coalescing, back-off, parking), commands, reconcile;
+│                                 #       payloads validated against contracts/schemas
 └── docs/
     ├── SPEC.md
     └── pixinsight-cli.md
@@ -2042,3 +2200,144 @@ altair-pre-processor/
 | Q8 | ~~Rig network?~~ **Decided:** all wired Ethernet on one network. Open: internet uplink and downlink speeds? | Sizes staging expectations, upload windows, and restore-to-run ETAs. |
 | Q3 | Should the multi-night master require every night to cover the full frame (strict crop), or allow partial-coverage edges? | Default: crop to full coverage (`min_coverage_nights: all`). |
 | Q4 | Default weighting: `measured_psf_signal` or `inverse_noise_variance`? | Spec default is PSF signal (it rewards seeing and transparency too). Phase 5 compares both on real data. |
+
+---
+
+## 17. Hub Integration (v0.8)
+
+Applies when `hub.enabled: true`. The Hub API contract (endpoints, payloads, scopes, error
+codes) is defined in the monorepo's `contracts/schemas/` and described in
+[`../../docs/SYSTEM_ARCHITECTURE.md`](../../docs/SYSTEM_ARCHITECTURE.md) §5. This section
+covers Altair's side.
+
+### 17.1 Principles
+
+- **The Hub owns intent, Altair owns operations.** Projects, targets, aliases, filter lists,
+  equipment and processing settings come **from** the Hub. Frames, nights, masters, issues
+  and jobs are reported **to** it. Altair's catalog stays the record for replicas, fetches
+  and jobs, which change too often to push over a WAN.
+- **The Hub being down never blocks** collection, backup or processing. Altair uses the
+  last cached config and queues its reports.
+- **Every report is an idempotent upsert** on a natural key (`sha256`, fingerprint,
+  `(node, altair_id)`, `(optical_train, night)`), so anything can be resent.
+
+### 17.2 Target resolution
+
+Lights only, using the cached Hub config. Rules apply in order and the first match wins:
+
+1. **Header token.** `OBJECT` matches `^#(\d+)(\s|$)` and that target is on this rig's
+   optical train (or on its telescope, when the target has no train set) →
+   `assignment_source = header_token`.
+2. **Name + coordinates.** The normalised `OBJECT` equals a target's name or one of its
+   aliases, **and** the frame's RA/Dec is within `max_offset_fov_fraction × FOV diagonal`
+   of the target → `name`.
+3. **Coordinates only.** Exactly one non-draft target on this optical train lies within
+   that offset → `coords`.
+4. Otherwise the frame is **unlinked**: `held`, `PROJECT_UNRESOLVED`. It is still reported
+   to the Hub with `target_id = null` and appears in the Hub's "Unassigned frames" inbox.
+
+A manual assignment (command or CLI) sets `manual` and is never overridden by these rules;
+if a frame upsert response returns a different (manual) `target_id`, Altair adopts it. With
+`require_target_link: false`, unlinked frames fall back to a legacy text-target project.
+With no cached config at all (first start with the Hub down), Altair still collects and
+backs up, but holds unresolved lights until a config arrives.
+
+### 17.3 Outbox
+
+- `hub_outbox` (§17.5) is written **in the same transaction** as the catalog change it
+  describes, so nothing is lost between "Altair knows" and "the Hub knows".
+- Item kinds: `frame`, `frame_patch` (grading, rejection, storage moves), `night`,
+  `calibration_master`, `data_product` (with preview and thumbnail files from the local
+  cache), `issue`, `job`, `heartbeat`.
+- The `hub_sync` thread in `altaird` drains it in id order, batching frames (≤
+  `outbox.batch_size`) and coalescing repeated updates to the same natural key (only the
+  newest payload is sent).
+- Back-off is exponential from 5 s up to `outbox.max_backoff_s`. Network errors and `5xx`
+  retry forever. A `4xx` retries 5 times, then the item is **parked** and `HUB_REJECTED` is
+  raised with the error text. After `unreachable_alert_minutes` without a successful
+  request, `HUB_UNREACHABLE` is raised locally (toast and status page).
+
+### 17.4 Commands
+
+`GET /processing/commands` every `command_poll_s`. Each command runs the same code path as
+the matching CLI command, is recorded in `hub_commands` before it runs, and is acked with its
+result. A command id seen twice is acked again without re-executing.
+
+| Kind | Effect | CLI equivalent |
+|---|---|---|
+| `assign_frames` | Link frames (by hash or selector) to a target, `assignment_source = manual`; re-plan old and new projects | `altair frames assign` |
+| `rerun` | Rerun by target, night, filter or issue | `altair rerun` |
+| `night_include` / `night_exclude` | Include or exclude a night from a multi-night master | `altair night include\|exclude` |
+| `issue_waive` | Waive an issue | `altair issue waive` |
+| `rereference` | Re-reference a project (§9.7) | `altair project rereference` |
+| `set_mode` | Change multi-night mode | `altair project set-mode` |
+| `approve_fetch` / `deny_fetch` | Decide on a large fetch or restore (§7.7) | `altair storage approve\|deny` |
+| `equipment_event` | Record an equipment event (details from the config) | `altair equipment log` |
+| `refresh_config` | Pull the config now | `altair hub pull-config` |
+| `night_ready` | Session ended on that optical train and night: same effect as the session-end marker (§6.1) | — |
+
+Processing-settings changes need no command: they arrive with the next config pull. A
+change that forces a re-reference waits for a confirmed `rereference` command (§9.7).
+
+### 17.5 Data model changes (SQLite)
+
+```sql
+ALTER TABLE frames ADD COLUMN hub_target_id INTEGER;          -- NULL = unlinked
+ALTER TABLE frames ADD COLUMN assignment_source TEXT;         -- header_token / name / coords / manual / unlinked
+ALTER TABLE frames ADD COLUMN hub_synced_at TEXT;
+
+-- projects: linked projects are keyed by Hub target + rig; legacy rows keep target text
+ALTER TABLE projects ADD COLUMN rig TEXT;
+ALTER TABLE projects ADD COLUMN hub_target_id INTEGER;
+ALTER TABLE projects ADD COLUMN hub_project_id INTEGER;
+ALTER TABLE projects ADD COLUMN settings_json TEXT;           -- effective Hub processing_settings at last plan
+CREATE UNIQUE INDEX projects_hub ON projects(hub_target_id, rig) WHERE hub_target_id IS NOT NULL;
+
+CREATE TABLE hub_outbox (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,             -- frame / frame_patch / night / calibration_master / data_product / issue / job / heartbeat
+  natural_key TEXT NOT NULL,      -- sha256 / fingerprint / "<kind>:<altair_id>" / "<rig>:<night>"
+  payload_json TEXT NOT NULL,
+  attachment_paths_json TEXT,     -- preview / thumbnail files in the local cache
+  created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT, sent_at TEXT, parked INTEGER NOT NULL DEFAULT 0, last_error TEXT
+);
+CREATE INDEX hub_outbox_pending ON hub_outbox(sent_at, parked, next_attempt_at);
+
+CREATE TABLE hub_commands (       -- executed command ids (idempotency) + results
+  id INTEGER PRIMARY KEY,         -- the Hub's command id
+  kind TEXT NOT NULL, payload_json TEXT NOT NULL,
+  received_at TEXT NOT NULL, executed_at TEXT, state TEXT NOT NULL, result_json TEXT, acked_at TEXT
+);
+
+CREATE TABLE hub_cache (          -- last good /config payload
+  key TEXT PRIMARY KEY, etag TEXT, payload_json TEXT NOT NULL, fetched_at TEXT NOT NULL
+);
+```
+
+`issues.scope_json` gains `hub_target_id`. `night_masters` and `multi_night_masters` need
+no new columns (they reach the Hub target through `projects`). `nights.closed_by` gains the
+value `session_end` (closed by a `night_ready` command).
+
+### 17.6 Reconciliation
+
+Nightly, after cleanup, `altair hub reconcile` compares each closed night's local digest
+(frame count, XOR of SHA-256s, counts by image type) with the Hub's
+`GET /processing/nights/:optical_train/:night/digest`. On a mismatch it re-queues every
+frame of that night; upserts are idempotent, so this is always safe.
+
+### 17.7 `altair index`
+
+Catalogues **existing** FITS/XISF files from the observatory's own rigs, **in place and
+read-only** (legacy archives on the NAS or elsewhere on the observatory network). It
+hashes, reads headers (same `header_mapping` and aliases), resolves targets (§17.2), and
+reports frames with `origin = import`.
+
+- Files under the NAS root become `nas` replicas and are eligible for processing like any
+  other frame. Files elsewhere get a new location kind **`external:<name>`**: read-only,
+  never cleaned up, never written to, and only processed when `--adopt` copies them into
+  the NAS layout.
+- `--rig` is required: every indexed frame belongs to one of the observatory's optical
+  trains. Files whose headers match no configured rig raise `UNKNOWN_RIG` and are skipped.
+- It replaces the retired astrophotography-database desktop indexer and runs only on the
+  processing PC.

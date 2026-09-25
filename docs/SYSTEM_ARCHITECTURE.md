@@ -1,6 +1,6 @@
 # Observatory Platform — System Architecture & Integration Guide
 
-**Status:** Draft v1.2 (v1.1: personal telescopes removed from scope · v1.2: the repositories merge into one monorepo)
+**Status:** Draft v1.3 (v1.1: personal telescopes removed from scope · v1.2: the repositories merge into one monorepo · v1.3: the monorepo is `altair-observatory-system`; P0 merge done, §3.6.4)
 **Date:** 2026-09-25
 **Scope:** How the four existing repositories become **one repository** holding one system
 that runs on a single central database. It has three components that each stand alone and
@@ -9,7 +9,7 @@ component to get there.
 
 | Today (separate repository) | Role today | Component in the monorepo | Role in the unified system |
 |---|---|---|---|
-| `remote-observatory-queueing-system` (this repo; becomes the monorepo) | Rails app: telescopes, targets, exposure plans, worker API | **`hub/`**: central server | **The Hub.** Central Postgres database, all human-facing UI, all APIs. Takes in the whole astrophotography-database feature set. |
+| `remote-observatory-queueing-system` | Rails app: telescopes, targets, exposure plans, worker API | **`hub/`**: central server | **The Hub.** Central Postgres database, all human-facing UI, all APIs. Takes in the whole astrophotography-database feature set. |
 | `remote-observatory-worker` | Python CLI on each rig PC: syncs NINA Target Scheduler, uploads subs, optional stacking | **`rig-agent/`** (package `robs`, called "the worker" below) | **Acquisition agent.** Hub → Target Scheduler sync and acquisition progress reporting only. Hands data off to Altair. |
 | `altair-pre-processor` | Spec (v0.7) for a collector → NAS → S3 → WBPP pipeline with a local catalog | **`processing/`** (package `altair`, called "Altair" below) | **Processing core.** Collects, archives and processes frames *in the context of Hub projects and targets*. Reports frames, masters and issues to the Hub. |
 | `astrophotography-database` | Electron desktop app: catalogue, projects, altitude charts, FITS indexer, file search | — (not moved in) | **Retired.** Every feature moves into the Hub (UI and data) or into Altair (file indexing). The existing data is imported once. The repository is archived. |
@@ -267,12 +267,12 @@ sequenceDiagram
 
 #### 3.6.1 Layout
 
-`remote-observatory-queueing-system` becomes the monorepo. It is renamed
-**`remote-observatory`** on GitHub, which redirects the old URL. The Rails app moves from the
-repository root into `hub/`.
+The monorepo is **`altair-observatory-system`**, a new repository that the three merged
+repositories came into with their full histories (§3.6.4). The Rails app, which used to be the
+root of `remote-observatory-queueing-system`, is `hub/`.
 
 ```
-remote-observatory/
+altair-observatory-system/
 ├── hub/                    # Central server: Rails 8 app (was the repository root)
 │   ├── app/ config/ db/ spec/ …
 │   ├── Gemfile  package.json  Dockerfile  config/deploy.yml (Kamal)
@@ -337,21 +337,25 @@ the scheduled fallback (SPEC §6.1) still close a night if no signal arrives.
 
 #### 3.6.4 Merging the repositories
 
-Done once, in P0 (§9), with history preserved:
+Done once, in P0 (§9), with history preserved. **Status: steps 1–4 done** in
+`altair-observatory-system`; step 5 is done up to archiving, which is a manual GitHub action.
 
-1. In this repository, `git mv` everything except `.github/`, `docs/` and the root README
-   into `hub/`. Fix the paths in `Dockerfile`, `config/deploy.yml`, `Procfile.dev`,
-   `bin/*` and the CI workflow. `git log --follow` keeps per-file history.
+1. `git subtree add --prefix=hub <remote-observatory-queueing-system> main`, then `git mv`
+   `hub/docs` and `hub/.github` up to the root. The Rails app needed no path changes:
+   `Dockerfile`, `Procfile.dev` and `bin/*` are relative to the app root, and Kamal builds from
+   the repository-relative directory it is run in, so `kamal deploy` runs from `hub/`.
 2. `git subtree add --prefix=rig-agent <remote-observatory-worker> main` and
    `git subtree add --prefix=processing <altair-pre-processor> main`. The full histories
-   come in as merge commits. Neither is squashed.
+   come in as merge commits. None is squashed. `git log -- hub/<path>` shows the merge; use
+   `git log <merge commit>^2 -- <old path>` for a file's history before it.
 3. Move the worker's and Altair's `ARCHITECTURE.md` copies out: the worker's becomes a
    short `rig-agent/README.md` section pointing here, and Altair's spec stays at
    `processing/docs/SPEC.md`.
 4. Create `contracts/` with the schemas from P0, and the per-component workflows.
-5. Rename the repository to `remote-observatory`. Put a README banner ("moved to
-   `remote-observatory/rig-agent`", "moved to `remote-observatory/processing`") on
-   `remote-observatory-worker` and `altair-pre-processor`, then archive them.
+5. Put a README banner ("moved to `altair-observatory-system/hub`", "…/rig-agent",
+   "…/processing") on `remote-observatory-queueing-system`, `remote-observatory-worker` and
+   `altair-pre-processor`, then archive them on GitHub (Settings → Archive). Nothing is
+   renamed: GitHub doesn't redirect a merged repository, so the banners are the pointer.
 6. `astrophotography-database` is **not** merged in. It gets its final release and is
    archived (§8.4). The one thing kept from it, the visibility-fixtures script, runs from
    its final release, and only its JSON output is committed, under `hub/spec/fixtures/visibility/`.
@@ -1003,6 +1007,10 @@ from §7.4. Recurring entries go in `config/recurring.yml`.
 Altair is spec-only today, so the Hub integration should go into the spec now and be
 built alongside Phase 1 rather than bolted on later. The changes below are for
 **`docs/SPEC.md` v0.8**.
+
+**Status:** applied in P0. `processing/docs/SPEC.md` is v0.8; its new §5.1 (Hub connection)
+and §17 (Hub integration: resolution, outbox, commands, data model, reconciliation,
+`altair index`) carry §8.2.2–§8.2.7 below.
 
 #### 8.2.1 Spec changes by section
 
