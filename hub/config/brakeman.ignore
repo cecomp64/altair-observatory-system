@@ -1,0 +1,18 @@
+{
+  "ignored_warnings": [
+    {
+      "warning_type": "Cross-Site Scripting",
+      "warning_code": 4,
+      "fingerprint": "f7344e54a09baae39a26bf6bd7c1f78a1d489446ad24b7288e0833d36922f0b3",
+      "check_name": "LinkToHref",
+      "message": "Potentially unsafe model attribute in `link_to` href",
+      "file": "app/views/targets/show.html.erb",
+      "line": 76,
+      "link": "https://brakemanscanner.org/docs/warning_types/link_to_href",
+      "code": "link_to(\"Download\", (Unresolved Model).new.url, :class => \"text-indigo-600 hover:underline\", :target => \"_blank\", :rel => \"noopener\")",
+      "confidence": "Weak",
+      "note": "TargetFile validates url as http(s) only (app/models/target_file.rb), so javascript:/data: hrefs can't be stored."
+    }
+  ],
+  "brakeman_version": "8.0.6"
+}
