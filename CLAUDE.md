@@ -13,7 +13,7 @@ phased plan.
 |---|---|---|
 | `hub/` | The Hub: central server, UI, API, PostgreSQL | Ruby 3.3, Rails 8, Hotwire, Tailwind, RSpec |
 | `rig-agent/` | Rig agent `robs` (NINA Target Scheduler sync) | Python ≥ 3.10, click, pytest, uv |
-| `processing/` | Processing core Altair (spec-only so far) | Python 3.12, PixInsight (planned) |
+| `processing/` | Processing core Altair | Python 3.12, uv, PixInsight (planned) |
 | `contracts/` | JSON Schemas + generated pydantic models (`observatory-contracts`) | JSON Schema 2020-12, pydantic v2 |
 | `tools/` | Repo-wide scripts (contract validation and codegen) | Python |
 
@@ -61,9 +61,24 @@ pytest contracts/python
 ```
 
 ### processing/
-Spec-only: `processing/docs/SPEC.md` (v0.8). When code lands it follows SPEC §15.1
-(`processing/pyproject.toml`, `src/altair/`, uv lockfile, an import-linter contract
-forbidding `robs` and `hub`); `processing.yml` starts running its tests automatically.
+```bash
+cd processing
+uv sync --extra dev
+uv run pytest
+uv run lint-imports                      # no imports of robs or hub
+```
+Spec: `processing/docs/SPEC.md` (v0.8). The Hub sync (`src/altair/hub/`), catalog and
+`altair index` are implemented; the PixInsight pipeline is not yet.
+
+### End-to-end (needs a running Hub)
+```bash
+# with the Hub running (e.g. bin/rails server -p 3055); see each script's docstring
+cd processing && uv run python ../tools/e2e/altair_hub_e2e.py --hub http://localhost:3055 \
+    --hub-dir ../hub --telescope SLUG --train TRAIN_KEY
+cd rig-agent && uv run python ../tools/e2e/worker_hub_e2e.py --hub http://localhost:3055 \
+    --hub-dir ../hub --telescope SLUG
+```
+Cutover steps: `docs/runbooks/cutover.md`.
 
 ## Changing the API
 

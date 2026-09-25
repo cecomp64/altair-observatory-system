@@ -11,7 +11,7 @@ talk to each other **only through the Hub's HTTP API**:
 |---|---|---|---|
 | [`hub/`](hub/) | **The Hub.** Rails 8 app: users, telescopes, projects, targets, exposure plans, the catalogue, all UI, all APIs. The system of record (PostgreSQL). | A server (Kamal) | [`hub/README.md`](hub/README.md) |
 | [`rig-agent/`](rig-agent/) | **Rig agent** (`robs`). Syncs Hub targets into NINA's Target Scheduler on each rig PC and reports acquisition progress and session events. | Each rig PC | [`rig-agent/README.md`](rig-agent/README.md) |
-| [`processing/`](processing/) | **Processing core** (Altair). Collects frames from the rigs onto the NAS, backs them up to S3, and calibrates, integrates and merges them with PixInsight, in the context of Hub projects. Spec-only today. | The processing PC | [`processing/docs/SPEC.md`](processing/docs/SPEC.md) |
+| [`processing/`](processing/) | **Processing core** (Altair). Collects frames from the rigs onto the NAS, backs them up to S3, and calibrates, integrates and merges them with PixInsight, in the context of Hub projects. Hub sync, catalog and indexing are implemented; the PixInsight pipeline is in progress. | The processing PC | [`processing/docs/SPEC.md`](processing/docs/SPEC.md) |
 | [`contracts/`](contracts/) | **The API contract**: JSON Schemas, examples, and the generated `observatory-contracts` Python models. The only thing the components share. | — | [`contracts/README.md`](contracts/README.md) |
 
 The design, including what changes in each component and the phased plan, is

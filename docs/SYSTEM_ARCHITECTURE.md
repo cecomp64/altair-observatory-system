@@ -848,7 +848,7 @@ A port of `visibility_service.py` (astroplan) and `fov_matcher.py` into
 | Module | Content |
 |---|---|
 | `Astro::Coordinates` | LST, RA/Dec → Alt/Az, angular separation, parallactic angle |
-| `Astro::Ephemeris` | Sun and Moon positions, twilight times (civil/nautical/astronomical), moon illumination. Uses the **`astronoby`** gem. If Phase 2's golden tests show it isn't accurate enough, fall back to a Meeus low-precision implementation (arc-minute level is plenty here). |
+| `Astro::Ephemeris` | Sun and Moon positions, twilight times (civil/nautical/astronomical), moon illumination. Meeus low-precision implementation (arc-minute level is plenty here); see §13 #4. |
 | `Astro::Horizon` | Wraps `Telescope#horizon_points`. Linear interpolation by azimuth, wrap-around at 360°. `effective_min_alt(az) = max(horizon(az), min_altitude)`. |
 | `Astro::Visibility` | Altitude series for a night (5-min steps), hours above the effective horizon during astronomical darkness, transit time/altitude, moon separation, `imaging_score` (the astrophotography-database formula), declination bounds, batch visibility, best-viewing by month + peak season |
 | `Astro::FovMatcher` | Catalogue objects inside a frame's footprint (centre, FOV, rotation). Declination prefilter, then separation. |
@@ -857,6 +857,10 @@ A port of `visibility_service.py` (astroplan) and `fov_matcher.py` into
   mask**, not just a flat minimum altitude, because the Hub knows which telescope a target is on.
 - Results are cached in Solid Cache (tonight's series: until local noon; best-viewing: per
   year; well-placed lists: 1 h per telescope).
+- **Golden results (P2):** `spec/lib/astro/golden_visibility_spec.rb` compares the engine with
+  astroplan fixtures produced by astrophotography-database's `tools/dump_visibility_fixtures.py`.
+  Twilight times agree within 2 min, altitudes within 0.5° (2.5° at the edge of the 5-min
+  grid for fast-rising objects), and best-viewing months match.
 - `FrameFovMatchJob` groups frames by (target, optical train, rounded pointing, rotation)
   and computes the footprint once per group, not once per frame.
 - **Golden tests:** a one-off script in the astrophotography-database repo dumps
@@ -905,7 +909,7 @@ so people aren't alerted twice. The Windows toast stays for whoever is at the pr
 
 **Gems / packages**
 
-- `astronoby` (ephemeris), `pagy` (pagination), `aws-sdk-s3` (Active Storage on S3 +
+- `pagy` (pagination), `aws-sdk-s3` (Active Storage on S3 +
   presigned GETs on the archive bucket), `json_schemer` (API contract specs), `sqlite3`
   (development group only, for the astrophotography-database import task).
 - `chartjs-plugin-annotation`, `chartjs-adapter-date-fns`, `date-fns`.
@@ -1004,7 +1008,7 @@ from §7.4. Recurring entries go in `config/recurring.yml`.
 
 ### 8.2 `processing/` (was `altair-pre-processor`)
 
-Altair is spec-only today, so the Hub integration should go into the spec now and be
+Altair was spec-only when this was written, so the Hub integration should go into the spec now and be
 built alongside Phase 1 rather than bolted on later. The changes below are for
 **`docs/SPEC.md` v0.8**.
 
@@ -1201,26 +1205,26 @@ pattern; Altair's recommended pattern (SPEC §4.2) satisfies the worker too.
 ### 8.4 `astrophotography-database` (retired, not merged in)
 
 **Feature parity checklist.** Each item must be ticked in the Hub before the retirement
-release:
+release. Status as of P5: all rows implemented (✅); the real-file import check is pending.
 
 | Feature | Hub location | Phase |
 |---|---|---|
-| Object catalogue + OpenNGC / LDN / LBN import | `/objects`, `/admin/catalogue` | 1 |
-| Aliases + fuzzy search | `object_aliases` + trigram | 1 |
-| Telescopius name resolution with caching | `Catalogue::NameResolver` | 1 |
-| Custom objects | `/objects/new` | 1 |
-| Altitude chart, mini chart, twilight, moon | `/objects/:id`, project Visibility tab | 2 |
-| Best viewing (monthly score, peak season) | `/objects/:id` | 2 |
-| Well-placed objects / projects tonight | Dashboard | 2 |
-| Projects with multiple targets and per-filter goals | `/projects` | 1–2 |
-| Project progress, recommended filter | Project Overview | 2 (acquired) / 3 (collected, integrated) |
-| Auto-link images to projects | Automatic via target resolution; manual via bulk assign | 3–4 |
-| Showcases (upload / from image / survey) | Object page | 2 |
-| FITS indexing | `altair index` | 4 |
-| FOV object detection | `FrameFovMatchJob` | 3 |
-| Image search, grouped view, stats, detail | `/frames` | 3 |
-| Multiple saved locations + timezone | **Dropped.** Visibility uses the observatory telescopes' locations, timezones and horizons | 1 |
-| Mobile use | Responsive Hub (the offline PWA is dropped) | 2 |
+| ✅ Object catalogue + OpenNGC / LDN / LBN import | `/objects`, `/admin/catalogue` | 1 |
+| ✅ Aliases + fuzzy search | `object_aliases` + trigram | 1 |
+| ✅ Telescopius name resolution with caching | `Catalogue::NameResolver` | 1 |
+| ✅ Custom objects | `/objects/new` | 1 |
+| ✅ Altitude chart, mini chart, twilight, moon | `/objects/:id`, project Visibility tab | 2 |
+| ✅ Best viewing (monthly score, peak season) | `/objects/:id` | 2 |
+| ✅ Well-placed objects / projects tonight | Dashboard | 2 |
+| ✅ Projects with multiple targets and per-filter goals | `/projects` | 1–2 |
+| ✅ Project progress, recommended filter | Project Overview | 2 (acquired) / 3 (collected, integrated) |
+| ✅ Auto-link images to projects | Automatic via target resolution; manual via bulk assign | 3–4 |
+| ✅ Showcases (upload / from image / survey) | Object page | 2 |
+| ✅ FITS indexing | `altair index` | 4 |
+| ✅ FOV object detection | `FrameFovMatchJob` | 3 |
+| ✅ Image search, grouped view, stats, detail | `/frames` | 3 |
+| ✅ Multiple saved locations + timezone | **Dropped.** Visibility uses the observatory telescopes' locations, timezones and horizons | 1 |
+| ✅ Mobile use | Responsive Hub (the offline PWA is dropped) | 2 |
 
 **Data import** (`bin/rails "import:astrodb[/path/to/database.db,user@example.com,telescope=SLUG]"`, service
 `Imports::AstroDb`, reads SQLite via `sqlite3`):
@@ -1265,12 +1269,26 @@ noted.
 | **P5: Worker integration** | Worker | `data_pipeline: altair`, per-project Target Scheduler projects, `schedule_count`, session events (`session_end` → `night_ready`), standalone `targets_file` mode, heartbeat. | One real night: the Target Scheduler shows `#P…` projects and `#…` targets. Every light in the Hub is linked by `header_token`. No worker S3 uploads. Session events show on the dashboard, and Altair closes the night from `night_ready` with no marker file on the rig. `integrated` basis re-schedules rejected frames. |
 | **P6: Cutover & retirement** | All | Runbook (§10). Worker legacy code removed. The old worker, Altair and astrophotography-database repositories archived. | A week of unattended nights on the unified system. Parity checklist complete. |
 
+**Status (2026-09-25).**
+
+| Phase | Status |
+|---|---|
+| P0 | Done. |
+| P1 | Done. Legacy worker requests replay unchanged (`spec/requests/api/legacy_worker_replay_spec.rb`). |
+| P2 | Done. Golden tests pass (§7.2). The import of a real astrophotography-database file is still to be checked on a member's file. |
+| P3 | Done. 100k frames (`script/perf/frames_search.rb`): filtered p95 62 ms, cone p95 109 ms. Synthetic night counters and idempotency covered by specs. |
+| P4 | Done in code. Offline, command and index behaviour covered by tests against a contract-checking fake Hub, and `tools/e2e/altair_hub_e2e.py` passes against a real Hub. PixInsight processing (SPEC phases 0–8) continues separately. |
+| P5 | Done in code; `tools/e2e/worker_hub_e2e.py` passes against a real Hub. The real-night criteria need NINA on a rig. |
+| P6 | Runbook written (`docs/runbooks/cutover.md`). Removing worker legacy code and archiving the old repositories wait for a clean week of real nights. |
+
 **Critical path:** P0 → P1 → P3 → P4 (Altair reporting) → P5. P2 can run in parallel with
 P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on any of this.
 
 ---
 
 ## 10. Migration & cutover runbook
+
+The step-by-step version with commands and checks is [`runbooks/cutover.md`](runbooks/cutover.md).
 
 1. **Deploy P1–P3 to the Hub.** Existing targets now each belong to an auto-created project.
    Existing workers keep working, because the API is additive and legacy mode is the default.
@@ -1317,11 +1335,12 @@ P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on 
   slow responses) during a simulated night never loses an outbox item and never blocks
   collection or processing. After recovery, the Hub state equals the local catalog.
 - **Golden astronomy fixtures** (§7.2).
-- **End-to-end staging:** `docker compose` (at `tools/e2e/`) with the Hub + Postgres, Altair in a
-  **replay mode** that feeds recorded collection manifests (no PixInsight; fake
-  `result.json` jobs as in Altair's executor contract tests), and the worker against its
-  existing throwaway Target Scheduler SQLite fixture. One scripted night checks every
-  sequence step in §3.5.
+- **End-to-end staging:** scripts in `tools/e2e/` run against a Hub started locally
+  (`bin/rails server` + Postgres): `altair_hub_e2e.py` drives Altair's Hub sync (config pull,
+  frames, nights, issues, commands, offline catch-up) and `worker_hub_e2e.py` drives the
+  worker against a throwaway Target Scheduler SQLite file (per-project sync, session
+  events, heartbeat). A `docker compose` wrapper and a PixInsight-free Altair replay mode
+  are future work.
 
 ---
 
@@ -1355,7 +1374,7 @@ P3 once P1 is merged. Altair's PixInsight spike (its Phase 0) doesn't depend on 
 | 1 | Where is the Hub hosted (cloud vs club LAN)? | Anywhere reachable by members over HTTPS. The design only needs observatory → Hub outbound traffic. |
 | 2 | Does NINA always write the Target Scheduler target name into `OBJECT`, including the `#id` prefix? | Expected, since the worker already relies on the same name in folder paths. **Verify in Altair's Phase 0** on real files. Rules 2–3 (§8.2.3) cover any gaps. |
 | 3 | Target Scheduler project columns (priority, minimum altitude) for per-project mode. | Verify against a live install with `robs check-schema`. If a column is missing, fall back to `ts_project_mode: single`. |
-| 4 | `astronoby` accuracy and coverage (twilight, moon). | Golden tests decide. Fallback: a Meeus low-precision implementation (about 200 lines). |
+| 4 | `astronoby` accuracy and coverage (twilight, moon). | **Decided (P2):** a Meeus low-precision implementation in `app/lib/astro/`, no gem dependency. It passes the golden tests. |
 | 5 | Default `completion_basis`. | `acquired` (today's behaviour). Projects opt into `integrated`. |
 | 6 | Previews: Python XISF stretch vs PJSR export. | Python (`xisf` + numpy) in `previews.py`. It runs outside PixInsight's single instance slot. |
 | 7 | Should projects be visible to other club members? | Projects default to `private`, and `club` visibility is opt-in. |
