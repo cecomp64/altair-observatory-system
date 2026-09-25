@@ -1,15 +1,17 @@
 # Altair Pre-Processor — Implementation Specification
 
-**Status:** Draft v0.4
+**Status:** Draft v0.5
 **Date:** 2026-09-25
-**Target platform:** Windows 10/11 (x64). Each telescope has its own NINA mini PC, and a
-separate, more powerful processing PC runs PixInsight 1.9.x with WBPP 2.x. They share a
-network folder, with S3 backup and an optional large NFS archive.
+**Target platform:** Windows 10/11 (x64). Each telescope has its own NINA mini PC. A
+separate, more powerful processing PC runs PixInsight 1.9.x with WBPP 2.x and reads each
+rig PC's NINA folder over the network. Backup goes to Amazon S3, plus an optional NFS
+archive.
 
 ### Changelog
 
 | Version | Changes |
 |---|---|
+| v0.5 | Removes the separate shared folder and the rig PC agent. Each rig PC's own NINA folder, exposed as a network share, is the raw data source. The processing PC has a config entry per rig (host, raw data location, credentials, collection settings). A **collector** on the processing PC pulls frames from each rig as they are written, verifies them with a double read, and backs them up first. Rig PC cleanup is done by the processing PC over the share. (§2–§7, §10–§16) |
 | v0.4 | Altair owns the S3 backup (Amazon S3) and the NFS archive copy. Raw lights are backed up **first**, as each frame lands. Backup only copies and never syncs deletions, which the IAM policy enforces. What gets backed up: raw lights, calibration masters, reference frames, calibrated light subs, night and multi-night masters, and metadata. Not backed up: registered subs and raw calibration subs. Adds retention and cleanup across rig PCs, landing, cache, work, published, and logs, with a deletion ledger. Backup is now the first build phase. (§3, §5, §6, §7, §9.6, §9.7, §10, §11, §15, §16) |
 | v0.3 | Distributed storage. A small agent on each rig PC delivers files to the shared folder with SHA-256 manifests. The catalog tracks files by content hash across several storage locations (shared folder, NFS, S3, local cache), so it doesn't depend on where a file currently lives. A staging layer fetches job inputs from whichever location has them, including S3 Glacier restores. Files are deleted from the shared folder only after a verified durable copy exists. Catalog backup and a rebuild-from-archive path for disaster recovery. Raw files are no longer moved. (§4, §6, §7, §10, §11) |
 | v0.2 | Windows and NINA are now the target platform. Adds multi-night masters that reuse registration and weight each night by its measured quality. Flat matching now covers equipment and rotator position, including rotator step position. Adds an issue and alert system with automatic rerun once the problem is fixed. |
@@ -55,13 +57,14 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
 - **Recoverable:** every blocking problem becomes an issue that names the fix. Once the fix
   arrives, the rerun is automatic.
 - **A night's raw data is never lost:** raw lights are backed up to Amazon S3 (and the
-  local NFS archive, if present) as they land, before any processing. No copy of a raw
+  local NFS archive, if present) as soon as the processing PC collects them from the rig,
+  during the night, before any processing. No copy of a raw
   light is deleted anywhere until that backup is verified, and backup never copies
   deletions.
 - **Works wherever the data lives:** jobs ask for files by content hash, not by path. Any
   file the pipeline needs, including raw lights from months ago for a rerun or
   re-reference, is fetched automatically from whichever storage location still has it
-  (shared folder, NFS, S3 including Glacier, or another file system), and checked against
+  (the rig PC, the processing PC's cache, the NFS, or S3 including Glacier), and checked against
   its hash before use. Deleting local copies is safe because nothing is deleted unless a
   verified backup exists.
 - **Deterministic, idempotent, auditable:** the same inputs give the same outputs, and every
@@ -94,12 +97,14 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
 | **Multi-night master** | The weighted combination of every eligible night master for one stack key. |
 | **Eligible night** | A night master that passes every merge gate in §9.4, including verified flat calibration. |
 | **Issue** | A stored, trackable problem (for example `FLAT_MISSING`) that blocks a stack or a merge. It carries fix instructions and a status of open, resolved, or waived. |
-| **Rig PC** | The NINA mini PC attached to one telescope. It runs `altair agent`. |
-| **Processing PC** | The machine that runs `altaird` and PixInsight. |
+| **Rig PC** | The NINA mini PC attached to one telescope. It runs only NINA. Its NINA save folder is shared on the network so the processing PC can read it. Nothing from Altair is installed on it except a one-line session-end script (§4.2). |
+| **Rig raw root** | The network path of a rig PC's NINA save folder (for example `\\rig-esprit\NINA`), set per rig in the processing PC's config (§5). It is where that rig's raw data lives, and the only place it lives until collected. |
+| **Processing PC** | The machine that runs `altaird` (with its collector) and PixInsight. |
+| **Collector** | The part of `altaird` that pulls new frames from each rig's raw root into the processing PC, verifies them, and hands them to ingest and backup (§7.3). |
 | **Blob** | One file's content, identified by its SHA-256 hash. The catalog refers to data only by blob hash plus a *logical path*, never by a physical path. |
-| **Location** | A configured place blobs can live: `landing` (the shared folder), `nfs`, `s3`, `cache` (processing PC SSD), or `rig:<name>` (a rig PC's local disk). |
+| **Location** | A configured place blobs can live: `rig:<name>` (a rig PC's NINA folder, one per rig), `cache` (processing PC SSD), `nfs`, or `s3`. |
 | **Replica** | One copy of a blob in one location. It is tracked with state (`present`, `missing`, `archived_cold`, `restoring`) and when it was last verified. |
-| **Durable location** | A backup location: S3 (always) and the NFS archive (if enabled). The shared folder, cache, and rig PCs are **not** durable. |
+| **Durable location** | A backup location: S3 (always) and the NFS archive (if enabled). Rig PCs and the processing PC cache are **not** durable. |
 | **Backup** | Altair's own **copy-only** replication of selected data classes to S3 and the NFS (§7.4–7.5). Deletions are never synced. |
 | **Cleanup** | Altair's retention rules that delete **individual copies** in non-archive locations, and only once a verified backup exists (§7.6). |
 | **Staging** | Making sure every input blob of a job is in the local cache, verified, before PixInsight starts. |
@@ -111,48 +116,49 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
 ### 3.0 Physical topology
 
 ```
- ┌── Rig PC A (mini PC) ──┐   ┌── Rig PC B (mini PC) ──┐
- │ NINA → D:\NINA (local)  │   │ NINA → D:\NINA (local)  │
- │ altair agent (service)  │   │ altair agent (service)  │
- │  copy+hash → manifest   │   │  copy+hash → manifest   │
- └───────────┬─────────────┘   └───────────┬─────────────┘
-             │ SMB                         │ SMB
-             ▼                             ▼
-      ┌──────────────────────────────────────────────┐        ┌───────────────────┐
-      │ Shared folder  \\nas\astro  (location:landing)│───────►│ S3 bucket (durable)│
-      │ not durable, cleaned up after backup verified │ upload │ STANDARD / IA /    │
-      └──────────────────────┬───────────────────────┘        │ GLACIER tiers      │
-                             │                                 └─────────┬─────────┘
-       optional ┌────────────┴─────────┐                                  │
-       NFS ────►│ NFS archive (durable) │                                  │
-                └────────────┬─────────┘                                  │
-                             ▼            fetch from the best location     │
-      ┌──────────────────────────────────────────────┐◄───────────────────┘
-      │ Processing PC: altaird + PixInsight            │
-      │ local SSD cache (location:cache) ← staging     │
-      │ catalog DB (backed up to S3 nightly)           │
-      └──────────────────────────────────────────────┘
+ ┌── Rig PC A (mini PC) ─────────┐     ┌── Rig PC B (mini PC) ─────────┐
+ │ NINA → D:\NINA (local disk)    │     │ NINA → D:\NINA (local disk)    │
+ │ shared as \\rig-esprit\NINA     │     │ shared as \\rig-rasa\NINA       │
+ │ location rig:esprit100_2600mm  │     │ location rig:rasa8_533mc       │
+ └───────────────┬───────────────┘     └───────────────┬───────────────┘
+                 │ SMB (processing PC pulls: read + verify; later cleanup deletes)
+                 └──────────────────┬──────────────────┘
+                                    ▼
+      ┌──────────────────────────────────────────────────┐   upload   ┌────────────────────┐
+      │ Processing PC: altaird (collector, backup,        │──────────►│ Amazon S3 (durable) │
+      │ planner, stager, …) + PixInsight                  │  (raw      │ STANDARD / IA /     │
+      │ local SSD cache (location:cache)                  │   first)   │ GLACIER tiers       │
+      │ catalog DB (backed up to S3 nightly)              │◄───────────┤                     │
+      └───────────────┬──────────────────────────────────┘  fetch     └────────────────────┘
+                      │ copy / fetch
+                      ▼
+            ┌───────────────────────┐
+            │ NFS archive (optional, │
+            │ durable)               │
+            └───────────────────────┘
 ```
 
-- **Rig PCs** only capture and deliver. NINA always saves to the **local disk** first, so a
-  network or NAS outage never costs frames. The agent copies files to the shared folder
-  and verifies each copy.
-- The **processing PC** never reads a network path from PixInsight. Every job input is
-  staged into its local SSD cache first (§7.7).
-- **S3** (and NFS, if you add it) is the durable archive. The shared folder is a landing
-  zone, cleaned up under the rules in §7.6. Raw lights are backed up to S3 (and the NFS)
-  **as they land**, before anything else happens to them (§7.2).
+- **Rig PCs** only capture. NINA saves to the rig PC's **local disk**, so a network outage
+  never costs frames. The NINA save folder is shared on the network. That share is the
+  rig's raw data location, and the processing PC has one config entry per rig pointing at
+  it (§5).
+- The **processing PC** pulls each new frame from each rig while the night is still going
+  (§7.3). It verifies the frame, then backs it up to S3 (and the NFS) before anything else
+  (§7.2). PixInsight never reads a network path. Every job input is staged into the local
+  SSD cache first (§7.7).
+- **S3** (and the NFS, if you add it) is the durable archive. A rig PC's copy of a frame is
+  deleted by the processing PC's cleanup only after the backup is verified (§7.6).
 
 ### 3.1 Software components
 
 ```
            ┌───────────────────────────────────────────────────────────────────────┐
            │                     altaird (Processing PC, Windows)                   │
- agents ─► │ 1 Trigger ─► 2 Ingest & ─► 3 Planner ─► 4 Stager ─► 5 Executor ─►      │
- (manifest │   Detector     Catalog      (group,      (fetch     (PixInsight       │
- + session │   (manifests,  (headers,    calib/flat   inputs to   WBPP, per        │
- end)      │   schedule)    blobs,       matching)    cache)      night)           │
-           │                replicas)        │            ▲            │           │
+ rig raw   │ 0 Collector ─► 2 Ingest & ─► 3 Planner ─► 4 Stager ─► 5 Executor ─►    │
+ roots ──► │   (pull, verify) Catalog     (group,      (fetch     (PixInsight       │
+ (per-rig  │ 1 Trigger       (headers,    calib/flat   inputs to   WBPP, per        │
+ config)   │   (session end,  blobs,      matching)    cache)      night)           │
+           │   schedule)     replicas)        │            ▲            │           │
            │                                 │            │            ▼           │
            │   Calibration Library ◄─────────┤   Storage Manager   6 Verifier &     │
            │                                 │   (BACKUP first:    Publisher        │
@@ -170,18 +176,17 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
 
 The **orchestrator** (`altaird`) is a long-running Python service on the processing PC.
 PixInsight is an external worker that the orchestrator starts once per job, as a separate
-process. The **agent** (`altair agent`) is a small service from the same Python package,
-running on each rig PC.
+process. Nothing from Altair runs on the rig PCs.
 
 ### 3.2 Technology choices
 
 | Concern | Choice | Rationale |
 |---|---|---|
-| Content identity | SHA-256, computed **once, on the rig PC**, as each file is delivered | A hash that stays the same across every location. It catches corruption in any copy, download, or restore. |
+| Content identity | SHA-256, computed by the collector when it first reads a frame from the rig, and confirmed by a second independent read (§7.3) | A hash that stays the same across every location. It catches corruption in any copy, download, or restore. |
 | Object storage | `boto3` against any S3-compatible endpoint (AWS, Backblaze B2, Wasabi, MinIO) | One interface for AWS and self-hosted storage. Storage-class and restore aware. |
 | Orchestrator | Python 3.12+, shipped as a venv or a PyInstaller-built `altair.exe` | Mature FITS tooling, easy subprocess and Win32 control. |
 | Header I/O | `astropy.io.fits`, plus a small XISF header reader | NINA can save FITS or XISF. |
-| File watching | `watchdog` (uses `ReadDirectoryChangesW`), plus a periodic rescan | Reacts quickly, and the rescan catches events that were missed. |
+| Rig folder watching | Polling each rig's raw root (a directory scan every `poll_interval_s`), optionally sped up by `watchdog` change notifications over SMB | Change notifications over SMB are unreliable on their own. Polling is the source of truth, and notifications only make it react faster. |
 | Win32 integration | `pywin32` / `psutil` | Job Objects for killing the PixInsight process tree, `SetThreadExecutionState` to keep the PC awake, exclusive-open checks, toast notifications. |
 | State store | SQLite (WAL mode) | Single host, transactional, needs no server. |
 | Config | YAML validated with `pydantic` | Typed, and bad config fails at startup. |
@@ -193,12 +198,20 @@ running on each rig PC.
 
 ### 4.1 Deployment model
 
-**Rig PCs (`altair agent`).** The agent needs no desktop, so it runs as a normal
-**Windows service** (installed with `altair agent install`). It runs under a service
-account that has write access to the shared folder, with the share credentials stored in
-Windows Credential Manager. It uses little CPU and runs at `BELOW_NORMAL` priority, so it
-never competes with NINA for USB or disk bandwidth during capture. If
-`agent.defer_copy_while_capturing: true`, it delays copying until the session ends.
+**Rig PCs.** Only NINA runs here. Setup for each rig PC:
+
+- Share the NINA save folder (for example `D:\NINA` as `\\rig-esprit\NINA`) to one
+  dedicated Windows account that the processing PC uses. Give it **Modify** permission
+  (read, plus delete for cleanup, §7.6). If you'd rather the processing PC never delete
+  on the rig, grant **Read** only and set `cleanup.enabled: false` for that rig. Then you
+  clean up the rig by hand, guided by `altair storage cleanup --dry-run`.
+- Add the session-end script to the NINA sequence (§4.2).
+- Keep the rig PC from sleeping, and give it enough disk for several nights. Its copy is
+  the only copy until the processing PC collects it.
+
+The processing PC stores each rig's share credentials in Windows Credential Manager
+(`credential_target` in the rig config). `altair doctor` checks from the processing PC
+that every rig's raw root is reachable and writable (for cleanup) with those credentials.
 
 **Processing PC (`altaird`).** PixInsight is a Qt GUI application. Even in `--automation-mode` it needs an **interactive
 desktop session**. Windows services run in session 0, which has no desktop, so PixInsight
@@ -216,9 +229,11 @@ started from a service may fail or hang. So:
   warns if it isn't.
 
 **Separate processing PC:** capture and processing are on different machines, so
-processing never competes with acquisition. A single-PC setup (NINA and `altaird`
-together) is still supported. In that setup the agent's target is a local folder, and
-processing only starts after the session ends, at `BELOW_NORMAL` priority.
+processing never competes with acquisition. Collection during the night only reads
+finished frames, throttled by `collect.bandwidth_limit_mbps` if needed, so it has
+negligible impact on the rig PC. A single-PC setup (NINA and `altaird` together) is still
+supported: that rig's `raw_root` is simply a local path, and processing only starts after
+the session ends, at `BELOW_NORMAL` priority.
 
 **Keeping the PC awake:** while any job is queued or running, `altaird` calls
 `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`. `altair doctor` warns if
@@ -231,33 +246,35 @@ reliably and no orphaned `PixInsight.exe` is left holding the instance slot.
 **Performance notes (checked by `altair doctor`):** PixInsight swap directories should be
 on a fast SSD. The `cache`, `work`, and `projects` directories should be excluded from
 Windows Defender real-time scanning. Long-path support should be enabled
-(`LongPathsEnabled=1`), because WBPP output paths get deep. A 2.5 GbE (or faster) link
-between the processing PC and the NAS is recommended. At 1 GbE, staging a 100-frame
-night (about 5 GB of 16-bit frames) takes about a minute.
+(`LongPathsEnabled=1`), because WBPP output paths get deep. Wired Ethernet to each rig PC
+is recommended. At 1 GbE, a 100-frame night (about 5 GB of 16-bit frames, read twice for
+verification) collects in about 2 minutes. Over Wi-Fi it takes longer, but it happens
+frame by frame during the night.
 
 ### 4.2 NINA integration
 
 **Where NINA saves.** NINA saves to a folder on the rig PC's **local disk** (for example
-`D:\NINA`), never directly to the share. The agent watches that folder.
+`D:\NINA`). That folder is shared, and its network path is the rig's `raw_root` in the
+processing PC's config.
 
 **Session-end signal.** In the NINA Advanced Sequencer, add an **External Script**
 instruction to the sequence's *End* area (and optionally after each target's flats). It
-runs on the **rig PC**:
+runs a tiny script on the **rig PC** (`deploy/windows/altair-session-end.cmd`, copied
+there once). The script only writes a marker file into the NINA folder:
 
 ```
-"C:\Program Files\Altair\altair.exe" agent signal session-end
+D:\NINA\_altair\session-end-<local timestamp>.json    { "host": "...", "at": "..." }
 ```
 
-This tells the local agent that the night is over. The agent finishes delivering every
-file, then publishes the night's **delivery manifest** (§7.3) to the shared folder. The
-manifest's arrival is what makes the night ready for processing. If the sequence aborts or
-NINA crashes, the agent's own quiescence timer (no new files for `quiescence_minutes`,
-after dawn) publishes the manifest instead, and the processing PC's scheduled fallback
-(§6.1) is the last safety net.
+The collector sees the marker on its next poll. It collects any remaining frames, and
+once every frame of that night has been collected and verified, the night is ready for
+processing (§6.1). If the sequence aborts or NINA crashes and no marker is written, the
+rig's quiescence rule (no new frames for `quiescence_minutes`, after dawn) closes the
+night instead, and the daily scheduled run (§6.1) is the last safety net.
 
 **Recommended NINA image file pattern** (Options → Imaging). It is not required, because
-Altair relies on headers, but it keeps folders readable. The agent keeps this relative
-path under the rig's folder in the shared folder:
+Altair relies on headers, but it keeps folders readable. The collector keeps this relative
+path as part of each frame's logical path (`raw/<rig>/<relative path>`):
 
 ```
 $$DATEMINUS12$$\$$TARGETNAME$$\$$IMAGETYPE$$\$$FILTER$$\$$DATETIME$$_$$FILTER$$_$$EXPOSURETIME$$s_$$FRAMENR$$
@@ -297,10 +314,10 @@ and how to interpret it.
 
 ## 5. Configuration
 
-A single `altair.yaml` (default `C:\ProgramData\Altair\altair.yaml`), validated at startup.
-The processing PC uses the whole file. Each rig PC's agent reads only `site`, `agent`,
-and its own entry under `rigs`. The file can be shared, or the agent can get a small
-generated `agent.yaml` from `altair agent config export --rig <name>`.
+A single `altair.yaml` on the processing PC (default
+`C:\ProgramData\Altair\altair.yaml`), validated at startup. Rig PCs have no Altair
+configuration. Everything about a rig, including **where its raw data is**, how to reach
+it, and how to collect and clean up, lives in that rig's entry under `rigs:`.
 
 ```yaml
 site:
@@ -313,7 +330,7 @@ site:
 paths:                                    # processing PC local paths only
   work: "E:/AltairWork"                   # per-job scratch space (fast SSD)
   state: "C:/ProgramData/Altair/state"    # catalog DB, logs
-  published: "//nas/astro/Masters"        # user-facing copies of masters (convenience, not the record)
+  published: "D:/Astro/Masters"           # user-facing copies of masters (convenience, not the record); share it if you like
 
 storage:                                  # see §7
   cache:
@@ -321,13 +338,8 @@ storage:                                  # see §7
     max_size_gb: 800
     min_free_gb: 100
     pin: [calibration_master, project_reference, night_master, multi_night_master]
-  locations:
-    - name: landing
-      kind: fs
-      root: "//nas/astro/Landing"         # agents deliver here
-      role: landing
-      durable: false
-      read_priority: 10                   # lower = tried first (after cache)
+    pin_raw_until: [durable_verified, night_processed, no_open_issue]   # collected raw frames stay local until all hold
+  locations:                              # rig locations (rig:<name>) come from `rigs:` below, read_priority 10
     - name: nfs
       kind: fs
       root: "//bignfs/astro-archive"      # a UNC path works for SMB or the Windows NFS client
@@ -370,22 +382,22 @@ storage:                                  # see §7
 
   backup:
     raw_first: true                       # raw_light uploads pre-empt every other transfer
-    start: on_ingest                      # upload each frame as soon as it lands, during the night
+    start: on_collect                     # upload each frame as soon as it is collected from the rig, during the night
     processing_waits_for_raw_backup: false   # true = a night is not processed until its raw lights are durable
-    raw_backup_sla_hours: 6               # BACKUP_BEHIND alert if a delivered raw light is not durable by then
+    raw_backup_sla_hours: 6               # BACKUP_BEHIND alert if a collected raw light is not durable by then
     calibrated_frame_stage: calibrated    # calibrated | cosmetized | debayered — which WBPP intermediate is kept (§7.4)
     calibrated_frame_compression: zstd+shuffle   # XISF lossless compression before upload; none to disable
 
   cleanup:                                # §7.6 — every rule is per location; deletions never propagate between locations
     schedule_local: "10:30"
     dry_run: false
-    rig_pc:
-      raw_light:       { min_age_days: 7,  require: [landing_verified, durable_verified] }
-      raw_calibration: { min_age_days: 7,  require: [landing_verified, master_durable] }
-    landing:
-      raw_light:       { min_age_days: 14, require: [durable_verified, night_processed, no_open_issue] }
-      raw_calibration: { min_age_days: 30, require: [master_durable, no_open_issue] }
-      target_free_percent: 25             # beyond the age rules, clean oldest-first only until this much is free
+    rig_defaults:                         # applied to every rig's NINA folder; override per rig under rigs.<name>.cleanup
+      enabled: true
+      raw_light:       { min_age_days: 7, require: [collected_verified, durable_verified] }
+      raw_calibration: { min_age_days: 7, require: [collected_verified, master_durable] }
+      target_free_percent: 20             # below this free space, clean oldest-first before min_age (the require rules still apply)
+      keep: ["_altair/**"]                # never touched (session-end markers are cleaned by their own rule below)
+      markers_keep_days: 30
     cache:
       evict: lru                          # §7.7; never evicts pinned or sole-copy blobs
     work:
@@ -406,12 +418,6 @@ storage:                                  # see §7
     scrub_interval_days: 90               # re-verify a random sample of replicas
     scrub_sample_percent: 2
 
-agent:                                    # rig PC agent settings
-  landing_root: "//nas/astro/Landing"
-  quiescence_minutes: 45
-  defer_copy_while_capturing: false
-  heartbeat_interval_s: 60
-
 pixinsight:
   executable: "C:/Program Files/PixInsight/bin/PixInsight.exe"
   wbpp_dir: "C:/Program Files/PixInsight/src/scripts/BatchProcessing/WeightedBatchPreprocessing"
@@ -425,14 +431,29 @@ pixinsight:
 triggers:
   require_after_dawn: true
   scheduled_fallback_local: "09:00"
-  rescan_interval_minutes: 15
-  manifest_grace_minutes: 30              # wait for straggler files listed in a manifest
   min_lights_per_stack: 5
 
 rigs:
   esprit100_2600mm:
-    host: "rig-esprit"                    # the rig PC's name; its agent authenticates with this
-    nina_save_root: "D:/NINA"             # on the rig PC
+    # ── where the raw data is and how to reach it ──
+    host: "rig-esprit"                    # rig PC network name (used for reachability probes)
+    raw_root: "//rig-esprit/NINA"         # the rig PC's shared NINA save folder = location rig:esprit100_2600mm
+    credential_target: "altair-rig-esprit"   # Windows Credential Manager entry with the share account
+    include: ["**/*.fits", "**/*.fit", "**/*.xisf"]
+    exclude: ["_altair/**", "**/*.tmp", "**/Snapshots/**"]
+    # ── collection (§7.3) ──
+    collect:
+      poll_interval_s: 60                 # directory scan cadence (SMB change notifications only speed this up)
+      stable_seconds: 60                  # size + mtime unchanged this long, and exclusive open succeeds
+      during_capture: true                # false = only collect after the session-end marker / quiescence
+      verify: double_read                 # double_read (default) | single_read
+      bandwidth_limit_mbps: null
+      parallel_files: 2
+    session_end_marker: "_altair/session-end-*.json"   # written by the NINA end-of-sequence script (§4.2)
+    quiescence_minutes: 45                # no marker: night closes after this long with no new frames (after dawn)
+    unreachable_alert_minutes: 30         # RIG_UNREACHABLE warning; escalates to blocking after 12 h
+    # cleanup: { raw_light: { min_age_days: 14 } }   # optional per-rig overrides of storage.cleanup.rig_defaults
+    # ── optics ──
     telescope: "esprit100"
     camera: "asi2600mm"
     focal_length_mm: 550
@@ -448,7 +469,11 @@ rigs:
       require_on_lights_and_flats: true    # missing value → cannot prove match → issue
   rasa8_533mc:
     host: "rig-rasa"
-    nina_save_root: "D:/NINA"
+    raw_root: "//rig-rasa/NINA"
+    credential_target: "altair-rig-rasa"
+    collect: { poll_interval_s: 60, stable_seconds: 60, during_capture: true, verify: double_read }
+    session_end_marker: "_altair/session-end-*.json"
+    quiescence_minutes: 45
     telescope: "rasa8"
     camera: "asi533mc"
     focal_length_mm: 400
@@ -534,36 +559,40 @@ and they are debounced into a single "night ready" event:
 
 Nights are processed **per rig**. Each rig PC finishes its night on its own schedule.
 
-1. **Delivery manifest (primary).** A rig's agent publishes
-   `Landing\<rig>\_manifests\<night>.json` (§7.3) after NINA's session-end script, or
-   after the agent's own quiescence timer. The night is **ready** once every file listed
-   in the manifest is present on landing with a matching size and SHA-256. Files still
-   missing after `manifest_grace_minutes` raise `DELIVERY_INCOMPLETE`. Readiness is
-   decided by the manifest's list of files, not by guessing from timing.
-2. **Scheduled fallback.** A daily run at `scheduled_fallback_local`, plus a periodic
-   rescan of landing. This covers a missing manifest (for example, a rig PC crashed
-   before publishing one). Files found without a manifest are hashed on the processing
-   PC, and the night is processed with a warning (`MANIFEST_MISSING`).
-3. **Calibration arrival.** Newly indexed calibration frames or masters that could resolve
+1. **Session-end marker (primary).** The NINA end-of-sequence script writes
+   `_altair\session-end-*.json` in the rig's NINA folder (§4.2). On its next poll the
+   collector does a final full scan of that rig's raw root. It collects every remaining
+   stable frame of the night and writes the night's **collection manifest** (§7.3). The
+   night is **ready** once every frame found in the rig's folder for that night has been
+   collected and verified. A frame that stays unstable or unreadable for more than 30
+   minutes after the marker raises `COLLECTION_STUCK`.
+2. **Quiescence.** No marker, but no new frame from that rig for `quiescence_minutes`, and
+   it's after dawn (if `require_after_dawn`). This covers aborted sequences and NINA
+   crashes. The night closes the same way, with a warning (`SESSION_END_MARKER_MISSING`).
+3. **Scheduled fallback.** A daily run at `scheduled_fallback_local` closes any night that
+   is still open, provided its rig is reachable. A night whose rig is unreachable stays
+   open, and `RIG_UNREACHABLE` explains why.
+4. **Calibration arrival.** Newly indexed calibration frames or masters that could resolve
    an open issue (§10) trigger a targeted re-plan.
-4. **Data availability.** A blob that was unavailable becomes reachable again (a location
+5. **Data availability.** A blob that was unavailable becomes reachable again (a location
    comes back online, or an S3 restore completes). Jobs waiting on it re-queue (§7.7).
-5. **Manual.** `altair run …` / `altair rerun …`.
+6. **Manual.** `altair run …` / `altair rerun …` / `altair collect --rig R --close-night DATE`.
 
-**File stability** is the agent's job (§7.3). The processing PC only ingests files that a
-manifest lists, or that it has hashed itself.
+**File stability and verification** are the collector's job (§7.3). Ingest only sees
+frames the collector has copied into the processing PC and verified.
 
 ### 6.2 Ingest & Catalog
 
-For each delivered file (listed in a manifest, or found by a rescan):
+For each frame the collector has copied and verified (§7.3):
 
-1. Register the **blob** (SHA-256 from the manifest), its **logical path**
-   (`raw/<rig>/<relative NINA path>`), and a `present` **replica** in `landing`. If the
-   blob is already known (a duplicate delivery or a re-sync), it is linked to the existing
-   blob and never processed twice.
+1. Register the **blob** (its SHA-256), its **logical path**
+   (`raw/<rig>/<relative path under raw_root>`), and two `present` **replicas**: the
+   original in `rig:<name>` and the verified copy in `cache`. If the blob is already known
+   (for example, the same file seen again after a rig PC folder move), it is linked to the
+   existing blob and never processed twice.
 2. Read the headers and resolve canonical fields through `header_mapping` and `aliases`.
 3. Resolve the **rig** from (telescope, camera). This is cross-checked against the rig
-   whose agent delivered the file. Frames that match no configured rig get
+   whose raw root the frame was collected from. A mismatch raises `UNKNOWN_RIG`. Frames that match no configured rig get
    an `UNKNOWN_RIG` issue.
 4. Extract the **rotator position** using the rig's rotator config: read the keyword or
    file-name token, parse it as a number in `units`, and store it as `rotator_pos`
@@ -613,7 +642,7 @@ CREATE TABLE blobs (
 );
 
 CREATE TABLE locations (
-  name TEXT PRIMARY KEY,         -- landing / nfs / s3 / cache / rig:<name>
+  name TEXT PRIMARY KEY,         -- rig:<name> / cache / nfs / s3
   kind TEXT NOT NULL,            -- fs / s3
   durable INTEGER NOT NULL,
   reachable INTEGER NOT NULL,    -- last probe result
@@ -647,15 +676,27 @@ CREATE TABLE fetch_requests (    -- staging and restore bookkeeping (§7.7)
 CREATE TABLE cleanup_ledger (    -- every deletion Altair ever performs (§7.6)
   id INTEGER PRIMARY KEY,
   sha256 TEXT NOT NULL, location TEXT NOT NULL, uri TEXT NOT NULL,
-  rule TEXT NOT NULL,             -- e.g. landing.raw_light
+  rule TEXT NOT NULL,             -- e.g. rig:esprit100_2600mm.raw_light
   relied_on_json TEXT NOT NULL,   -- the verified backup replica(s) checked right before deleting
   deleted_at TEXT NOT NULL, dry_run INTEGER NOT NULL
 );
 
-CREATE TABLE deliveries (        -- one row per agent manifest
-  rig TEXT NOT NULL, night TEXT NOT NULL, manifest_sha256 TEXT NOT NULL,
-  n_files INTEGER, total_bytes INTEGER, complete INTEGER NOT NULL,
-  received_at TEXT, PRIMARY KEY (rig, night, manifest_sha256)
+CREATE TABLE collections (       -- one row per rig-night (§7.3)
+  rig TEXT NOT NULL, night TEXT NOT NULL,
+  state TEXT NOT NULL,           -- open / closing / closed
+  closed_by TEXT,                -- session_end_marker / quiescence / scheduled / manual
+  n_files INTEGER, total_bytes INTEGER,
+  manifest_sha256 TEXT,          -- collection manifest blob (written at close)
+  opened_at TEXT, closed_at TEXT,
+  PRIMARY KEY (rig, night)
+);
+
+CREATE TABLE rig_files (         -- what the collector has seen in each rig's raw root
+  rig TEXT NOT NULL, rel_path TEXT NOT NULL,
+  size INTEGER, mtime TEXT, first_seen_at TEXT, stable_since TEXT,
+  state TEXT NOT NULL,           -- seen / collecting / collected / stuck / excluded / gone
+  sha256 TEXT REFERENCES blobs(sha256),
+  PRIMARY KEY (rig, rel_path)
 );
 
 -- ── Science catalog ───────────────────────────────────────────────────────
@@ -791,7 +832,7 @@ The planner runs when a night is ready, and again whenever an issue might be res
    calibration hashes, resolved settings, reference version, and software versions. A plan
    whose `plan_hash` already succeeded is skipped.
 8. **Data cost estimate.** For each job, the planner records the total input size and
-   where each input would come from (cache, landing, NFS, S3 hot, S3 cold). That feeds the
+   where each input would come from (cache, rig PC, NFS, S3 hot, S3 cold). That feeds the
    approval guards and ETAs in §7.7. Planning itself never needs file contents, because
    headers are cached in the catalog.
 
@@ -859,8 +900,8 @@ After a `NIGHT_STACK` job:
    Provisional masters get the suffix `_NOFLAT-PROVISIONAL`. Published copies are for
    convenience only. They are not tracked as replicas and can be regenerated at any time
    (`altair publish --refresh`).
-4. **Raw lights are not moved.** They were already backed up at ingest (§7.2). They stay
-   where they were delivered until cleanup (§7.6) removes that copy.
+4. **Raw lights are not moved.** They were already backed up at collection (§7.2). The
+   rig PC's original stays in the NINA folder until cleanup (§7.6) removes it.
 5. **Record the night master** with `merge_status`, set by the gates in §9.4.
 
 ### 6.7 Merger
@@ -878,7 +919,8 @@ See §10.
 ### 7.1 Principles
 
 1. **Backup comes first.** A raw light is uploaded to S3 (and copied to the NFS archive,
-   if one is configured) **as soon as it lands**, during the night, ahead of every other
+   if one is configured) **as soon as the collector has pulled it from the rig**, during
+   the night, ahead of every other
    transfer and independent of processing. No copy of a raw light is ever deleted anywhere
    until its backup is verified.
 2. **Altair owns the backup.** Altair does all S3 uploads (Amazon S3) and NFS copies
@@ -887,8 +929,9 @@ See §10.
    file in one location, whether by Altair's cleanup, by you, or by a crashed disk, never
    causes a deletion anywhere else. S3 permissions enforce this at the IAM level (§7.5).
 4. **Content-addressed.** Every file is a blob identified by SHA-256. The hash is computed
-   **on the rig PC, before the file crosses the network**, so every later copy, upload,
-   download, and restore can be checked against it.
+   when the collector first reads a frame from the rig, and confirmed by a second
+   independent read (§7.3), so every later copy, upload, download, and restore can be
+   checked against it.
 5. **The catalog doesn't depend on where files are.** The catalog says *what* data exists.
    `replicas` say *where* it currently is. Losing a copy only changes where the next fetch
    comes from.
@@ -904,9 +947,10 @@ See §10.
 
 ```
  capture night ─────────────────────────────► dawn ─────────────────────────────► days / weeks
- Rig PC   NINA saves locally ─► agent delivers to landing (seconds after each frame)
- Proc PC  ingest ─► [1] RAW BACKUP → S3 + NFS  (continuous, top priority, verified)
-                                          manifest ─► plan ─► stage ─► WBPP ─► verify
+ Rig PC   NINA saves to local D:\NINA (shared)                          session-end marker
+ Proc PC  collector pulls each finished frame (≈1 min after it is written) ─┐
+          ingest ─► [1] RAW BACKUP → S3 + NFS  (continuous, top priority, verified)
+                                     close night + manifest ─► plan ─► stage ─► WBPP ─► verify
                                                                     │
                                         [2] OUTPUT BACKUP → S3 + NFS ◄┘  masters, reference,
                                                                          calibrated light subs
@@ -914,8 +958,8 @@ See §10.
                                                                         only verified-backed-up data)
 ```
 
-1. **Raw backup** starts at ingest, and each frame is uploaded while the night is still
-   going. By the time the session ends, most of the night is usually already in S3.
+1. **Raw backup** starts as soon as each frame is collected, and each frame is uploaded
+   while the night is still going. By the time the session ends, most of the night is usually already in S3.
    Processing does not have to wait for it, because processing only reads raw files and
    never changes them. If you want a strict order anyway, set
    `processing_waits_for_raw_backup: true`: a night is then not processed until all of
@@ -924,46 +968,68 @@ See §10.
 3. **Cleanup** runs daily. It only removes copies whose backup is verified, following the
    rules for each location (§7.6).
 
-A delivered raw light that still has no verified S3 copy after `raw_backup_sla_hours`
+A collected raw light that still has no verified S3 copy after `raw_backup_sla_hours`
 raises **`BACKUP_BEHIND`** (warning). A raw light more than 48 h old with **no** verified
 durable copy anywhere raises **`DATA_AT_RISK`** (blocking, alerted immediately). Nothing
-from that night is cleaned up until the condition clears.
+from that night is cleaned up until the condition clears. Until a frame is collected, its
+only copy is on the rig PC, so an unreachable rig raises `RIG_UNREACHABLE` (§7.3).
 
-### 7.3 Agent delivery protocol (rig PC → landing)
+### 7.3 Collector (rig PC → processing PC)
 
-For each new file in the NINA save folder:
+The collector is part of `altaird`. It runs one worker per configured rig. Rig PCs run
+nothing from Altair; the collector does everything over the rig's share, using the rig's
+`raw_root` and credentials from the config (§5).
 
-1. **Stability:** its size and mtime have not changed for 30 s, it opens with **exclusive
-   share mode** (so NINA has finished writing it), and it parses as FITS or XISF.
-2. **Hash locally:** a streaming SHA-256 of the file. The agent also parses the FITS header
-   into a small dict and classifies the frame (`raw_light` or `raw_calibration`) from
-   `IMAGETYP`.
-3. **Copy safely:** write to `Landing\<rig>\<relative path>.partial`, flush, then
-   **read back and re-hash** from the share (`verify: readback`, the default; `size`
-   skips the read-back). Then rename to the final name. A mismatch triggers a retry, and
-   after 3 failures raises `DELIVERY_CORRUPT`.
-4. **Journal:** record (file, sha256, size, delivered_at) in the agent's local SQLite
-   journal. Delivery is idempotent: a file already delivered with the same hash is skipped.
-5. **Share offline:** the agent queues and retries with backoff. NINA keeps saving
-   locally, and nothing on the rig PC is cleaned up while it is undelivered or not backed
-   up, so size rig PC disks for about a week of nights. The agent writes a heartbeat to
-   `Landing\_agents\<rig>.json` every `heartbeat_interval_s`, with its backlog size. The
-   processing PC raises `RIG_AGENT_OFFLINE` (stale heartbeat) or `RIG_DELIVERY_BACKLOG`
-   (backlog > 12 h).
-6. **Manifest:** at session end (the NINA script or quiescence), after every file of the
-   night has been delivered, the agent writes `Landing\<rig>\_manifests\<night>.json`
-   atomically (temp file, then rename):
+**Per poll (`poll_interval_s`) for each rig:**
+
+1. **Reachability:** probe `raw_root`. If it can't be reached, mark `rig:<name>`
+   unreachable. After `unreachable_alert_minutes`, raise `RIG_UNREACHABLE` (warning),
+   escalating to **blocking** after 12 h, because a rig's uncollected frames exist
+   **only** on that rig. Collection resumes automatically when the rig comes back, and
+   nothing is lost in the meantime: NINA keeps writing locally, and nothing uncollected is
+   ever cleaned up.
+2. **Scan:** list `raw_root` using the `include` and `exclude` patterns. Every file is
+   tracked in `rig_files` with its size and mtime. New files are `seen`. Files that
+   disappear before collection are `gone`: if a gone file was never collected, raise
+   `DATA_AT_RISK` (it may have been deleted on the rig before any copy existed).
+3. **Stability:** a file is collectable once its size and mtime have not changed for
+   `stable_seconds` (across polls), **and** it can be opened over SMB with **exclusive
+   share mode**, which fails while NINA still has it open for writing. It must also parse
+   as FITS or XISF with a data size that matches the header (catches truncated files).
+4. **Copy and hash:** stream the file from the rig into `cache\tmp\`, computing SHA-256
+   and parsing the header while copying.
+5. **Verify with a double read** (`verify: double_read`, the default): read the file on
+   the rig a **second time** and compute SHA-256 again. The two hashes must match (and
+   the size and mtime must be unchanged). A mismatch means a transient read error or a
+   file still changing: discard the copy and retry on the next poll. After 3 failures,
+   raise `COLLECTION_CORRUPT`. This doubles LAN reads (about 10 GB per 100-frame night),
+   which is cheap on wired Ethernet, in exchange for knowing that the hash that protects
+   every later copy really matches the rig's file. `single_read` skips the second read.
+6. **Commit:** atomically rename the copy into `cache\blobs\…` (read-only). Record the
+   blob and both replicas (`rig:<name>` and `cache`) and hand the frame to ingest (§6.2).
+   Ingest puts a `raw_light` **at the front of the backup queue** immediately.
+7. **Throttle:** at most `parallel_files` at once, with `bandwidth_limit_mbps` if set. With
+   `during_capture: false`, steps 4–6 wait until the night's session-end marker or
+   quiescence. That setting is not recommended, because backup then starts only after
+   the session.
+
+**Closing a night:** when the session-end marker appears (or quiescence, or the scheduled
+fallback, §6.1), the collector does a final full scan and collects everything remaining
+for that night. It then writes the **collection manifest**
+`raw/<rig>/_manifests/<night>.json`, a `metadata` blob that is backed up right away:
 
 ```json
 {
   "schema": 1,
   "rig": "esprit100_2600mm",
+  "raw_root": "//rig-esprit/NINA",
   "night": "2026-09-24",
-  "closed_by": "nina_session_end",
-  "agent_version": "0.4.0",
+  "closed_by": "session_end_marker",
+  "collector_version": "0.5.0",
   "files": [
     {
       "logical_path": "raw/esprit100_2600mm/2026-09-24/M31/LIGHT/Ha/2026-09-24_23-10-02_Ha_300.00s_0001.fits",
+      "rig_path": "2026-09-24/M31/LIGHT/Ha/2026-09-24_23-10-02_Ha_300.00s_0001.fits",
       "sha256": "9f2c…",
       "size": 52436160,
       "class": "raw_light",
@@ -973,16 +1039,16 @@ For each new file in the NINA save folder:
 }
 ```
 
-   Because the manifest carries the headers, the catalog can be rebuilt from manifests
-   without downloading any image (§7.9). Manifests are backed up as `metadata`.
-7. **Backup acknowledgements:** the processing PC publishes
-   `Landing\_acks\<rig>\<night>.json` listing which of that night's blobs have a verified
-   backup (S3 for raw lights; a durable master for calibration subs). The agent uses it
-   for rig PC cleanup (§7.6).
-8. **Re-delivery (last resort):** the rig PC is a readable location (`rig:<name>`) while it
-   still holds a file. If a blob is unavailable everywhere else, the processing PC writes
-   a request to `Landing\_requests\<rig>.json`, and the agent re-delivers any requested
-   files it still has.
+Because the manifest carries the headers, the catalog can be rebuilt from manifests
+without downloading any image (§7.9).
+
+**Frames that arrive late** (after the night was closed, for example NINA flushing a
+buffered frame) are still collected and backed up. They re-open the night, which triggers
+a re-plan and an updated manifest (a new version; the old one is kept).
+
+**What the processing PC writes on a rig PC:** nothing, except deletions made by cleanup
+(§7.6). The `_altair\` folder belongs to the NINA session-end script. The collector only
+reads it, apart from cleaning up old markers.
 
 ### 7.4 Data classes & backup policy
 
@@ -1107,12 +1173,12 @@ re-checked right before a delete.
 
 | Location | Class | Deleted when (all must hold) |
 |---|---|---|
-| **Rig PC** (NINA folder) | `raw_light` | on landing and verified · verified backup in S3 (or NFS if S3 is not configured) · older than 7 days |
-| | `raw_calibration` | on landing and verified · the master(s) built from it have a verified backup · older than 7 days |
-| **Landing** (shared folder) | `raw_light` | verified backup · the night was processed (stacks succeeded or were waived) · **not tied to an open issue** (so a flat-blocked night's lights stay handy for the rerun) · older than 14 days |
-| | `raw_calibration` | the master(s) built from it have a verified backup · not tied to an open issue · older than 30 days |
-| | anything | also cleaned oldest-first beyond the age rules **only** while free space is below `target_free_percent`, still subject to every other condition |
-| **Cache** (processing PC) | any | LRU eviction (§7.7). Never pinned blobs, inputs of queued jobs, or blobs whose only verified copy is the cache |
+| **Rig PC** (each rig's NINA folder, via its `raw_root`) | `raw_light` | collected and verified (double read) · verified backup in S3 (or the NFS if S3 is not configured) · the file on the rig still has the collected size, mtime, and SHA-256 · older than 7 days |
+| | `raw_calibration` | collected and verified · the master(s) built from it have a verified backup · unchanged on the rig · older than 7 days |
+| | anything | also cleaned oldest-first before the age limit **only** while the rig's free space is below `target_free_percent`, still subject to every other condition |
+| | session-end markers | older than `markers_keep_days` |
+| **Cache** (processing PC) | raw frames | only after `pin_raw_until` holds: verified backup · night processed · **not tied to an open issue**, so a flat-blocked night's lights stay local for a fast rerun |
+| | any other | LRU eviction (§7.7). Never pinned blobs, inputs of queued jobs, or blobs whose only verified copy is the cache |
 | **Work** dirs | — | right away after a successful job. Failed jobs are kept 7 days for debugging |
 | **Published** viewing copies | — | night viewing copies after `night_masters_keep_days`. Multi-night viewing copies beyond the latest `multi_night_versions_keep` |
 | **Logs** | — | after `logs_keep_days` |
@@ -1130,15 +1196,18 @@ re-checked right before a delete.
    the blob still has at least one other verified copy.
 3. **Delete** that one copy and mark its replica `missing` (reason `cleanup`). The ledger
    records every deletion (what, where, why, and which backup it relied on).
-4. Remove empty folders under landing. Never remove NINA's own root folders.
+4. On rig PCs, remove folders under `raw_root` that are now empty. Never remove
+   `raw_root` itself, `_altair\`, or any folder NINA is currently writing to.
 
-On the rig PC, the **agent** runs its own cleanup, using the acknowledgements the processing
-PC publishes (§7.3 step 7). It never needs S3 credentials.
+**Rig PC cleanup runs from the processing PC** over the rig's share. It needs the share's
+**Modify** permission (§4.1). If the rig is unreachable, its cleanup simply waits. With
+`cleanup.enabled: false` for a rig, the dry-run report lists what is safe to delete, and
+you delete it by hand.
 
-**Deletions outside Altair** (you, a NAS cleanup job, or a failed disk): the next rescan
-marks those replicas `missing`. If a blob now has no verified backup, `DATA_AT_RISK` is
-raised immediately, and a re-delivery request goes to the rig PC if it might still have the
-file. Nothing is ever deleted in response.
+**Deletions outside Altair** (you, a disk failure on a rig, or someone tidying the NINA
+folder): the next scan marks those replicas `missing`. A frame deleted on a rig **before it
+was collected** raises `DATA_AT_RISK` immediately (§7.3). If a blob now has no verified
+backup, `DATA_AT_RISK` is raised as well. Nothing is ever deleted in response.
 
 ### 7.7 Staging: fetch on demand
 
@@ -1146,9 +1215,9 @@ Before any job runs, the **stager** gets every input blob into the local cache:
 
 1. **Cache hit:** the blob is `present` in the cache → pin it for the job.
 2. **Choose a source:** reachable locations holding a `present` replica, in
-   `read_priority` order: cache → landing → NFS → S3 (instant classes: STANDARD,
-   STANDARD_IA, GLACIER_IR) → S3 cold (DEEP_ARCHIVE, GLACIER) → `rig:<name>`. Replicas
-   marked `corrupt` are skipped.
+   `read_priority` order: cache → `rig:<name>` (the rig PC's original, while it still
+   exists) → NFS → S3 (instant classes: STANDARD, STANDARD_IA, GLACIER_IR) → S3 cold
+   (DEEP_ARCHIVE, GLACIER). Replicas marked `corrupt` are skipped.
 3. **Cost and size guards:** if the bytes to download from S3 exceed
    `max_auto_download_gb`, raise `FETCH_APPROVAL_NEEDED`. It shows the size, the estimated
    egress cost, and the reason (for example "re-reference M31: 412 calibrated subs,
@@ -1168,11 +1237,11 @@ Before any job runs, the **stager** gets every input blob into the local cache:
    `cache\tmp\`, with a streaming SHA-256 check. A mismatch marks that source replica
    `corrupt`, raises `INTEGRITY_MISMATCH`, and tries the next source. On success the file
    is atomically renamed into `cache\blobs\<aa>\<sha256>.<ext>` and marked read-only.
-6. **No source available:** raise `DATA_UNAVAILABLE` (blocking). It lists the blobs, their
-   last known locations, and whether the rig PC might still have them (in which case a
-   re-delivery request goes out automatically). The job stays in `waiting_data` and
-   re-queues automatically when any location becomes reachable again (locations are
-   probed every 10 min) or when a replica turns up.
+6. **No source available:** raise `DATA_UNAVAILABLE` (blocking). It lists the blobs and
+   their last known locations (for example "only on rig:esprit100_2600mm, which is
+   unreachable"). The job stays in `waiting_data` and re-queues automatically when any
+   location becomes reachable again (locations are probed every 10 min) or when a replica
+   turns up.
 7. **Hand-off:** inputs are **hard-linked** (NTFS, same volume) into
    `work\<job-id>\inputs\` under their original file names. This copies no data and keeps
    WBPP logs readable.
@@ -1218,31 +1287,29 @@ where a key's content is written again, and only with the matching SHA-256.
 1. Mount or share it, set `enabled: true` on the `nfs` location, and choose its
    `backup_classes` (the default is the same as S3; adding `raw_calibration` is
    reasonable).
-2. `altair storage replicate --to nfs --dry-run` shows how many bytes are still on landing
-   or in the cache (free to copy), and how many would have to come from S3 (egress cost,
+2. `altair storage replicate --to nfs --dry-run` shows how many bytes are still on the rig
+   PCs or in the cache (free to copy), and how many would have to come from S3 (egress cost,
    and restores for Deep Archive objects). Run it without `--dry-run` to backfill, or with
    `--from-local-only` to skip anything that needs S3.
 3. With `read_priority` 20 (ahead of S3), reruns and re-references are then served from
    the NFS, and S3 becomes purely an offsite backup.
 4. Cleanup rules don't change. A backup on either the NFS or S3 satisfies "verified
-   backup", except rig PC raw lights, which need S3 when S3 is configured, so an offsite
-   copy exists before the second-to-last local copy is removed.
+   backup", except for raw lights on the rig PCs, which need S3 whenever S3 is configured.
+   That way an offsite copy exists before the rig's original is removed.
 
 No catalog migration is needed. It only adds a location and replicas.
 
 ### 7.11 Physical layout
 
 ```
-\\nas\astro\
-├── Landing\                                   # location "landing" (agents write here)
-│   ├── _agents\<rig>.json                     # heartbeats
-│   ├── _acks\<rig>\<night>.json               # backup acknowledgements for rig PC cleanup
-│   ├── _requests\<rig>.json                   # re-delivery requests
-│   └── raw\<rig>\<night>\...                  # = logical paths (incl. _manifests\)
-└── Masters\                                   # published viewing copies + ALTAIR_STATUS.html
+Rig PC (one per telescope) — location "rig:<name>", reached as rigs.<name>.raw_root
+D:\NINA\                                       # NINA save folder, shared as \\<host>\NINA
+├── 2026-09-24\M31\LIGHT\Ha\...fits            # NINA's own layout (file pattern §4.2)
+└── _altair\session-end-<timestamp>.json        # written by the NINA end-of-sequence script
+C:\Tools\altair-session-end.cmd                # the only Altair file on the rig PC
 
 s3://my-astro-archive/altair/                  # location "s3" — same logical tree
-├── raw/<rig>/<night>/...                      # raw lights + manifests (no calibration subs)
+├── raw/<rig>/<night>/...                      # raw lights + collection manifests (no calibration subs)
 ├── calibration/masters/...
 ├── projects/<project>/{reference, nights/<night>/<filter>/{calibrated, night_master_*}, multinight}/
 └── catalog/
@@ -1253,10 +1320,7 @@ E:\AltairCache\                                # location "cache"
 │   └── tmp\                                   # in-flight downloads
 E:\AltairWork\<job-id>\inputs\                 # hard links into the cache (same volume)
 C:\ProgramData\Altair\{altair.yaml, state\altair.db, state\logs\, state\cleanup-ledger\}
-
-Rig PC
-D:\NINA\...                                    # NINA save folder (location "rig:<name>")
-C:\ProgramData\Altair\agent\{agent.yaml, journal.db, logs\}
+D:\Astro\Masters\                              # published viewing copies + ALTAIR_STATUS.html
 ```
 
 ---
@@ -1458,8 +1522,8 @@ example, the first night was poor). It increments `reference_version`. All night
 become `STALE_REFERENCE` and are reprocessed from the backed-up **calibrated light subs**
 (so no raw calibration subs or Deep Archive restores are needed). The stager fetches them
 from wherever they now live (§7.7). The command first prints the total input size and
-where it will come from (for example "412 calibrated subs, 31 GB: 6 GB from landing and
-cache, 25 GB from S3 Glacier IR"). The fetch goes through the normal approval guards. This is the only operation that repeats registration for existing nights, and it
+where it will come from (for example "412 calibrated subs, 31 GB: 6 GB from the cache,
+25 GB from S3 Glacier IR"). The fetch goes through the normal approval guards. This is the only operation that repeats registration for existing nights, and it
 never happens automatically.
 
 ---
@@ -1480,12 +1544,13 @@ never happens automatically.
 | `STALE_REFERENCE` | blocking | merge | reprocessing succeeds (automatic) |
 | `JOB_FAILED` | blocking | that job | a successful retry or rerun |
 | `DISK_SPACE_LOW` | blocking | new jobs | space freed |
-| `DELIVERY_INCOMPLETE` | blocking | that rig-night | the missing manifest files arrive (agent retries) |
-| `DELIVERY_CORRUPT` | blocking | those files | a later delivery verifies |
+| `RIG_UNREACHABLE` | warning, then blocking after 12 h | collection, and cleanup on that rig | the rig's `raw_root` is reachable again |
+| `COLLECTION_STUCK` | blocking | closing that rig-night | the file becomes stable and readable, or you exclude it (`altair collect exclude`) |
+| `COLLECTION_CORRUPT` | blocking | those files | a later double read matches |
+| `SESSION_END_MARKER_MISSING` | warning | nothing (the night closed by quiescence) | — (informational; check the NINA end-of-sequence script) |
 | `MANIFEST_MISSING` | warning | nothing (the night is processed from a rescan) | a manifest arrives |
-| `RIG_AGENT_OFFLINE` / `RIG_DELIVERY_BACKLOG` | warning | nothing directly | heartbeat fresh / backlog cleared |
 | `LOCATION_UNREACHABLE` | warning | fetches from that location | the probe succeeds |
-| `DATA_UNAVAILABLE` | blocking | jobs needing those blobs | a replica becomes reachable, is discovered, or is re-delivered |
+| `DATA_UNAVAILABLE` | blocking | jobs needing those blobs | a replica becomes reachable or is discovered |
 | `RESTORE_IN_PROGRESS` | info | jobs needing those blobs (they wait) | restore completes and the download verifies |
 | `FETCH_APPROVAL_NEEDED` / `RESTORE_APPROVAL_NEEDED` | blocking | that job | `altair storage approve <id>` (or `deny`, which cancels the job) |
 | `INTEGRITY_MISMATCH` | warning | nothing (another copy is used) | the bad replica is re-replicated and verified |
@@ -1514,7 +1579,7 @@ Night 2026-09-24 · M31 · esprit100 / asi2600mm · filter SII
 No master flat matches: nearest candidate is 2026-09-20 SII @ 18 400 steps (rotator Δ 12 850 > 50).
 
 To fix, take SII flats at rotator 31 250 steps (focal length 550 mm, bin 1x1)
-before any equipment change. NINA and the agent deliver them as usual.
+before any equipment change. The collector picks them up from the rig as usual.
 Altair will build the master flat, reprocess 2026-09-24, and re-merge M31 SII automatically.
 (Manual: `altair calib import <folder>` or `altair issue resolve 42 --flat <file>`.)
 A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIONAL.xisf
@@ -1536,7 +1601,7 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
 ### 10.4 Fix → rerun loop
 
 ```
- issue opened ──► user takes flats in NINA ──► agent delivers + manifest ──► ingest
+ issue opened ──► user takes flats in NINA ──► collector pulls + verifies ──► ingest
       ▲                                                                   │
       │                                  CALIB_MASTER builds master flat ◄┘
       │                                                  │
@@ -1544,7 +1609,7 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
       │                           │ yes
       │                           ▼
       │      NIGHT_STACK rerun for blocked night(s) (stager fetches raw lights
-      │      from landing / NFS / S3, restoring from Glacier if needed)
+      │      from cache / rig PC / NFS / S3, restoring from Glacier if needed)
       │                           │
       │                 verifier → gates (§9.4) pass?
       │               no ─────────┘      │ yes
@@ -1558,9 +1623,10 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
   requirements of all open issues. If it matches, the dependent `NIGHT_STACK` jobs are
   re-planned (and get a new `plan_hash`, because the calibration inputs changed), followed
   by `MERGE`.
-- **Raw data for reruns:** held lights stay linked to their issue, and cleanup skips them
-  on landing while the issue is open. If they are gone anyway (for example, deleted
-  outside Altair), the stager fetches them from the NFS or S3. For the first 120 days
+- **Raw data for reruns:** held lights stay linked to their issue and stay pinned in the
+  processing PC's cache while the issue is open (`pin_raw_until`). If they are gone anyway
+  (for example, the cache was wiped), the stager fetches them from the rig PC if it still
+  has them, then from the NFS or S3. For the first 120 days
   they are readable immediately (STANDARD_IA). After that a Deep Archive restore is
   needed, and the issue's status line shows "waiting for restore, ETA …". The rerun is
   only slower, never impossible.
@@ -1602,7 +1668,7 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
   Raw files are never moved or modified. A copy is deleted only by cleanup (§7.6), only
   after the backup is re-verified, and deletions never propagate between locations (S3
   delete permission on `raw/` does not exist).
-- **Resumable transfers:** agent copies, uploads, downloads, and restores are all
+- **Resumable transfers:** collection copies, uploads, downloads, and restores are all
   identified by blob hash and are idempotent. After a crash they resume (S3 multipart
   resume, HTTP range) or restart cleanly. Nothing half-transferred is ever marked
   `present`.
@@ -1619,9 +1685,9 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
 
 ```
 altair serve [--windowless]
-altair agent serve | install | uninstall            # rig PC service
-altair agent signal session-end                    # called by NINA's External Script
-altair agent status | redeliver --night DATE | config export --rig R
+altair rigs list | check [--rig R]                # reachability, credentials, share permissions, free space per rig
+altair collect status [--rig R]                    # open nights, uncollected/stuck files, last poll
+altair collect now --rig R | close-night --rig R --night DATE | exclude --rig R <rel-path>
 altair ingest <path>...
 altair status [--night DATE] [--project P]
 altair plan --night DATE                     # dry run: groups, calibration matches, gates, issues
@@ -1646,7 +1712,7 @@ altair storage scrub [--location LOC] [--sample PCT]
 altair storage backup-catalog | restore-catalog [--latest|--at TIME] | rebuild-catalog --from LOC
 altair publish --refresh
 altair doctor                                     # PixInsight/CLI flags, session type, paths, disk, NINA headers sample,
-                                                  # share/S3 access, bucket versioning/encryption, S3 delete-denied check, agent heartbeats
+                                                  # rig shares (read/modify), S3 access, bucket versioning/encryption, S3 delete-denied check
 ```
 
 ### 12.2 Optional HTTP status endpoint
@@ -1686,14 +1752,14 @@ Home Assistant or dashboards.
 | Phase | Deliverable | Exit criteria |
 |---|---|---|
 | **0: Windows/PixInsight spike** | Headless PixInsight on Windows from a Task-Scheduler-launched process. A PJSR runner that (a) drives WBPP's engine with a **manual registration reference** and autocrop off, and (b) runs `SubframeSelector` measurement + `LocalNormalization` + `ImageIntegration` with `KeywordWeight` and `rangeClipLow`. Confirm the NINA header keywords, including `ROTATOR` units, on your own files. | A single command produces a night master in reference geometry and a 2-night merge with keyword weights. Documented in `docs/pixinsight-cli.md`. |
-| **1: Agent, ingest & backup** *(ships first: protects raw data before any processing exists)* | `altair agent` service (stability, hashing, read-back verified copy, journal, manifests with headers, heartbeat). Processing-side ingest (config, header mapping, rig and rotator extraction, blob/replica/ledger schema). **Backup engine** (§7.5): raw-first S3 upload with SHA-256 checksums and conditional writes, NFS copy, output classes wired for later. `altair storage s3 init` (versioning, encryption, lifecycle, least-privilege IAM). **Cleanup** (§7.6) for the rig PCs and landing, with ledger and dry-run. Catalog backup. `altair storage backup status`. | Two rigs' real nights are in S3 (and on the NFS if present) within the backup time limit, verified by hash. Pulling the network cable mid-night loses nothing. `doctor` proves the daemon **cannot** delete under `raw/`. Property tests: cleanup never deletes the last verified copy, and deleting a copy in one location never deletes one elsewhere. Rig PC and landing space is reclaimed on schedule. |
+| **1: Collector, ingest & backup** *(ships first: protects raw data before any processing exists)* | Per-rig config and **collector** (§7.3): SMB polling of each rig's `raw_root`, stability and exclusive-open check, double-read SHA-256 verification, collection manifests, session-end marker and quiescence handling, `RIG_UNREACHABLE`. The NINA session-end script. Ingest (config, header mapping, rig and rotator extraction, blob/replica/ledger schema). **Backup engine** (§7.5): raw-first S3 upload with SHA-256 checksums and conditional writes, NFS copy, output classes wired for later. `altair storage s3 init` (versioning, encryption, lifecycle, least-privilege IAM). **Cleanup** (§7.6) of rig PC NINA folders over SMB and of the cache, with ledger and dry-run. Catalog backup. `altair storage backup status`. | Two rigs' real nights are collected during the night and in S3 (and on the NFS if present) within the backup time limit, verified by hash. Unplugging a rig's network mid-night loses nothing, and collection catches up after reconnecting. `doctor` proves the daemon **cannot** delete under `raw/`. Property tests: cleanup never deletes the last verified copy or an uncollected rig file, and deleting a copy in one location never deletes one elsewhere. Rig PC disk space is reclaimed on schedule. |
 | **2: Planner & matching** | §8 rules, including rotator and equipment events, issue generation, `altair plan`. | Table-driven tests for every rule: rotator Δ at tolerance ±1 step, wrap-around, missing position, event between flat and light. |
-| **2b: Staging & retrieval** | §7.7: stager (source selection, verify, hard-link hand-off, cache eviction), Deep Archive restore flow, approval guards, scrub, `restore-catalog` / `rebuild-catalog`. | Against MinIO / S3: clean up landing → a job still runs from S3. Deep Archive objects → restore → run. A corrupted replica is detected and bypassed. `rebuild-catalog` from the bucket alone reproduces the catalog. |
+| **2b: Staging & retrieval** | §7.7: stager (source selection, verify, hard-link hand-off, cache eviction), Deep Archive restore flow, approval guards, scrub, `restore-catalog` / `rebuild-catalog`. | Against MinIO / S3: wipe the cache and delete the rig originals → a job still runs from S3. Deep Archive objects → restore → run. A corrupted replica is detected and bypassed. `rebuild-catalog` from the bucket alone reproduces the catalog. |
 | **3: Night stacks** | Executor (Job Objects, timeouts), `PROJECT_REFERENCE`, `NIGHT_STACK`, verifier, publisher, output backup (masters, reference, calibrated subs). | A night master matches a manual WBPP run on the same data within noise, and is pixel-aligned with the reference. |
 | **4: Calibration library** | `CALIB_MASTER`, rotator-tagged master flats, import, supersession. | A flats-only night produces masters that are matched automatically. |
 | **5: Merger** | §9: gates, measured weighting, LN, coverage-aware integration, versions, reports. | A 3-night merge's weights match the measured PSF signal ordering. Excluding a night and re-including it reproduces the same result byte for byte. Uncovered edges don't darken the result. |
-| **6: Issues & rerun loop** | §10: issue store, dedup, toast, push, email, status page, auto-rerun on calibration arrival, manual resolve and waive. | End to end: a night without SII flats → issue + toast → take matching flats in NINA → agent delivers → automatic rerun (with raw lights fetched from S3 if landing was cleaned up) → merge → "resolved" notification, with no CLI use. |
-| **7: Daemon & hardening** | Triggers (manifests, scheduled fallback), Task Scheduler install script (processing PC), agent service installer (rig PCs), sleep prevention, crash recovery, `altair doctor`. | A week of unattended real nights from two rigs. Survives killing `altaird`, the agent, and `PixInsight.exe` mid-job. |
+| **6: Issues & rerun loop** | §10: issue store, dedup, toast, push, email, status page, auto-rerun on calibration arrival, manual resolve and waive. | End to end: a night without SII flats → issue + toast → take matching flats in NINA → collector pulls them → automatic rerun (with raw lights fetched from S3 if the cache and rig copies are gone) → merge → "resolved" notification, with no CLI use. |
+| **7: Daemon & hardening** | Triggers (session-end markers, quiescence, scheduled fallback), Task Scheduler install script (processing PC), rig PC setup guide (share, permissions, session-end script), sleep prevention, crash recovery, `altair doctor`. | A week of unattended real nights from two rigs. Survives killing `altaird` and `PixInsight.exe` mid-job, and a rig PC rebooting mid-night. |
 | **8: Disaster-recovery drill** | Documented runbook. | On a clean machine, with only `altair.yaml` and S3: `restore-catalog`, then produce a multi-night master update for one project. |
 
 Phase 1 does not depend on the PixInsight spike (Phase 0). It is built first, or in
@@ -1708,8 +1774,8 @@ altair-pre-processor/
 ├── altair.example.yaml
 ├── src/altair/
 │   ├── cli.py  config.py  daemon.py
-│   ├── agent/        # service.py, watcher.py, deliver.py, journal.py, manifest.py, heartbeat.py
-│   ├── triggers/     # manifests.py, schedule.py, dawn.py
+│   ├── collector/    # rig_worker.py, scan.py, stability.py, copy_verify.py, manifest.py, session_end.py
+│   ├── triggers/     # schedule.py, dawn.py
 │   ├── ingest/       # headers.py, nina.py, rotator.py, normalize.py, classify.py
 │   ├── storage/      # blobs.py, locations/{fs.py, s3.py}, replicator.py, stager.py, restore.py,
 │   │                 # cache.py, cleanup.py, s3_setup.py, scrub.py, catalog_backup.py, rebuild.py
@@ -1728,14 +1794,15 @@ altair-pre-processor/
 │   └── lib/json_io.js
 ├── deploy/windows/
 │   ├── install-task.ps1          # registers the Task Scheduler task (processing PC)
-│   ├── install-agent.ps1         # installs the agent Windows service (rig PCs)
+│   ├── altair-session-end.cmd    # the NINA end-of-sequence script (copied to each rig PC)
+│   ├── rig-setup.md              # share the NINA folder, share account, permissions
 │   └── nina-external-script.md
 ├── tests/
 │   ├── fixtures/                 # synthetic NINA-style FITS (astropy), tiny images
 │   ├── test_rotator.py  test_matching.py  test_gates.py  test_issues.py
 │   ├── test_weights.py           # weighting math on synthetic noise/signal
 │   ├── test_storage_*.py         # backup, stager, restore, cleanup invariants (moto + MinIO)
-│   ├── test_agent.py             # stability, partial writes, share outage, manifests
+│   ├── test_collector.py         # stability, partial writes, locked files, rig outage, double-read mismatch, late frames
 │   └── test_executor_contract.py # fake PixInsight.exe writing result.json
 └── docs/
     ├── SPEC.md
@@ -1752,7 +1819,7 @@ altair-pre-processor/
   weighting modes is consistent.
 - **Storage:** unit tests against `moto` (an S3 mock, which supports storage classes and
   restore semantics) and integration tests against a local MinIO. Fault injection covers
-  truncated downloads, flipped bytes, unreachable locations, deleted landing files, and
+  truncated downloads, flipped bytes, unreachable locations, files deleted on a rig before and after collection, and
   restores that never finish. **Property tests** on cleanup assert that no sequence of
   operations ever leaves a `raw_light` (or any backed-up class) with zero verified copies,
   and that deleting a copy in one location never removes a copy in another.
@@ -1763,7 +1830,7 @@ altair-pre-processor/
   Golden checks are statistical (median, MAD, star count, weight ordering), not
   byte-for-byte.
 - **Soak:** replay a recorded NINA night's file arrivals into a rig PC's NINA folder,
-  with the agent delivering over a real SMB share.
+  with the collector pulling over a real SMB share from a second machine.
 
 ---
 
@@ -1780,15 +1847,16 @@ altair-pre-processor/
 | R7 | A bug or a mistaken command in Altair deletes archived data. | The daemon's IAM policy has no delete permission on kept prefixes. Bucket versioning. Conditional writes (no overwrites). Optional Object Lock on `raw/`. Cleanup re-verifies the backup before every delete, and deletions are recorded in a ledger. Property tests. |
 | R11 | Raw calibration subs are not backed up. | Their masters are, and subs are only cleaned up after the masters' backup is verified. Masters can't be rebuilt from subs with new settings later. The NFS can be set to keep subs. |
 | R12 | Calibrated subs roughly triple S3 volume (32-bit float). | Compression, a Glacier IR transition after 60 days, and a per-project opt-out. `storage status` shows growth and a cost estimate. |
-| R8 | Glacier restore latency (hours) and retrieval or egress costs on reruns and re-references. | Prefetch as soon as a job is planned. Approval guards with cost estimates. `keep_if_open_issue` keeps likely rerun inputs on landing. The NFS (if added) serves reruns first. |
+| R8 | Glacier restore latency (hours) and retrieval or egress costs on reruns and re-references. | Prefetch as soon as a job is planned. Approval guards with cost estimates. `pin_raw_until` keeps likely rerun inputs in the processing PC cache. The NFS (if added) serves reruns first. |
 | R9 | Losing the catalog makes the archive hard to navigate. | Nightly catalog backups to every durable location, plus the self-describing archive (manifests with headers, sidecars) and `rebuild-catalog`. |
-| R10 | SMB silent corruption or partial writes. | SHA-256 at the source, read-back verification, `.partial` + rename, and hash checks on every fetch. |
+| R10 | SMB read errors, or partially written frames. | Stability plus exclusive-open check, FITS size validation, double-read SHA-256, temp file + rename, and hash checks on every later fetch. |
+| R13 | A rig's frames exist only on that rig until collected. | Collection during the night (about a minute behind capture). `RIG_UNREACHABLE` escalation. Nothing uncollected is ever cleaned up. `DATA_AT_RISK` if an uncollected file disappears. |
 | Q1 | Is the rotator reported in degrees or steps, and is steps-per-revolution known? Which rotator and driver? | Sets the rig's `rotator` defaults. |
-| Q2 | ~~Same PC or separate?~~ **Decided:** one mini PC per rig, a separate processing PC, and a shared folder. | §3.0, §4.1. |
+| Q2 | ~~Same PC or separate?~~ **Decided:** one mini PC per rig, each sharing its own NINA folder, and a separate processing PC with a config entry per rig. | §3.0, §4.1, §5. |
 | Q5 | ~~S3 provider?~~ **Decided:** Amazon S3, with Altair doing all uploads and never syncing deletions. Proposed defaults: raw lights STANDARD_IA → DEEP_ARCHIVE at 120 days; calibrated subs STANDARD_IA → GLACIER_IR at 60 days; masters STANDARD. Are those day counts right for how long you usually wait before shooting missing flats or reprocessing? | Sets `storage_class` and `lifecycle`. |
 | Q6 | ~~External backup tool?~~ **Decided:** none. Altair owns the backup. | §7.5. |
 | Q7 | NFS: add it? If so, should it also keep raw calibration subs (not kept in S3)? | Sets `nfs.backup_classes`. |
 | Q9 | Which calibrated stage to keep: pure calibrated (default), cosmetic-corrected, or debayered (OSC)? | Sets `calibrated_frame_stage`. |
-| Q8 | Network speed between the processing PC and the NAS, and the internet uplink and downlink? | Sizes staging expectations, upload windows, and restore-to-run ETAs. |
+| Q8 | Network link from each rig PC to the processing PC (wired or Wi-Fi, speed), and the internet uplink and downlink? | Sizes staging expectations, upload windows, and restore-to-run ETAs. |
 | Q3 | Should the multi-night master require every night to cover the full frame (strict crop), or allow partial-coverage edges? | Default: crop to full coverage (`min_coverage_nights: all`). |
 | Q4 | Default weighting: `measured_psf_signal` or `inverse_noise_variance`? | Spec default is PSF signal (it rewards seeing and transparency too). Phase 5 compares both on real data. |
