@@ -1,13 +1,16 @@
 # Altair Pre-Processor — Implementation Specification
 
-**Status:** Draft v0.2
+**Status:** Draft v0.3
 **Date:** 2026-09-25
-**Target platform:** Windows 10/11 (x64), NINA for acquisition, PixInsight 1.9.x with WBPP 2.x
+**Target platform:** Windows 10/11 (x64). Each telescope has its own NINA mini PC, and a
+separate, more powerful processing PC runs PixInsight 1.9.x with WBPP 2.x. They share a
+network folder, with S3 backup and an optional large NFS archive.
 
 ### Changelog
 
 | Version | Changes |
 |---|---|
+| v0.3 | Distributed storage. A small agent on each rig PC delivers files to the shared folder with SHA-256 manifests. The catalog tracks files by content hash across several storage locations (shared folder, NFS, S3, local cache), so it doesn't depend on where a file currently lives. A staging layer fetches job inputs from whichever location has them, including S3 Glacier restores. Files are deleted from the shared folder only after a verified durable copy exists. Catalog backup and a rebuild-from-archive path for disaster recovery. Raw files are no longer moved. (§4, §6, §7, §10, §11) |
 | v0.2 | Windows and NINA are now the target platform. Adds multi-night masters that reuse registration and weight each night by its measured quality. Flat matching now covers equipment and rotator position, including rotator step position. Adds an issue and alert system with automatic rerun once the problem is fixed. |
 | v0.1 | First draft. |
 
@@ -50,6 +53,12 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
   measurements, not from frame counts.
 - **Recoverable:** every blocking problem becomes an issue that names the fix. Once the fix
   arrives, the rerun is automatic.
+- **Works wherever the data lives:** jobs ask for files by content hash, not by path. Any
+  file the pipeline needs, including raw lights from months ago for a rerun or
+  re-reference, is fetched automatically from whichever storage location still has it
+  (shared folder, NFS, S3 including Glacier, or another file system), and checked against
+  its hash before use. Deleting local copies is safe because nothing is deleted unless a
+  verified durable copy exists.
 - **Deterministic, idempotent, auditable:** the same inputs give the same outputs, and every
   master traces back to its exact lights, calibration masters, weights, settings, and
   software versions.
@@ -80,38 +89,88 @@ PixInsight's `ImageIntegration` and `LocalNormalization` processes directly.
 | **Multi-night master** | The weighted combination of every eligible night master for one stack key. |
 | **Eligible night** | A night master that passes every merge gate in §9.4, including verified flat calibration. |
 | **Issue** | A stored, trackable problem (for example `FLAT_MISSING`) that blocks a stack or a merge. It carries fix instructions and a status of open, resolved, or waived. |
+| **Rig PC** | The NINA mini PC attached to one telescope. It runs `altair agent`. |
+| **Processing PC** | The machine that runs `altaird` and PixInsight. |
+| **Blob** | One file's content, identified by its SHA-256 hash. The catalog refers to data only by blob hash plus a *logical path*, never by a physical path. |
+| **Location** | A configured place blobs can live: `landing` (the shared folder), `nfs`, `s3`, `cache` (processing PC SSD), or `rig:<name>` (a rig PC's local disk). |
+| **Replica** | One copy of a blob in one location. It is tracked with state (`present`, `missing`, `archived_cold`, `restoring`) and when it was last verified. |
+| **Durable location** | A location whose replicas count as backup (S3, and NFS if configured that way). The shared folder and cache are **not** durable. |
+| **Staging** | Making sure every input blob of a job is in the local cache, verified, before PixInsight starts. |
 
 ---
 
 ## 3. High-Level Architecture
 
+### 3.0 Physical topology
+
+```
+ ┌── Rig PC A (mini PC) ──┐   ┌── Rig PC B (mini PC) ──┐
+ │ NINA → D:\NINA (local)  │   │ NINA → D:\NINA (local)  │
+ │ altair agent (service)  │   │ altair agent (service)  │
+ │  copy+hash → manifest   │   │  copy+hash → manifest   │
+ └───────────┬─────────────┘   └───────────┬─────────────┘
+             │ SMB                         │ SMB
+             ▼                             ▼
+      ┌──────────────────────────────────────────────┐        ┌───────────────────┐
+      │ Shared folder  \\nas\astro  (location:landing)│───────►│ S3 bucket (durable)│
+      │ not durable, space may be reclaimed           │ upload │ STANDARD / IA /    │
+      └──────────────────────┬───────────────────────┘        │ GLACIER tiers      │
+                             │                                 └─────────┬─────────┘
+       optional ┌────────────┴─────────┐                                  │
+       NFS ────►│ NFS archive (durable) │                                  │
+                └────────────┬─────────┘                                  │
+                             ▼            fetch from the best location     │
+      ┌──────────────────────────────────────────────┐◄───────────────────┘
+      │ Processing PC: altaird + PixInsight            │
+      │ local SSD cache (location:cache) ← staging     │
+      │ catalog DB (backed up to S3 nightly)           │
+      └──────────────────────────────────────────────┘
+```
+
+- **Rig PCs** only capture and deliver. NINA always saves to the **local disk** first, so a
+  network or NAS outage never costs frames. The agent copies files to the shared folder
+  and verifies each copy.
+- The **processing PC** never reads a network path from PixInsight. Every job input is
+  staged into its local SSD cache first (§7.5).
+- **S3** (and NFS, if you add it) is the durable archive. The shared folder is a landing
+  zone and can be emptied under the rules in §7.6.
+
+### 3.1 Software components
+
 ```
            ┌───────────────────────────────────────────────────────────────────────┐
-           │                            altaird (Windows)                           │
- NINA ───► │ 1 Trigger ─► 2 Ingest & ─► 3 Planner ─► 4 Executor ─► 5 Verifier &    │
- (images + │   Detector     Catalog      (group,      (PixInsight   Publisher       │
- end-of-   │   (sentinel,   (FITS/XISF    calib/flat   WBPP, per     (night masters)│
- sequence  │   quiescence,  headers →     matching)    night)             │         │
- script)   │   schedule)    SQLite)          │                            ▼         │
-           │                                 │                     6 Merger        │
-           │   Calibration Library ◄─────────┤                     (ImageIntegration│
-           │                                 │                      over night     │
-           │                                 ▼                      masters)       │
-           │                          7 Issue Tracker ◄──── gates ──────┘          │
+           │                     altaird (Processing PC, Windows)                   │
+ agents ─► │ 1 Trigger ─► 2 Ingest & ─► 3 Planner ─► 4 Stager ─► 5 Executor ─►      │
+ (manifest │   Detector     Catalog      (group,      (fetch     (PixInsight       │
+ + session │   (manifests,  (headers,    calib/flat   inputs to   WBPP, per        │
+ end)      │   schedule)    blobs,       matching)    cache)      night)           │
+           │                replicas)        │            ▲            │           │
+           │                                 │            │            ▼           │
+           │   Calibration Library ◄─────────┤   Storage Manager   6 Verifier &     │
+           │                                 │   (locations,       Publisher        │
+           │                                 │    replication,         │            │
+           │                                 │    S3 restore,          ▼            │
+           │                                 │    reclaim)        7 Merger         │
+           │                                 ▼                        │            │
+           │                          8 Issue Tracker ◄──── gates ────┘            │
            │                                 │   ▲                                 │
            │                                 │   └── new calibration → auto-rerun  │
            │                                 ▼                                     │
-           │                          8 Notifier (toast, push, email, status page) │
+           │                          9 Notifier (toast, push, email, status page) │
            └───────────────────────────────────────────────────────────────────────┘
 ```
 
-The **orchestrator** (`altaird`) is a long-running Python service. PixInsight is an
-external worker that the orchestrator starts once per job, as a separate process.
+The **orchestrator** (`altaird`) is a long-running Python service on the processing PC.
+PixInsight is an external worker that the orchestrator starts once per job, as a separate
+process. The **agent** (`altair agent`) is a small service from the same Python package,
+running on each rig PC.
 
-### 3.1 Technology choices
+### 3.2 Technology choices
 
 | Concern | Choice | Rationale |
 |---|---|---|
+| Content identity | SHA-256, computed **once, on the rig PC**, as each file is delivered | A hash that stays the same across every location. It catches corruption in any copy, download, or restore. |
+| Object storage | `boto3` against any S3-compatible endpoint (AWS, Backblaze B2, Wasabi, MinIO) | One interface for AWS and self-hosted storage. Storage-class and restore aware. |
 | Orchestrator | Python 3.12+, shipped as a venv or a PyInstaller-built `altair.exe` | Mature FITS tooling, easy subprocess and Win32 control. |
 | Header I/O | `astropy.io.fits`, plus a small XISF header reader | NINA can save FITS or XISF. |
 | File watching | `watchdog` (uses `ReadDirectoryChangesW`), plus a periodic rescan | Reacts quickly, and the rescan catches events that were missed. |
@@ -126,7 +185,14 @@ external worker that the orchestrator starts once per job, as a separate process
 
 ### 4.1 Deployment model
 
-PixInsight is a Qt GUI application. Even in `--automation-mode` it needs an **interactive
+**Rig PCs (`altair agent`).** The agent needs no desktop, so it runs as a normal
+**Windows service** (installed with `altair agent install`). It runs under a service
+account that has write access to the shared folder, with the share credentials stored in
+Windows Credential Manager. It uses little CPU and runs at `BELOW_NORMAL` priority, so it
+never competes with NINA for USB or disk bandwidth during capture. If
+`agent.defer_copy_while_capturing: true`, it delays copying until the session ends.
+
+**Processing PC (`altaird`).** PixInsight is a Qt GUI application. Even in `--automation-mode` it needs an **interactive
 desktop session**. Windows services run in session 0, which has no desktop, so PixInsight
 started from a service may fail or hang. So:
 
@@ -141,11 +207,10 @@ started from a service may fail or hang. So:
 - `altair doctor` checks that it is running in an interactive session (not session 0) and
   warns if it isn't.
 
-**Same PC as NINA:** processing never starts while a NINA sequence is active. It is gated
-on the session-end signal (§6.1) and on NINA having written no new frames for the
-quiescence window. PixInsight runs at `BELOW_NORMAL_PRIORITY_CLASS`. If a new NINA frame
-lands while a job is running (for example a new sequence starts), the running job
-finishes, and no further jobs start until the next session end.
+**Separate processing PC:** capture and processing are on different machines, so
+processing never competes with acquisition. A single-PC setup (NINA and `altaird`
+together) is still supported. In that setup the agent's target is a local folder, and
+processing only starts after the session ends, at `BELOW_NORMAL` priority.
 
 **Keeping the PC awake:** while any job is queued or running, `altaird` calls
 `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`. `altair doctor` warns if
@@ -156,25 +221,35 @@ Windows Update active hours overlap the configured processing window.
 reliably and no orphaned `PixInsight.exe` is left holding the instance slot.
 
 **Performance notes (checked by `altair doctor`):** PixInsight swap directories should be
-on a fast SSD. The `work` and `projects` directories should be excluded from Windows
-Defender real-time scanning. Long-path support should be enabled
-(`LongPathsEnabled=1`), because WBPP output paths get deep.
+on a fast SSD. The `cache`, `work`, and `projects` directories should be excluded from
+Windows Defender real-time scanning. Long-path support should be enabled
+(`LongPathsEnabled=1`), because WBPP output paths get deep. A 2.5 GbE (or faster) link
+between the processing PC and the NAS is recommended. At 1 GbE, staging a 100-frame
+night (about 5 GB of 16-bit frames) takes about a minute.
 
 ### 4.2 NINA integration
 
+**Where NINA saves.** NINA saves to a folder on the rig PC's **local disk** (for example
+`D:\NINA`), never directly to the share. The agent watches that folder.
+
 **Session-end signal.** In the NINA Advanced Sequencer, add an **External Script**
-instruction to the sequence's *End* area (and optionally after each target's flats):
+instruction to the sequence's *End* area (and optionally after each target's flats). It
+runs on the **rig PC**:
 
 ```
-"C:\Program Files\Altair\altair.exe" signal session-end --source nina
+"C:\Program Files\Altair\altair.exe" agent signal session-end
 ```
 
-This writes an atomic `SESSION_COMPLETE.json` into the inbox, recording the time and host.
-If the sequence aborts or NINA crashes, quiescence and the scheduled fallback (§6.1) still
-catch the session.
+This tells the local agent that the night is over. The agent finishes delivering every
+file, then publishes the night's **delivery manifest** (§7.3) to the shared folder. The
+manifest's arrival is what makes the night ready for processing. If the sequence aborts or
+NINA crashes, the agent's own quiescence timer (no new files for `quiescence_minutes`,
+after dawn) publishes the manifest instead, and the processing PC's scheduled fallback
+(§6.1) is the last safety net.
 
 **Recommended NINA image file pattern** (Options → Imaging). It is not required, because
-Altair relies on headers, but it keeps the inbox readable:
+Altair relies on headers, but it keeps folders readable. The agent keeps this relative
+path under the rig's folder in the shared folder:
 
 ```
 $$DATEMINUS12$$\$$TARGETNAME$$\$$IMAGETYPE$$\$$FILTER$$\$$DATETIME$$_$$FILTER$$_$$EXPOSURETIME$$s_$$FRAMENR$$
@@ -215,6 +290,9 @@ and how to interpret it.
 ## 5. Configuration
 
 A single `altair.yaml` (default `C:\ProgramData\Altair\altair.yaml`), validated at startup.
+The processing PC uses the whole file. Each rig PC's agent reads only `site`, `agent`,
+and its own entry under `rigs`. The file can be shared, or the agent can get a small
+generated `agent.yaml` from `altair agent config export --rig <name>`.
 
 ```yaml
 site:
@@ -224,15 +302,75 @@ site:
   timezone: "America/Los_Angeles"
   session_rollover_local: "12:00"
 
-paths:
-  inbox: "D:/Astro/NINA"                  # NINA's image save root (or a synced share)
-  work: "E:/AltairWork"                   # fast SSD scratch space
-  calibration: "D:/Astro/Calibration"
-  projects: "D:/Astro/Projects"           # project references, night masters, multi-night masters
-  archive: "D:/Astro/Archive"
-  published: "D:/Astro/Masters"           # user-facing copies of night and multi-night masters
-  rejected: "D:/Astro/Rejected"
-  state: "C:/ProgramData/Altair/state"
+paths:                                    # processing PC local paths only
+  work: "E:/AltairWork"                   # per-job scratch space (fast SSD)
+  state: "C:/ProgramData/Altair/state"    # catalog DB, logs
+  published: "//nas/astro/Masters"        # user-facing copies of masters (convenience, not the record)
+
+storage:                                  # see §7
+  cache:
+    path: "E:/AltairCache"                # location "cache": processing PC SSD
+    max_size_gb: 800
+    min_free_gb: 100
+    pin: [calibration_master, project_reference, night_master, multi_night_master]
+  locations:
+    - name: landing
+      kind: fs
+      root: "//nas/astro/Landing"         # agents deliver here
+      role: landing
+      durable: false
+      reclaimable: true                   # may be emptied; see storage.reclaim
+      read_priority: 10                   # lower = tried first (after cache)
+    - name: nfs
+      kind: fs
+      root: "//bignfs/astro-archive"      # a UNC path works for SMB or the Windows NFS client
+      durable: true
+      reclaimable: false
+      read_priority: 20
+      enabled: false                      # turn on if/when the NFS is added
+      replicate: [raw, calibration_raw, calibration_master, night_master, multi_night_master, catalog_backup]
+    - name: s3
+      kind: s3
+      bucket: "my-astro-archive"
+      prefix: "altair/"
+      region: "us-west-2"
+      endpoint_url: null                  # set for B2 / Wasabi / MinIO
+      credentials: { profile: "altair" }  # AWS profile, or Windows Credential Manager target
+      durable: true
+      read_priority: 30
+      managed_by: altair                  # altair (Altair uploads; recommended) | external (see §7.4)
+      replicate: [raw, calibration_raw, calibration_master, project_reference, night_master, multi_night_master, catalog_backup]
+      storage_class:                      # per data class; applied on upload
+        raw: STANDARD_IA                  # or GLACIER_IR / DEEP_ARCHIVE — see §7.5 restore rules
+        calibration_raw: DEEP_ARCHIVE
+        default: STANDARD               # bucket lifecycle transitions are detected at read time (HeadObject)
+      restore:
+        tier: Bulk                        # Bulk | Standard | Expedited
+        days: 7
+        max_auto_restore_gb: 50           # above this, a RESTORE_APPROVAL_NEEDED issue is raised
+      max_auto_download_gb: 200          # above this, approval is required (egress cost guard)
+      bandwidth_limit_mbps: null
+      multipart_chunk_mb: 64
+  reclaim:
+    landing:
+      enabled: true
+      min_age_days: 14                    # never before this
+      require_durable_copies: 1           # verified replicas in durable locations
+      require_processed: true             # the night's stacks finished (or were waived)
+      keep_if_open_issue: true            # frames tied to an open issue stay on landing
+      target_free_percent: 25             # reclaim oldest-first until this much is free
+  verify:
+    s3_after_upload: checksum             # checksum (SHA-256 stored + S3 checksum) | head_only
+    scrub_interval_days: 90               # re-verify a random sample of replicas
+    scrub_sample_percent: 2
+
+agent:                                    # rig PC agent settings
+  landing_root: "//nas/astro/Landing"
+  local_retention_days: 7                 # delete from the rig PC only after verified on landing (and durable if required)
+  local_delete_requires_durable: false    # true = also wait for the S3 copy
+  quiescence_minutes: 45
+  defer_copy_while_capturing: false
+  heartbeat_interval_s: 60
 
 pixinsight:
   executable: "C:/Program Files/PixInsight/bin/PixInsight.exe"
@@ -245,15 +383,16 @@ pixinsight:
   tested_versions: ["1.9.3"]              # altair doctor warns on any other version
 
 triggers:
-  sentinel_filename: "SESSION_COMPLETE.json"
-  quiescence_minutes: 45
   require_after_dawn: true
   scheduled_fallback_local: "09:00"
   rescan_interval_minutes: 15
+  manifest_grace_minutes: 30              # wait for straggler files listed in a manifest
   min_lights_per_stack: 5
 
 rigs:
   esprit100_2600mm:
+    host: "rig-esprit"                    # the rig PC's name; its agent authenticates with this
+    nina_save_root: "D:/NINA"             # on the rig PC
     telescope: "esprit100"
     camera: "asi2600mm"
     focal_length_mm: 550
@@ -268,6 +407,8 @@ rigs:
       tolerance: 50                        # in `units`
       require_on_lights_and_flats: true    # missing value → cannot prove match → issue
   rasa8_533mc:
+    host: "rig-rasa"
+    nina_save_root: "D:/NINA"
     telescope: "rasa8"
     camera: "asi533mc"
     focal_length_mm: 400
@@ -351,36 +492,50 @@ notifications:
 This component decides when a night is ready to process. Any of these triggers can fire,
 and they are debounced into a single "night ready" event:
 
-1. **NINA sentinel.** `SESSION_COMPLETE.json` is written by the NINA External Script
-   (§4.2). Altair reacts immediately.
-2. **Quiescence.** No new light for `quiescence_minutes`, *and* the local time is after
-   astronomical dawn (if `require_after_dawn`). Dawn is computed with `astropy` from the
-   site coordinates. This catches aborted sequences.
-3. **Scheduled fallback.** A daily run at `scheduled_fallback_local`, plus a periodic
-   rescan of the inbox. This covers missed file events, which are common on SMB shares.
-4. **Calibration arrival.** Newly indexed calibration frames or masters that could resolve
+Nights are processed **per rig**. Each rig PC finishes its night on its own schedule.
+
+1. **Delivery manifest (primary).** A rig's agent publishes
+   `Landing\<rig>\_manifests\<night>.json` (§7.3) after NINA's session-end script, or
+   after the agent's own quiescence timer. The night is **ready** once every file listed
+   in the manifest is present on landing with a matching size and SHA-256. Files still
+   missing after `manifest_grace_minutes` raise `DELIVERY_INCOMPLETE`. Readiness is
+   decided by the manifest's list of files, not by guessing from timing.
+2. **Scheduled fallback.** A daily run at `scheduled_fallback_local`, plus a periodic
+   rescan of landing. This covers a missing manifest (for example, a rig PC crashed
+   before publishing one). Files found without a manifest are hashed on the processing
+   PC, and the night is processed with a warning (`MANIFEST_MISSING`).
+3. **Calibration arrival.** Newly indexed calibration frames or masters that could resolve
    an open issue (§10) trigger a targeted re-plan.
+4. **Data availability.** A blob that was unavailable becomes reachable again (a location
+   comes back online, or an S3 restore completes). Jobs waiting on it re-queue (§7.5).
 5. **Manual.** `altair run …` / `altair rerun …`.
 
-**File stability:** a file is ingested only when (a) its size and mtime have not changed
-for 30 s, (b) it can be opened with **exclusive share mode** (so NINA has finished writing
-it), and (c) it parses as valid FITS or XISF.
+**File stability** is the agent's job (§7.2). The processing PC only ingests files that a
+manifest lists, or that it has hashed itself.
 
 ### 6.2 Ingest & Catalog
 
-For each stable file:
+For each delivered file (listed in a manifest, or found by a rescan):
 
-1. Read the headers and resolve canonical fields through `header_mapping` and `aliases`.
-2. Resolve the **rig** from (telescope, camera). Frames that match no configured rig get
+1. Register the **blob** (SHA-256 from the manifest), its **logical path**
+   (`raw/<rig>/<relative NINA path>`), and a `present` **replica** in `landing`. If the
+   blob is already known (a duplicate delivery or a re-sync), it is linked to the existing
+   blob and never processed twice.
+2. Read the headers and resolve canonical fields through `header_mapping` and `aliases`.
+3. Resolve the **rig** from (telescope, camera). This is cross-checked against the rig
+   whose agent delivered the file. Frames that match no configured rig get
    an `UNKNOWN_RIG` issue.
-3. Extract the **rotator position** using the rig's rotator config: read the keyword or
+4. Extract the **rotator position** using the rig's rotator config: read the keyword or
    file-name token, parse it as a number in `units`, and store it as `rotator_pos`
    together with `rotator_units`.
-4. Classify the image type from NINA's `IMAGETYP` values.
-5. Compute `night` (noon-to-noon local time) and a content hash (xxhash64).
-6. Store the row in `frames`. Frames missing required fields are `invalid` and get an issue
-   (`HEADER_INCOMPLETE`). They stay in the inbox so you can fix the headers or add aliases,
-   and `altair rerun` picks them up.
+5. Classify the image type from NINA's `IMAGETYP` values.
+6. Compute `night` (noon-to-noon local time).
+7. Store the row in `frames`. Frames missing required fields are `invalid` and get an issue
+   (`HEADER_INCOMPLETE`). Their blobs are kept, so you can add aliases or fix the config,
+   and `altair rerun` picks them up. Headers are cached in the catalog, so re-planning never
+   has to fetch a file.
+8. Queue replication of the blob to every durable location that its data class lists
+   (§7.4).
 
 **Required fields:**
 
@@ -397,24 +552,79 @@ For each stable file:
 
 ### 6.3 Data Model (SQLite)
 
+All files are referenced by **blob hash** (SHA-256). Physical paths live only in `replicas`.
+So moving, reclaiming, or restoring data never changes the catalog's view of *what* the
+data is. It only changes *where* the data can be fetched from.
+
 ```sql
+-- ── Storage (§7) ──────────────────────────────────────────────────────────
+CREATE TABLE blobs (
+  sha256 TEXT PRIMARY KEY,
+  size_bytes INTEGER NOT NULL,
+  data_class TEXT NOT NULL,      -- raw / calibration_raw / calibration_master / project_reference /
+                                 -- night_master / multi_night_master / registered_frame / catalog_backup / report
+  logical_path TEXT NOT NULL,    -- e.g. raw/esprit100_2600mm/2026-09-24/M31/LIGHT/Ha/..._0001.fits
+  origin_rig TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(logical_path, sha256)
+);
+
+CREATE TABLE locations (
+  name TEXT PRIMARY KEY,         -- landing / nfs / s3 / cache / rig:<name>
+  kind TEXT NOT NULL,            -- fs / s3
+  durable INTEGER NOT NULL,
+  reachable INTEGER NOT NULL,    -- last probe result
+  last_probe_at TEXT
+);
+
+CREATE TABLE replicas (
+  sha256 TEXT NOT NULL REFERENCES blobs(sha256),
+  location TEXT NOT NULL REFERENCES locations(name),
+  uri TEXT NOT NULL,             -- physical path or s3://bucket/key
+  state TEXT NOT NULL,           -- present / missing / archived_cold / restoring / restored / corrupt
+  storage_class TEXT,            -- S3 only (STANDARD, STANDARD_IA, GLACIER, DEEP_ARCHIVE, ...)
+  restore_expires_at TEXT,       -- S3 only
+  verified_at TEXT,              -- last time the content was verified against sha256
+  verify_method TEXT,            -- sha256_full / s3_checksum_sha256 / size_only
+  last_seen_at TEXT,
+  PRIMARY KEY (sha256, location)
+);
+
+CREATE TABLE fetch_requests (    -- staging and restore bookkeeping (§7.5)
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER REFERENCES jobs(id),
+  sha256 TEXT NOT NULL REFERENCES blobs(sha256),
+  source_location TEXT,
+  state TEXT NOT NULL,           -- pending / restoring / downloading / done / failed / awaiting_approval
+  bytes_done INTEGER DEFAULT 0,
+  error TEXT, updated_at TEXT
+);
+
+CREATE TABLE deliveries (        -- one row per agent manifest
+  rig TEXT NOT NULL, night TEXT NOT NULL, manifest_sha256 TEXT NOT NULL,
+  n_files INTEGER, total_bytes INTEGER, complete INTEGER NOT NULL,
+  received_at TEXT, PRIMARY KEY (rig, night, manifest_sha256)
+);
+
+-- ── Science catalog ───────────────────────────────────────────────────────
 CREATE TABLE frames (
   id INTEGER PRIMARY KEY,
-  path TEXT UNIQUE NOT NULL, content_hash TEXT NOT NULL,
+  sha256 TEXT UNIQUE NOT NULL REFERENCES blobs(sha256),
   image_type TEXT NOT NULL, night TEXT NOT NULL, date_obs TEXT NOT NULL,
   rig TEXT, telescope TEXT, camera TEXT, filter TEXT, target TEXT,
   focal_length REAL, exposure REAL, gain INTEGER, offset INTEGER, sensor_temp REAL,
   binning TEXT, readout_mode TEXT, width INTEGER, height INTEGER, bayer_pattern TEXT,
   rotator_pos REAL, rotator_units TEXT,
   raw_headers_json TEXT,
-  status TEXT NOT NULL,          -- new/valid/invalid/held/processed/archived/rejected
+  status TEXT NOT NULL,          -- new/valid/invalid/held/processed/rejected
   status_reason TEXT
 );
 
 CREATE TABLE calibration_masters (
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL,            -- DARK/FLAT/BIAS/DARKFLAT
-  path TEXT UNIQUE NOT NULL, content_hash TEXT NOT NULL,
+  sha256 TEXT UNIQUE NOT NULL REFERENCES blobs(sha256),
+  source_frames_json TEXT,       -- sha256 of every raw sub it was built from
   camera TEXT NOT NULL, telescope TEXT, filter TEXT, focal_length REAL,
   exposure REAL, gain INTEGER, offset INTEGER, sensor_temp REAL,
   binning TEXT, readout_mode TEXT, width INTEGER, height INTEGER,
@@ -435,7 +645,7 @@ CREATE TABLE equipment_events (   -- flats are never matched across one of these
 CREATE TABLE projects (
   id INTEGER PRIMARY KEY,
   target TEXT NOT NULL, telescope TEXT NOT NULL, camera TEXT NOT NULL,
-  reference_path TEXT, reference_hash TEXT,
+  reference_sha256 TEXT REFERENCES blobs(sha256),
   reference_night TEXT, reference_version INTEGER NOT NULL DEFAULT 1,
   pixel_scale_arcsec REAL, drizzle_scale INTEGER NOT NULL DEFAULT 1,
   UNIQUE(target, telescope, camera)
@@ -445,7 +655,8 @@ CREATE TABLE night_masters (
   id INTEGER PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id),
   night TEXT NOT NULL, filter TEXT NOT NULL,
-  path TEXT NOT NULL, content_hash TEXT NOT NULL,
+  sha256 TEXT NOT NULL REFERENCES blobs(sha256),
+  input_frames_json TEXT NOT NULL,  -- sha256 of every light used (so reruns know what to fetch)
   kind TEXT NOT NULL,             -- final / provisional_noflat
   reference_version INTEGER NOT NULL,
   n_frames INTEGER, n_rejected INTEGER, total_exposure_s REAL,
@@ -457,14 +668,14 @@ CREATE TABLE night_masters (
   merge_block_reason TEXT,
   job_id INTEGER REFERENCES jobs(id),
   superseded_by INTEGER REFERENCES night_masters(id),
-  UNIQUE(project_id, night, filter, kind, reference_version, content_hash)
+  UNIQUE(project_id, night, filter, kind, reference_version, sha256)
 );
 
 CREATE TABLE multi_night_masters (
   id INTEGER PRIMARY KEY,
   project_id INTEGER NOT NULL REFERENCES projects(id),
   filter TEXT NOT NULL, version INTEGER NOT NULL,
-  path TEXT NOT NULL,
+  sha256 TEXT NOT NULL REFERENCES blobs(sha256),
   inputs_json TEXT NOT NULL,      -- [{night_master_id, weight, weight_fraction}]
   excluded_json TEXT NOT NULL,    -- [{night, reason, issue_id}]
   total_exposure_s REAL, n_nights INTEGER,
@@ -477,7 +688,7 @@ CREATE TABLE jobs (
   scope_json TEXT NOT NULL,
   plan_json TEXT NOT NULL, plan_hash TEXT UNIQUE NOT NULL,
   depends_on_json TEXT,
-  status TEXT NOT NULL,           -- queued/running/succeeded/failed/skipped/blocked
+  status TEXT NOT NULL,           -- queued/staging/waiting_data/running/succeeded/failed/skipped/blocked
   attempts INTEGER DEFAULT 0,
   started_at TEXT, finished_at TEXT, log_path TEXT, error TEXT
 );
@@ -517,7 +728,8 @@ The planner runs when a night is ready, and again whenever an issue might be res
    - Any group missing a flat → the night master is **blocked** for that stack key. If
      `produce_provisional_without_flat` is on, a `provisional_noflat` night master is
      built for preview (clearly labeled, and never eligible for merging). Raw lights are
-     `held`: they are archived, but tracked as needing reprocessing.
+     `held`: they are replicated to durable storage like any other raw file, but stay
+     linked to the open issue so the rerun knows exactly which blobs to fetch.
    - Missing dark or bias/dark-flat → blocked. No provisional master. The issue is raised.
 5. **Project reference.** If the project has no reference yet, a `PROJECT_REFERENCE` job
    runs before the first `NIGHT_STACK` (§9.2).
@@ -526,8 +738,18 @@ The planner runs when a night is ready, and again whenever an issue might be res
 7. **Idempotency.** `plan_hash` is the SHA-256 of the canonical plan JSON: input hashes,
    calibration hashes, resolved settings, reference version, and software versions. A plan
    whose `plan_hash` already succeeded is skipped.
+8. **Data cost estimate.** For each job, the planner records the total input size and
+   where each input would come from (cache, landing, NFS, S3 hot, S3 cold). That feeds the
+   approval guards and ETAs in §7.5. Planning itself never needs file contents, because
+   headers are cached in the catalog.
 
 ### 6.5 Executor (PixInsight on Windows)
+
+**Before PixInsight starts, every job is staged** (§7.5). All input blobs are made
+present and verified in the local cache, and then hard-linked into
+`work\<job-id>\inputs\` under their original file names. A job whose inputs are not all
+available goes to `waiting_data` instead of `running`. So a slow S3 restore never ties up
+the PixInsight slot, and other ready jobs run in the meantime.
 
 Invocation, one process per job:
 
@@ -572,14 +794,19 @@ After a `NIGHT_STACK` job:
    The used frame count is at least `min_lights_per_stack`, and the rejection fraction is
    at most 50%. **Overlap** with the project reference is at least `min_overlap_fraction`,
    measured from the StarAlignment coverage or the non-zero pixel fraction.
-2. **Store the canonical copy** (uncropped, project geometry) under
-   `projects\<project>\nights\<night>\<filter>\`, together with `night.json`, which holds
-   the calibration evidence, metrics, per-frame weights, and rejections.
+2. **Register outputs as blobs:** the canonical copy (uncropped, project geometry) is
+   stored under the logical path `projects/<project>/nights/<night>/<filter>/`, together
+   with `night.json`, which holds the calibration evidence, metrics, per-frame weights,
+   rejections, and the SHA-256 of every input. Both go into the cache (pinned) and are
+   queued for replication to durable locations (§7.4).
 3. **Publish a viewing copy** (autocropped) to
    `published\<target>\<night>\<target>_<telescope>_<camera>_<filter>_<night>_<N>x<exp>s.xisf`.
-   Provisional masters get the suffix `_NOFLAT-PROVISIONAL`.
-4. **Move raw lights** to `archive\<target>\<telescope>_<camera>\<filter>\<night>\`, and
-   verify the hashes after the move.
+   Provisional masters get the suffix `_NOFLAT-PROVISIONAL`. Published copies are for
+   convenience only. They are not tracked as replicas and can be regenerated at any time
+   (`altair publish --refresh`).
+4. **Raw lights are not moved.** "Archiving" means verified replication to durable
+   locations (§7.4). Raw files stay where they were delivered until landing reclaim
+   (§7.6) removes them.
 5. **Record the night master** with `merge_status`, set by the gates in §9.4.
 
 ### 6.7 Merger
@@ -592,41 +819,278 @@ See §10.
 
 ---
 
-## 7. Directory Layout
+## 7. Storage, Archive & Data Retrieval
+
+### 7.1 Principles
+
+1. **Content-addressed.** Every file is a blob identified by SHA-256. The hash is computed
+   **on the rig PC, before the file crosses the network**, so every later copy, upload,
+   download, and restore can be checked against it.
+2. **The catalog doesn't depend on where files are.** The catalog says *what* data exists.
+   `replicas` say *where* it currently is. Any location may lose its copy at any time
+   without affecting correctness. The only effect is where the next fetch comes from.
+3. **Raw files are never changed or moved.** "Archiving" means replicating to durable
+   locations, not moving. Moving files would break external backup tools and make the
+   recorded replicas wrong.
+4. **Nothing is deleted without a verified durable copy.** This is a hard rule with no
+   override: Altair never deletes the only verified copy of a blob.
+5. **PixInsight only reads the local cache.** Network paths are never handed to PixInsight.
+6. **Every input can be re-fetched.** A job needs only blob hashes. The staging layer finds
+   a copy, restores it if it is in cold storage, downloads it, verifies it, and hands it to
+   the job.
+
+### 7.2 Agent delivery protocol (rig PC → landing)
+
+For each new file in the NINA save folder:
+
+1. **Stability:** its size and mtime have not changed for 30 s, it opens with **exclusive
+   share mode** (so NINA has finished writing it), and it parses as FITS or XISF.
+2. **Hash locally:** a streaming SHA-256 of the file. The agent also parses the FITS header
+   into a small dict.
+3. **Copy safely:** write to `Landing\<rig>\<relative path>.partial`, flush, then
+   **read back and re-hash** from the share (`verify: readback`, the default; `size`
+   skips the read-back). Then rename to the final name. A mismatch triggers a retry, and
+   after 3 failures raises `DELIVERY_CORRUPT`.
+4. **Journal:** record (file, sha256, size, delivered_at) in the agent's local SQLite
+   journal. Delivery is idempotent: a file already delivered with the same hash is skipped.
+5. **Share offline:** the agent queues and retries with backoff. NINA keeps saving
+   locally, so size rig PC disks for at least `local_retention_days` plus a few nights of
+   backlog. The agent writes a heartbeat to `Landing\_agents\<rig>.json` every
+   `heartbeat_interval_s`, with its backlog size. The processing PC raises
+   `RIG_AGENT_OFFLINE` (stale heartbeat) or `RIG_DELIVERY_BACKLOG` (backlog > 12 h).
+6. **Manifest:** at session end (the NINA script or quiescence), after every file of the
+   night has been delivered, the agent writes `Landing\<rig>\_manifests\<night>.json`
+   atomically (temp file, then rename):
+
+```json
+{
+  "schema": 1,
+  "rig": "esprit100_2600mm",
+  "night": "2026-09-24",
+  "closed_by": "nina_session_end",
+  "agent_version": "0.3.0",
+  "files": [
+    {
+      "logical_path": "raw/esprit100_2600mm/2026-09-24/M31/LIGHT/Ha/2026-09-24_23-10-02_Ha_300.00s_0001.fits",
+      "sha256": "9f2c…",
+      "size": 52436160,
+      "headers": { "IMAGETYP": "LIGHT", "FILTER": "Ha", "ROTATOR": 31250, "…": "…" }
+    }
+  ]
+}
+```
+
+   Because the manifest carries the headers, the catalog can be rebuilt from manifests
+   alone without downloading any image (§7.8).
+7. **Local cleanup on the rig PC:** a local file is deleted only when (a) its landing copy
+   is verified, (b) it is older than `local_retention_days`, and (c) if
+   `local_delete_requires_durable`, the processing PC has published
+   `Landing\_acks\<rig>\<night>.json`, meaning every blob in that manifest has a verified
+   durable replica.
+8. **Re-delivery (last resort):** the rig PC is a readable location (`rig:<name>`) while it
+   still holds a file. If a blob is unavailable everywhere else, the processing PC writes
+   a request to `Landing\_requests\<rig>.json`, and the agent re-delivers any requested
+   files it still has.
+
+### 7.3 Logical layout and data classes
+
+Every blob has a **logical path**. In file-system locations the physical path is
+`<root>\<logical path>`. With `managed_by: altair`, the S3 key is `<prefix><logical path>`.
+Using the same tree everywhere keeps every location browsable by hand and makes
+rebuild-from-archive possible.
+
+| Data class | Logical path | Durable replication (default) | Cache | Regenerable? |
+|---|---|---|---|---|
+| `raw` (lights, flats, darks, bias, dark-flats as delivered) | `raw/<rig>/<night>/<NINA relative path>` | S3 (+ NFS) — **required** | on demand | **No** |
+| `calibration_master` | `calibration/masters/<kind>/<camera or telescope/camera/filter>/…xisf` (+ `.json`) | S3 (+ NFS) | pinned | Yes, from raw calibration subs |
+| `project_reference` | `projects/<project>/reference/reference_v<N>.xisf` | S3 (+ NFS) | pinned | **No** — every night master depends on it |
+| `night_master` (+ `night.json`) | `projects/<project>/nights/<night>/<filter>/…` | S3 (+ NFS) | pinned | Yes, from raw (costly) |
+| `multi_night_master` (+ sidecar) | `projects/<project>/multinight/<filter>/v<NNN>.xisf` | S3 (+ NFS) | latest pinned | Yes, from night masters (cheap) |
+| `registered_frame` (frame_reintegration mode only, §9.6) | `projects/<project>/nights/<night>/<filter>/frames/…` | optional | on demand | Yes, from raw + reference |
+| `manifest` | `raw/<rig>/_manifests/<night>.json` | S3 (+ NFS) | — | No |
+| `catalog_backup` | `catalog/altair-<utc>.db.zst` | S3 (+ NFS) | — | Partly, see §7.8 |
+
+Pinned classes are small (masters are one image each), so the processing PC keeps them
+all locally. Merges therefore never wait on the network.
+
+### 7.4 Replication to durable locations
+
+A **replicator** worker in `altaird` goes through `(blob, target location)` pairs. Raw
+files come first (they can't be replaced), then masters, then everything else.
+
+- **S3 upload (`managed_by: altair`, recommended):** a multipart upload with
+  `ChecksumAlgorithm=SHA256`, so S3 checks every part on arrival. The full-file SHA-256 is
+  also stored as object metadata `x-amz-meta-altair-sha256`, because multipart checksums
+  are composite. After upload, `HeadObject` (with `ChecksumMode=ENABLED`) confirms the
+  object and its metadata. Only then is the replica marked `present`, verified
+  `s3_checksum_sha256`.
+- The storage class is set per data class (`storage_class`). Bucket lifecycle rules that
+  move objects later (for example to Glacier after 90 days) are fine: the storage class
+  is re-read with `HeadObject` whenever a fetch needs it.
+- **File-system locations (NFS or another share):** copy to a temp file, read it back and
+  re-hash it, then rename.
+- **Upload window and bandwidth:** optional `upload_window: "09:00-18:00"` and
+  `bandwidth_limit_mbps`, so uploads don't saturate the uplink overnight.
+- **Recommended bucket settings:** versioning **on** (a deleted or overwritten object can
+  still be recovered), an optional Object Lock or retention policy for `raw/`, and
+  server-side encryption. `altair doctor` reports these.
+- **`managed_by: external`** (you keep an existing backup tool that copies the share to
+  S3):
+  - Altair uploads nothing to that location. It **discovers** replicas instead: a
+    `key_template` (for example `"nas-backup/astro/Landing/{landing_relpath}"`) maps each
+    landing file to its expected key, and a periodic scan (`ListObjectsV2`, or an S3
+    Inventory report for large buckets) marks matching objects `present` with
+    `verify_method = size_only`.
+  - A `size_only` replica is verified by hash the first time it is actually fetched.
+  - **Reclaim risk:** many sync tools **mirror deletions**. If yours does, reclaiming
+    landing would delete the backup as well. So with an external backup, landing reclaim
+    is refused unless the config states
+    `external_backup_retains_deleted_files: true` (a versioned bucket, or a copy-only
+    job), *and* `trust_size_match_for_reclaim: true` is set. Otherwise every blob must be
+    hash-verified by download first, which costs egress.
+  - Because of this risk, `managed_by: altair` is the recommended setup.
+
+`DATA_AT_RISK` (blocking) is raised when a `raw` blob older than 48 h still has no
+verified durable replica (for example, uploads keep failing). A daily summary shows the
+backlog.
+
+### 7.5 Staging: fetch on demand
+
+Before any job runs, the **stager** gets every input blob into the local cache:
+
+1. **Cache hit:** the blob is `present` in the cache → pin it for the job.
+2. **Choose a source:** reachable locations holding a `present` replica, in
+   `read_priority` order (cache → landing → NFS → S3 hot → S3 cold → `rig:<name>`).
+   Replicas marked `corrupt` are skipped.
+3. **Cost and size guards:** if the bytes to download from S3 exceed
+   `max_auto_download_gb`, raise `FETCH_APPROVAL_NEEDED`. It shows the size, the estimated
+   egress cost, and the reason (for example "re-reference M31: 412 frames, 21.4 GB"). The
+   job waits (`waiting_data`) until `altair storage approve <issue>`.
+4. **Cold objects:** `GLACIER`, `DEEP_ARCHIVE`, and Intelligent-Tiering archive tiers need
+   a restore first:
+   - One `RestoreObject` request goes out per needed blob (tier and days from config),
+     batched across the whole job. The job is `waiting_data`, and an info issue
+     `RESTORE_IN_PROGRESS` shows the tier and a rough ETA. Bulk is typically ≤12 h for
+     Glacier Flexible Retrieval and ≤48 h for Deep Archive; Standard is typically 3–5 h
+     and ≤12 h.
+   - A poller checks `HeadObject` (`x-amz-restore`) every 30 min, and downloads each blob
+     as its restore completes.
+   - If the total restore exceeds `max_auto_restore_gb`, a `RESTORE_APPROVAL_NEEDED` issue
+     is raised before anything is requested.
+   - `GLACIER_IR` is read directly, with no restore step (it costs more per GB
+     retrieved).
+5. **Download and verify:** parallel, resumable (HTTP range) downloads to
+   `cache\tmp\`, with a streaming SHA-256 check. A mismatch marks that source replica
+   `corrupt`, raises `INTEGRITY_MISMATCH`, schedules re-replication from a good copy, and
+   tries the next source. On success the file is atomically renamed into
+   `cache\blobs\<aa>\<sha256>.<ext>` and marked read-only.
+6. **No source available:** raise `DATA_UNAVAILABLE` (blocking). It lists the blobs, their
+   last known locations, and whether the rig PC might still have them (in which case a
+   re-delivery request goes out automatically). The job stays in `waiting_data` and
+   re-queues automatically when any location becomes reachable again (locations are
+   probed every 10 min) or when a replica is discovered.
+7. **Hand-off:** inputs are **hard-linked** (NTFS, same volume) into
+   `work\<job-id>\inputs\` under their original file names. This copies no data and keeps
+   WBPP logs readable.
+8. **Prefetch:** staging starts as soon as a job is planned, even while other jobs occupy
+   PixInsight. Restores for reruns and re-references are requested right away.
+
+**Cache eviction:** least-recently-used eviction of unpinned blobs, down to
+`max_size_gb` and `min_free_gb`. Never evicted: inputs of queued or running jobs, pinned
+data classes, and any blob whose **only verified replica is the cache** (for example, a new
+night master not yet uploaded). If the cache can't make room, `CACHE_FULL` is raised.
+
+### 7.6 Reclaiming landing space
+
+Landing (and each rig PC's local disk, §7.2) is the only place Altair deletes from. A
+landing replica is **reclaimable** only if **all** of these hold:
+
+- It is older than `min_age_days`.
+- It has at least `require_durable_copies` durable replicas that are `present` and
+  verified by `sha256_full` or `s3_checksum_sha256`. `size_only` counts only under the
+  external-backup opt-ins in §7.4.
+- Its night has been processed (stacks succeeded or were waived), if `require_processed`.
+- It is not referenced by an open issue (`keep_if_open_issue`). This keeps a blocked
+  night's lights close by for a fast rerun once the flats arrive.
+- It is not an input to a queued job.
+
+Reclaim is **two-phase**. First, mark candidates and **re-check each durable replica right
+before deleting** (a fresh `HeadObject` or `stat`). Then delete the landing copy, mark the
+replica `missing` (reason `reclaimed`), and append an entry to the reclaim ledger. It runs
+daily when landing free space is below `target_free_percent`, oldest night first.
+`altair storage reclaim --dry-run` shows what would be deleted.
+
+**Deletions outside Altair** (you, a NAS cleanup job, or another tool): the next rescan
+marks those replicas `missing`. If a `raw` blob now has **no** verified durable replica,
+`DATA_AT_RISK` is raised immediately, and a re-delivery request is sent to the rig PC if it
+might still have the file.
+
+### 7.7 Integrity scrubbing
+
+Every `scrub_interval_days`, a random `scrub_sample_percent` of replicas in each durable
+location is re-verified. For S3 that means a checksum `HeadObject`, plus a full download
+for 10% of the sample. For file systems it means a full re-hash. Corrupt replicas are
+re-replicated from a good copy, and `INTEGRITY_MISMATCH` is raised.
+
+### 7.8 Catalog backup & disaster recovery
+
+- **Nightly catalog backup:** SQLite online backup → zstd → stored as a
+  `catalog_backup` blob in every durable location. Kept: 30 daily and 12 monthly.
+- **Self-describing archive:** manifests (with headers), calibration master sidecars,
+  `night.json`, and multi-night sidecars are all stored next to the data under the same
+  logical paths. If every catalog backup were lost,
+  `altair storage rebuild-catalog --from s3` would rebuild everything from a bucket
+  listing, the manifests, and the sidecars, **without downloading any images**: blobs,
+  replicas, frames, calibration masters, projects, night masters, and multi-night
+  history. Issues are not restored; they are re-derived by a re-plan.
+- **Losing the processing PC:** install Altair on the new PC, restore `altair.yaml`, run
+  `altair storage restore-catalog --latest`, and start. The cache starts empty, and
+  everything is fetched on demand as jobs need it.
+- The disaster-recovery drill (restore on a clean machine and run one merge) is an exit
+  criterion for Phase 8.
+
+### 7.9 Adding the NFS later
+
+1. Mount or share it, set `enabled: true` on the `nfs` location, and choose
+   `durable: true` or `false` (only durable locations count toward reclaim).
+2. `altair storage replicate --to nfs --classes raw,calibration_master,… --dry-run` shows
+   how many bytes come from landing and how many must come from S3, with the estimated
+   egress. Run it without `--dry-run` to backfill.
+3. With `read_priority` 20 (ahead of S3), reruns and re-references are then served from
+   the NFS, and S3 becomes purely a disaster backup.
+4. If the NFS itself is the landing zone, point `landing.root` at it and keep
+   `reclaimable: false`.
+
+No catalog migration is needed. It only adds a location and replicas.
+
+### 7.10 Physical layout
 
 ```
-D:\Astro\
-├── NINA\                                  # inbox (NINA save root)
-├── Calibration\
-│   ├── raw\...
-│   └── masters\
-│       ├── darks\<camera>\G<gain>_O<offset>_<temp>C_<exp>s_bin<b>_<night>.xisf
-│       ├── bias\<camera>\...
-│       ├── darkflats\<camera>\...
-│       └── flats\<telescope>\<camera>\<filter>\<night>_FL<focal>_ROT<pos><units>.xisf
-├── Projects\
-│   └── <target>__<telescope>__<camera>\
-│       ├── project.json
-│       ├── reference\reference_v<N>.xisf         # project reference frame
-│       ├── nights\<night>\<filter>\
-│       │   ├── night_master.xisf                 # canonical, uncropped, project geometry
-│       │   ├── night_master_NOFLAT-PROVISIONAL.xisf
-│       │   ├── night.json
-│       │   └── frames\                           # only in frame_reintegration mode (§9.6)
-│       └── multinight\<filter>\
-│           ├── <target>_<filter>_multinight_v<NNN>.xisf
-│           └── <same>.json
-├── Masters\                                      # published, user-facing
-│   ├── <target>\<night>\...                      # night masters (autocropped)
-│   ├── <target>\multinight\<target>_<telescope>_<camera>_<filter>_<N>nights_<hours>h.xisf
-│   └── ALTAIR_STATUS.html                        # issues and status page (§10.3)
-├── Archive\...
-└── Rejected\...
-E:\AltairWork\<job-id>\                            # scratch, deleted on success
+\\nas\astro\
+├── Landing\                                   # location "landing" (agents write here)
+│   ├── _agents\<rig>.json                     # heartbeats
+│   ├── _acks\<rig>\<night>.json               # "durable copies verified" acknowledgements
+│   ├── _requests\<rig>.json                   # re-delivery requests
+│   └── raw\<rig>\<night>\...                  # = logical paths (incl. _manifests\)
+└── Masters\                                   # published viewing copies + ALTAIR_STATUS.html
+
+s3://my-astro-archive/altair/                  # location "s3" — same logical tree
+├── raw\... calibration\... projects\... catalog\...
+
+Processing PC
+E:\AltairCache\                                # location "cache"
+│   ├── blobs\<aa>\<sha256>.<ext>              # content-addressed, read-only
+│   └── tmp\                                   # in-flight downloads
+E:\AltairWork\<job-id>\inputs\                 # hard links into the cache (same volume)
 C:\ProgramData\Altair\{altair.yaml, state\altair.db, state\logs\}
+
+Rig PC
+D:\NINA\...                                    # NINA save folder (location "rig:<name>")
+C:\ProgramData\Altair\agent\{agent.yaml, journal.db, logs\}
 ```
 
 ---
+
 
 ## 8. Calibration Matching Rules
 
@@ -808,14 +1272,21 @@ For maximum quality on key projects (configurable per project):
   time.
 - Night eligibility gates (§9.4) apply unchanged. A blocked night's frames are not
   included.
+- Registered frames are data class `registered_frame` (§7.3). Durable replication is
+  optional for them. If they are lost, they are regenerated by re-running that night's
+  stack against the **same** reference version. That is the one recovery case where a
+  night's registration is recomputed.
 
 ### 9.7 Re-reference (explicit only)
 
 `altair project rereference <project> [--from-night N]` picks a new reference (for
 example, the first night was poor). It increments `reference_version`. All night masters
-become `STALE_REFERENCE` and are reprocessed from archived raw lights. This is the only
-operation that repeats registration for existing nights, and it never happens
-automatically.
+become `STALE_REFERENCE` and are reprocessed from raw lights, which the stager fetches from
+wherever they now live (§7.5). The command first prints the total input size and where
+it will come from (for example "412 frames, 21.4 GB: 3.1 GB from landing, 18.3 GB from S3
+of which 12.0 GB needs a Glacier restore"). The fetch goes through the normal approval
+guards. This is the only operation that repeats registration for existing nights, and it
+never happens automatically.
 
 ---
 
@@ -835,6 +1306,21 @@ automatically.
 | `STALE_REFERENCE` | blocking | merge | reprocessing succeeds (automatic) |
 | `JOB_FAILED` | blocking | that job | a successful retry or rerun |
 | `DISK_SPACE_LOW` | blocking | new jobs | space freed |
+| `DELIVERY_INCOMPLETE` | blocking | that rig-night | the missing manifest files arrive (agent retries) |
+| `DELIVERY_CORRUPT` | blocking | those files | a later delivery verifies |
+| `MANIFEST_MISSING` | warning | nothing (the night is processed from a rescan) | a manifest arrives |
+| `RIG_AGENT_OFFLINE` / `RIG_DELIVERY_BACKLOG` | warning | nothing directly | heartbeat fresh / backlog cleared |
+| `LOCATION_UNREACHABLE` | warning | fetches from that location | the probe succeeds |
+| `DATA_UNAVAILABLE` | blocking | jobs needing those blobs | a replica becomes reachable, is discovered, or is re-delivered |
+| `RESTORE_IN_PROGRESS` | info | jobs needing those blobs (they wait) | restore completes and the download verifies |
+| `FETCH_APPROVAL_NEEDED` / `RESTORE_APPROVAL_NEEDED` | blocking | that job | `altair storage approve <id>` (or `deny`, which cancels the job) |
+| `INTEGRITY_MISMATCH` | warning | nothing (another copy is used) | the bad replica is re-replicated and verified |
+| `DATA_AT_RISK` | blocking (alerts immediately) | landing reclaim | a verified durable replica exists |
+| `CACHE_FULL` | blocking | staging | space freed or cache limit raised |
+
+Severity `info` issues show on the status page but don't send a push notification
+(except `RESTORE_IN_PROGRESS`, which sends one message when it opens and one when it
+finishes).
 
 Issues are **deduplicated by fingerprint**. For example, `FLAT_MISSING` for
 (rig, filter, rotator bucket, night) is one issue no matter how many times the night is
@@ -852,7 +1338,7 @@ Night 2026-09-24 · M31 · esprit100 / asi2600mm · filter SII
 No master flat matches: nearest candidate is 2026-09-20 SII @ 18 400 steps (rotator Δ 12 850 > 50).
 
 To fix, take SII flats at rotator 31 250 steps (focal length 550 mm, bin 1x1)
-before any equipment change, and let NINA save them to the inbox.
+before any equipment change. NINA and the agent deliver them as usual.
 Altair will build the master flat, reprocess 2026-09-24, and re-merge M31 SII automatically.
 (Manual: `altair calib import <folder>` or `altair issue resolve 42 --flat <file>`.)
 A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIONAL.xisf
@@ -874,14 +1360,15 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
 ### 10.4 Fix → rerun loop
 
 ```
- issue opened ──► user takes flats in NINA ──► files land in inbox ──► ingest
+ issue opened ──► user takes flats in NINA ──► agent delivers + manifest ──► ingest
       ▲                                                                   │
       │                                  CALIB_MASTER builds master flat ◄┘
       │                                                  │
       │               planner: does any open issue's requirement_json match?
       │                           │ yes
       │                           ▼
-      │      NIGHT_STACK rerun for blocked night(s) (from archived raw lights)
+      │      NIGHT_STACK rerun for blocked night(s) (stager fetches raw lights
+      │      from landing / NFS / S3, restoring from Glacier if needed)
       │                           │
       │                 verifier → gates (§9.4) pass?
       │               no ─────────┘      │ yes
@@ -895,8 +1382,11 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
   requirements of all open issues. If it matches, the dependent `NIGHT_STACK` jobs are
   re-planned (and get a new `plan_hash`, because the calibration inputs changed), followed
   by `MERGE`.
-- **Raw data for reruns:** held lights are archived but stay linked to their issue. Reruns
-  read them from `Archive\`. Nothing is deleted while an issue is open.
+- **Raw data for reruns:** held lights stay linked to their issue, and landing reclaim
+  skips them while the issue is open (`keep_if_open_issue`). If they have been removed
+  anyway, for example by an outside cleanup or because the setting is off, the stager
+  fetches them from NFS or S3, restoring from Glacier if needed, and the issue's status
+  line shows "waiting for restore, ETA …". The rerun is only slower, never impossible.
 - **Manual controls:**
   - `altair issue resolve <id> --flat <path>` applies a specific master flat. The flat is
     still validated against §8, and `--force-match` is required to override a mismatch.
@@ -931,8 +1421,16 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
 - **Atomic publication:** outputs are written to a temporary file in the same directory
   and then renamed. The DB update and file publish use a write-ahead intent record, so a
   crash between them heals itself on restart.
-- **Raw data is never deleted.** It is only moved, and only after the outputs have been
-  verified.
+- **Raw data is never lost.** Raw files are never moved or modified. A landing copy is
+  deleted only by reclaim (§7.6), and only when a verified durable copy exists.
+- **Resumable transfers:** agent copies, uploads, downloads, and restores are all
+  identified by blob hash and are idempotent. After a crash they resume (S3 multipart
+  resume, HTTP range) or restart cleanly. Nothing half-transferred is ever marked
+  `present`.
+- **Storage workers are independent of PixInsight:** replication, staging, restore
+  polling, reclaim, and scrubbing run in their own worker pool with their own
+  concurrency limits. A multi-hour Glacier restore or a slow upload never blocks
+  processing of data that is already available.
 
 ---
 
@@ -942,7 +1440,9 @@ A provisional (no-flat) preview is at Masters\M31\2026-09-24\..._NOFLAT-PROVISIO
 
 ```
 altair serve [--windowless]
-altair signal session-end [--source nina]
+altair agent serve | install | uninstall            # rig PC service
+altair agent signal session-end                    # called by NINA's External Script
+altair agent status | redeliver --night DATE | config export --rig R
 altair ingest <path>...
 altair status [--night DATE] [--project P]
 altair plan --night DATE                     # dry run: groups, calibration matches, gates, issues
@@ -954,7 +1454,18 @@ altair equipment log --rig R <kind> [--filter F] [--at TIME] [--note ...] | list
 altair project list | show P | rereference P [--from-night N] | set-mode P master_merge|frame_reintegration
 altair night include|exclude <project> <night> <filter>
 altair merge <project> [--filter F] [--dry-run]   # prints nights, weights, contributions
-altair doctor                                     # PixInsight/CLI flags, session type, paths, disk, NINA headers sample
+altair storage status                             # per location: reachable, bytes, replicas, pending uploads, at-risk count
+altair storage locate <sha256|logical-path|--night DATE --rig R>   # every replica + state
+altair storage fetch <selector> [--dry-run]       # pre-stage into cache (shows sizes, sources, restore needs)
+altair storage approve|deny <issue-id>            # approve a large fetch or restore
+altair storage replicate --to LOC [--classes ...] [--dry-run]      # backfill, e.g. after adding NFS
+altair storage reclaim [--dry-run]                # landing reclaim per §7.6
+altair storage scrub [--location LOC] [--sample PCT]
+altair storage index --location s3                # discover replicas (external-managed buckets)
+altair storage backup-catalog | restore-catalog [--latest|--at TIME] | rebuild-catalog --from LOC
+altair publish --refresh
+altair doctor                                     # PixInsight/CLI flags, session type, paths, disk, NINA headers sample,
+                                                  # share/S3 access, bucket versioning, agent heartbeats
 ```
 
 ### 12.2 Optional HTTP status endpoint
@@ -994,13 +1505,15 @@ Home Assistant or dashboards.
 | Phase | Deliverable | Exit criteria |
 |---|---|---|
 | **0: Windows/PixInsight spike** | Headless PixInsight on Windows from a Task-Scheduler-launched process. A PJSR runner that (a) drives WBPP's engine with a **manual registration reference** and autocrop off, and (b) runs `SubframeSelector` measurement + `LocalNormalization` + `ImageIntegration` with `KeywordWeight` and `rangeClipLow`. Confirm the NINA header keywords, including `ROTATOR` units, on your own files. | A single command produces a night master in reference geometry and a 2-night merge with keyword weights. Documented in `docs/pixinsight-cli.md`. |
-| **1: Catalog & NINA ingest** | Config, header mapping, rig and rotator extraction (header or file name, degrees or steps), exclusive-open stability check, SQLite schema. | A real NINA night indexes correctly. Tests cover rotator parsing and wrap-around. |
+| **1: Agent, delivery & catalog ingest** | `altair agent` service (stability, hashing, read-back verified copy, journal, manifests with headers, heartbeat, local retention). Processing-side ingest: config, header mapping, rig and rotator extraction, blob and replica model, SQLite schema. | A real NINA night delivered from a rig PC indexes correctly from its manifest. Pulling the network cable mid-night loses nothing, and delivery completes after reconnecting. Tests cover rotator parsing and wrap-around. |
 | **2: Planner & matching** | §8 rules, including rotator and equipment events, issue generation, `altair plan`. | Table-driven tests for every rule: rotator Δ at tolerance ±1 step, wrap-around, missing position, event between flat and light. |
+| **2b: Storage manager** | §7: replicator (S3 multipart + SHA-256 checksums, file-system copy), stager (source selection, verify, hard-link hand-off, cache eviction), Glacier restore flow, approval guards, reclaim, scrub, catalog backup and restore. | Against MinIO / S3: delete landing → a job still runs from S3. Deep-archive objects → restore → run. A corrupted replica is detected and bypassed. Reclaim never deletes a blob with no verified durable copy (property test). `rebuild-catalog` from the bucket alone reproduces the catalog. |
 | **3: Night stacks** | Executor (Job Objects, timeouts), `PROJECT_REFERENCE`, `NIGHT_STACK`, verifier, publisher, archive. | A night master matches a manual WBPP run on the same data within noise, and is pixel-aligned with the reference. |
 | **4: Calibration library** | `CALIB_MASTER`, rotator-tagged master flats, import, supersession. | A flats-only night produces masters that are matched automatically. |
 | **5: Merger** | §9: gates, measured weighting, LN, coverage-aware integration, versions, reports. | A 3-night merge's weights match the measured PSF signal ordering. Excluding a night and re-including it reproduces the same result byte for byte. Uncovered edges don't darken the result. |
-| **6: Issues & rerun loop** | §10: issue store, dedup, toast, push, email, status page, auto-rerun on calibration arrival, manual resolve and waive. | End to end: a night without SII flats → issue + toast → drop matching flats into the inbox → automatic rerun → merge → "resolved" notification, with no CLI use. |
-| **7: Daemon & hardening** | Triggers, NINA sentinel, Task Scheduler install script, sleep prevention, crash recovery, `altair doctor`. | A week of unattended real nights. Survives killing `altaird` and `PixInsight.exe` mid-job. |
+| **6: Issues & rerun loop** | §10: issue store, dedup, toast, push, email, status page, auto-rerun on calibration arrival, manual resolve and waive. | End to end: a night without SII flats → issue + toast → take matching flats in NINA → agent delivers → automatic rerun (with raw lights fetched from S3 if landing was reclaimed) → merge → "resolved" notification, with no CLI use. |
+| **7: Daemon & hardening** | Triggers (manifests, scheduled fallback), Task Scheduler install script (processing PC), agent service installer (rig PCs), sleep prevention, crash recovery, `altair doctor`. | A week of unattended real nights from two rigs. Survives killing `altaird`, the agent, and `PixInsight.exe` mid-job. |
+| **8: Disaster-recovery drill** | Documented runbook. | On a clean machine, with only `altair.yaml` and S3: `restore-catalog`, then produce a multi-night master update for one project. |
 
 ### 15.1 Proposed source layout
 
@@ -1010,8 +1523,11 @@ altair-pre-processor/
 ├── altair.example.yaml
 ├── src/altair/
 │   ├── cli.py  config.py  daemon.py
-│   ├── triggers/     # sentinel.py, watcher.py, schedule.py, dawn.py
+│   ├── agent/        # service.py, watcher.py, deliver.py, journal.py, manifest.py, heartbeat.py
+│   ├── triggers/     # manifests.py, schedule.py, dawn.py
 │   ├── ingest/       # headers.py, nina.py, rotator.py, normalize.py, classify.py
+│   ├── storage/      # blobs.py, locations/{fs.py, s3.py}, replicator.py, stager.py, restore.py,
+│   │                 # cache.py, reclaim.py, scrub.py, catalog_backup.py, rebuild.py
 │   ├── catalog/      # db.py, models.py, migrations/
 │   ├── planner/      # grouping.py, matching.py, gates.py, plan.py
 │   ├── executor/     # pixinsight.py, winjob.py (Job Objects), queue.py
@@ -1026,12 +1542,15 @@ altair-pre-processor/
 │   ├── merge.js                  # SSF measure + LN + ImageIntegration(KeywordWeight)
 │   └── lib/json_io.js
 ├── deploy/windows/
-│   ├── install-task.ps1          # registers the Task Scheduler task
+│   ├── install-task.ps1          # registers the Task Scheduler task (processing PC)
+│   ├── install-agent.ps1         # installs the agent Windows service (rig PCs)
 │   └── nina-external-script.md
 ├── tests/
 │   ├── fixtures/                 # synthetic NINA-style FITS (astropy), tiny images
 │   ├── test_rotator.py  test_matching.py  test_gates.py  test_issues.py
 │   ├── test_weights.py           # weighting math on synthetic noise/signal
+│   ├── test_storage_*.py         # replicator, stager, restore, reclaim invariants (moto + MinIO)
+│   ├── test_agent.py             # stability, partial writes, share outage, manifests
 │   └── test_executor_contract.py # fake PixInsight.exe writing result.json
 └── docs/
     ├── SPEC.md
@@ -1046,13 +1565,19 @@ altair-pre-processor/
 - **Weights:** synthetic masters with known noise σ and scale. Checks that
   `inverse_noise_variance` recovers the optimal weights, and that the ordering of all
   weighting modes is consistent.
+- **Storage:** unit tests against `moto` (an S3 mock, which supports storage classes and
+  restore semantics) and integration tests against a local MinIO. Fault injection covers
+  truncated downloads, flipped bytes, unreachable locations, deleted landing files, and
+  restores that never finish. **Property tests** on reclaim assert that no sequence of
+  operations ever leaves a `raw` blob with zero verified replicas.
 - **Contract:** a fake `PixInsight.exe` (a small Python-built exe or `.cmd` shim) that
   validates `job.json` and emits canned outputs. This runs in CI on `windows-latest`.
 - **Integration (local, marked):** real PixInsight on a small reference dataset of 2
   nights, 2 filters, and one rotator change, with one night deliberately missing flats.
   Golden checks are statistical (median, MAD, star count, weight ordering), not
   byte-for-byte.
-- **Soak:** replay a recorded NINA night's file arrivals into the inbox.
+- **Soak:** replay a recorded NINA night's file arrivals into a rig PC's NINA folder,
+  with the agent delivering over a real SMB share.
 
 ---
 
@@ -1066,8 +1591,15 @@ altair-pre-processor/
 | R4 | The rotator position keyword or units vary by rotator driver. | Configurable per rig (keyword or file-name regex, degrees or steps, wrap). Missing value = no match, never a guess. |
 | R5 | Weights must share a scale across nights. | Weights are re-measured together at every merge (§9.5). WBPP's per-run normalized weights are never used across nights. |
 | R6 | Disk usage in `frame_reintegration` mode. | Off by default, enabled per project. Disk guard. |
-| R7 | Processing on the NINA PC could interfere with a new session. | Gated on session end, below-normal priority, no new jobs while NINA is writing. |
+| R7 | An external backup tool that mirrors deletions would wipe the S3 copy when landing is reclaimed. | Recommend `managed_by: altair`. Reclaim with an external backup requires explicit opt-ins (§7.4). `doctor` checks bucket versioning. |
+| R8 | Glacier restore latency (hours) and retrieval or egress costs on reruns and re-references. | Prefetch as soon as a job is planned. Approval guards with cost estimates. `keep_if_open_issue` keeps likely rerun inputs on landing. The NFS (if added) serves reruns first. |
+| R9 | Losing the catalog makes the archive hard to navigate. | Nightly catalog backups to every durable location, plus the self-describing archive (manifests with headers, sidecars) and `rebuild-catalog`. |
+| R10 | SMB silent corruption or partial writes. | SHA-256 at the source, read-back verification, `.partial` + rename, and hash checks on every fetch. |
 | Q1 | Is the rotator reported in degrees or steps, and is steps-per-revolution known? Which rotator and driver? | Sets the rig's `rotator` defaults. |
-| Q2 | Same PC for NINA and processing, or a separate processing PC reading a share? | Changes the inbox path, the file-event reliability plan, and the §4.1 gating. |
+| Q2 | ~~Same PC or separate?~~ **Decided:** one mini PC per rig, a separate processing PC, and a shared folder. | §3.0, §4.1. |
+| Q5 | S3 provider (AWS / B2 / Wasabi / other) and intended storage classes for raw data (Standard-IA, Glacier IR, Deep Archive)? | Sets `storage_class`, restore behaviour, and cost guards. |
+| Q6 | Is today's S3 backup done by an existing tool (which one?), and does it mirror deletions? Or should Altair own the uploads? | Chooses `managed_by`. External is supported, but its reclaim safety depends on the answer. |
+| Q7 | NFS: add it, and should it count as durable (RAID, snapshots)? | With a durable NFS, landing can be reclaimed aggressively and S3 becomes disaster-only. |
+| Q8 | Network speed between the processing PC and the NAS, and the internet uplink and downlink? | Sizes staging expectations, upload windows, and restore-to-run ETAs. |
 | Q3 | Should the multi-night master require every night to cover the full frame (strict crop), or allow partial-coverage edges? | Default: crop to full coverage (`min_coverage_nights: all`). |
 | Q4 | Default weighting: `measured_psf_signal` or `inverse_noise_variance`? | Spec default is PSF signal (it rewards seeing and transparency too). Phase 5 compares both on real data. |
