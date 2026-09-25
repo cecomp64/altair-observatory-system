@@ -1,0 +1,56 @@
+[project]
+name = "altair"
+version = "0.8.0"
+description = "Altair: automated astrophotography pre-processing, reporting to the observatory Hub (docs/SPEC.md v0.8)."
+requires-python = ">=3.11"
+dependencies = [
+  "observatory-contracts",
+  "httpx>=0.27",
+  "pydantic>=2.6",
+  "PyYAML>=6.0",
+  "click>=8.1",
+  "astropy>=6.0",
+  "numpy>=1.26",
+  "Pillow>=10.0",
+  "keyring>=24.0",
+  "tzdata; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "respx>=0.21",
+  "jsonschema[format]>=4.18",
+  "import-linter>=2.0",
+]
+
+[project.scripts]
+altair = "altair.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"altair.catalog" = ["*.sql"]
+
+[tool.uv.sources]
+observatory-contracts = { path = "../contracts/python", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Component independence (docs/SYSTEM_ARCHITECTURE.md §3.6.2): Altair talks to
+# the Hub over HTTP only and never imports the rig agent. Run: lint-imports
+[tool.importlinter]
+root_package = "altair"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The processing core never imports the rig agent or the Hub"
+type = "forbidden"
+source_modules = ["altair"]
+forbidden_modules = ["robs", "hub"]
