@@ -1,14 +1,15 @@
 name: processing
 
 # The processing core (Altair) CI. Runs from processing/ on changes to it or to the
-# API contract. Altair is spec-only until its Phase 1 lands; the test jobs start
-# running as soon as processing/pyproject.toml exists.
+# API contract.
 on:
   pull_request:
     paths: [ "processing/**", "contracts/**", ".github/workflows/processing.yml" ]
   push:
     branches: [ main ]
     paths: [ "processing/**", "contracts/**", ".github/workflows/processing.yml" ]
+  workflow_call:    # the release workflow runs the same checks first
+  workflow_dispatch:
 
 defaults:
   run:
@@ -46,29 +47,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Is there code yet?
-        id: code
-        run: |
-          if [ -f pyproject.toml ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "processing/ is spec-only; nothing to test yet."
-          fi
-
       - uses: astral-sh/setup-uv@v6
-        if: steps.code.outputs.present == 'true'
         with:
           python-version: "3.12"
 
       - name: Install (locked)
-        if: steps.code.outputs.present == 'true'
         run: uv sync --locked --extra dev
 
       - name: Component independence (no imports of robs or hub)
-        if: steps.code.outputs.present == 'true'
         run: uv run --locked lint-imports
 
       - name: Tests
-        if: steps.code.outputs.present == 'true'
         run: uv run --locked pytest

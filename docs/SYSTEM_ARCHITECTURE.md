@@ -241,8 +241,8 @@ sequenceDiagram
 ```
 altair-observatory-system/
 ├── hub/                    Rails 8 app: app/ config/ db/ spec/ script/perf/, Gemfile, package.json, Dockerfile, config/deploy.yml (Kamal)
-├── rig-agent/              Python package robs: src/robs/ tests/ config/, pyproject.toml + uv.lock
-├── processing/             Python package altair: src/altair/ tests/ docs/SPEC.md, pyproject.toml + uv.lock
+├── rig-agent/              Python package robs: src/robs/ tests/ config/ packaging/ (robs.spec), pyproject.toml + uv.lock
+├── processing/             Python package altair: src/altair/ tests/ docs/SPEC.md packaging/ (altair.spec), pyproject.toml + uv.lock
 ├── contracts/
 │   ├── schemas/            JSON Schema 2020-12: worker/, processing/, shared/
 │   ├── examples/           An example payload per schema, validated in CI
@@ -255,7 +255,7 @@ altair-observatory-system/
 │   ├── validate_contracts.py    schemas valid, examples validate, every schema has an example
 │   ├── generate_contracts.py    regenerate the pydantic models (--check in CI)
 │   └── e2e/                altair_hub_e2e.py, worker_hub_e2e.py (run against a live Hub)
-├── .github/workflows/      hub.yml, rig-agent.yml, processing.yml, contracts.yml
+├── .github/workflows/      hub.yml, rig-agent.yml, processing.yml, contracts.yml, e2e.yml, release-*.yml
 ├── CLAUDE.md
 └── README.md
 ```
@@ -267,8 +267,8 @@ altair-observatory-system/
 | No component imports another's code. | import-linter contracts in `rig-agent/pyproject.toml` (no `altair`, no `hub`) and `processing/pyproject.toml` (no `robs`, no `hub`), run in CI. A `hub.yml` step fails if anything under `hub/` outside `spec/` references another component. |
 | The only shared code is `contracts/`. | Both Python components depend on `contracts/python` as a path dependency. The Hub reads `contracts/schemas/` **only in specs** (`spec/support/api_contract.rb`), so its Docker build context stays `hub/`. |
 | Each component has its own manifest and lockfile. | `hub/Gemfile.lock` + `hub/bun.lock`, `rig-agent/uv.lock`, `processing/uv.lock`. There is no root-level manifest. |
-| Each component has its own CI. | Path-filtered workflows. **hub.yml**: Brakeman, bundler-audit, the independence check, RuboCop, and RSpec with Postgres (including the contract specs). **rig-agent.yml**: import-linter and pytest. **processing.yml**: import-linter and pytest on Linux and Windows. **contracts.yml**: schema validation, a codegen drift check, and the contracts package tests. A change under `contracts/` runs every suite. |
-| Each component is released and deployed on its own. | The Hub deploys with Kamal from `hub/`. Rig PCs and the processing PC upgrade on their own schedule. Release tags (`hub-v…`, `rig-agent-v…`, `processing-v…`) and packaging are not set up yet (§9.5). |
+| Each component has its own CI. | Path-filtered workflows. **hub.yml**: Brakeman, bundler-audit, the independence check, RuboCop, and RSpec with Postgres (including the contract specs and headless-Chrome browser specs). **rig-agent.yml**: import-linter and pytest on Linux (Python 3.10 and 3.12) and Windows. **processing.yml**: import-linter and pytest on Linux and Windows (the Windows run adds Credential Manager and timezone tests). **contracts.yml**: schema validation, a codegen drift check, and the contracts package tests. **e2e.yml**: Altair and the rig agent against a real Hub with seed data. A change under `contracts/` runs every suite. |
+| Each component is released and deployed on its own. | A tag starts that component's release workflow, which reruns its CI first: `hub-vX.Y.Z` pushes the Hub image to `ghcr.io/<owner>/altair-hub` (deploying stays `kamal deploy` from `hub/`); `rig-agent-vX.Y.Z` and `processing-vX.Y.Z` build `robs.exe` and `altair.exe` with PyInstaller on Windows and attach them to a GitHub Release. The tag must match the package version. Rig PCs and the processing PC upgrade on their own schedule. |
 | API changes are additive. | New fields are optional and clients ignore unknown ones. `contracts/CHANGELOG.md` records each `api_revision`. A breaking change would ship as `/api/v2` alongside v1. |
 
 #### 3.6.3 Standalone operation
@@ -931,17 +931,17 @@ exists. It doesn't depend on the PixInsight spike.
   frame list's select-all controller was never registered).
 - S3 as an option for Active Storage in production.
 
-### 9.5 Releases, packaging and end-to-end tests
+### 9.5 Releases, packaging and end-to-end tests (done)
 
-- **Releases:** tag-driven release workflows per component (`hub-v…`, `rig-agent-v…`,
-  `processing-v…`).
-- **Windows packaging:** `robs.exe` and `altair.exe` (PyInstaller) for the Windows
-  machines.
-- **Windows tests:** `processing.yml` already runs on Windows, but there are no
-  Windows-only tests yet (Credential Manager, SMB paths, the PixInsight launcher).
-- **End-to-end:** run `tools/e2e/*.py` in CI against a Hub service container. Later, add
-  a `docker compose` wrapper and an Altair replay mode that feeds recorded nights without
-  PixInsight.
+- Tag-driven release workflows per component (§3.6.2).
+- `robs.exe` and `altair.exe` PyInstaller specs (`packaging/`), verified by building and
+  running both on Linux; the release builds them on Windows.
+- The rig agent's CI also runs on Windows. That found a real gap: `robs` uses `zoneinfo`,
+  which needs the `tzdata` package on Windows, now a Windows-only dependency.
+- `e2e.yml` runs both end-to-end scripts against a freshly seeded Hub. The scripts now use
+  unique frames and nights per run, so they can be rerun against the same database.
+- Not verified here: the Hub's Docker image build (this sandbox can't reach the Debian
+  mirrors), and the Windows jobs, which run only on GitHub.
 
 ### 9.6 Future work
 
@@ -958,8 +958,8 @@ These have not been started:
 | Component | How it is deployed | Configuration and secrets |
 |---|---|---|
 | Hub | Kamal from `hub/` (`config/deploy.yml`, Dockerfile), PostgreSQL | Rails credentials; `TELESCOPIUS_API_KEY`; optionally `ACTIVE_STORAGE_SERVICE` + `ACTIVE_STORAGE_S3_*`, and `ARCHIVE_READER_*` + `ARCHIVE_BUCKET` for master downloads. Solid Queue runs inside Puma (`SOLID_QUEUE_IN_PUMA`) until jobs move to their own server. |
-| Rig agent | Python package on each rig PC, run by NINA External Script steps and a scheduled `sync-progress` | One YAML per telescope (`config/example.telescope.yml`); `ROBS_<SLUG>_API_KEY` |
-| Altair | Python package on the processing PC; the `altaird` service arrives with SPEC phase 7 | `altair.yaml`; the node key in Windows Credential Manager (`altair-hub`) or `ALTAIR_HUB_API_KEY` |
+| Rig agent | `robs.exe` from a `rig-agent-v*` release on each rig PC, run by NINA External Script steps and a scheduled `sync-progress` | One YAML per telescope (`config/example.telescope.yml`); `ROBS_<SLUG>_API_KEY` |
+| Altair | `altair.exe` from a `processing-v*` release on the processing PC; the `altaird` service arrives with SPEC phase 7 | `altair.yaml`; the node key in Windows Credential Manager (`altair-hub`) or `ALTAIR_HUB_API_KEY` |
 
 Components upgrade independently. Because the API is additive, an older rig agent or Altair
 keeps working against a newer Hub.
@@ -986,9 +986,9 @@ keeps working against a newer Hub.
 - **Rig agent:** Target Scheduler sync against a throwaway SQLite schema (per-project
   projects, `schedule_count`, migration from a single project), cleanup, config, state, the
   API client, session events and standalone mode.
-- **End-to-end** (manual, §9.5): `tools/e2e/altair_hub_e2e.py` and
-  `tools/e2e/worker_hub_e2e.py` against a locally running Hub. See CLAUDE.md for the
-  commands.
+- **End-to-end** (`e2e.yml`): `tools/e2e/altair_hub_e2e.py` and
+  `tools/e2e/worker_hub_e2e.py` against a freshly seeded Hub. See CLAUDE.md for running
+  them locally.
 
 ---
 

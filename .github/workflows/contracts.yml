@@ -9,6 +9,8 @@ on:
   push:
     branches: [ main ]
     paths: [ "contracts/**", "tools/validate_contracts.py", "tools/generate_contracts.py", ".github/workflows/contracts.yml" ]
+  workflow_call:    # the release workflow runs the same checks first
+  workflow_dispatch:
 
 jobs:
   validate:

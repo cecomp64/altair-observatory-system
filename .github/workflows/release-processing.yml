@@ -1,0 +1,74 @@
+name: release-processing
+
+# Tag processing-vX.Y.Z (matching processing/pyproject.toml) to release
+# altair.exe for the processing PC. Altair's CI runs first; a tag with a suffix
+# (-rc1) is a pre-release.
+on:
+  push:
+    tags: [ "processing-v*" ]
+
+permissions:
+  contents: write
+
+jobs:
+  checks:
+    uses: ./.github/workflows/processing.yml
+
+  build:
+    needs: checks
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: processing
+        shell: bash
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: The tag matches the package version
+        id: version
+        run: |
+          version=$(sed -nE 's/^version = "(.*)"/\1/p' pyproject.toml | head -1)
+          tag="${GITHUB_REF_NAME#processing-v}"
+          if [ "$tag" != "$version" ]; then echo "::error::tag $tag != pyproject version $version"; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Without the dev extras: astropy's PyInstaller hook trips over pytest.
+      - name: Build altair.exe
+        run: |
+          uv sync --locked
+          uv run --no-sync --with pyinstaller pyinstaller --noconfirm packaging/altair.spec
+          ./dist/altair.exe --help
+          mkdir -p ../release
+          cp dist/altair.exe "../release/altair-${{ steps.version.outputs.version }}-windows-x64.exe"
+          cd ../release && sha256sum * > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: processing
+          path: release/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: processing
+          path: release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: processing (Altair) ${{ needs.build.outputs.version }}
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
+          files: release/*
+          body: |
+            `altair` ${{ needs.build.outputs.version }} for the processing PC (Windows, single file).
+            Install it, keep `altair.yaml` in C:\ProgramData\Altair\, store the Hub node key in
+            Windows Credential Manager as `altair-hub`, then run `altair doctor`.
+            See processing/docs/SPEC.md.

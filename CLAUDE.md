@@ -80,6 +80,13 @@ cd rig-agent && uv run python ../tools/e2e/worker_hub_e2e.py --hub http://localh
     --hub-dir ../hub --telescope SLUG
 ```
 
+### Releases
+Tag `hub-vX.Y.Z`, `rig-agent-vX.Y.Z` or `processing-vX.Y.Z` (matching the component's
+version) to run `release-*.yml`. Build the Windows executables locally with
+`uv run --with pyinstaller pyinstaller packaging/robs.spec` (rig-agent/) or
+`uv sync --locked && uv run --no-sync --with pyinstaller pyinstaller packaging/altair.spec`
+(processing/, without the dev extras).
+
 ## Changing the API
 
 1. Edit `contracts/schemas/…` and add or update an example under `contracts/examples/…`.

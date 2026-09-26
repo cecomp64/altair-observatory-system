@@ -66,8 +66,8 @@ def telescope_config_yaml(tmp_path: Path, scheduler_db_path: Path) -> Path:
 slug: test-scope
 api_base_url: "https://example.test"
 api_key: "test-token"
-scheduler_db_path: "{scheduler_db_path}"
-subs_dir: "{subs_dir}"
+scheduler_db_path: "{scheduler_db_path.as_posix()}"
+subs_dir: "{subs_dir.as_posix()}"
 nina_profile_id: "11111111-1111-1111-1111-111111111111"
 """
     )

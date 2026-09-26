@@ -1,0 +1,66 @@
+name: e2e
+
+# End-to-end: Altair and the rig agent against a real Hub (Rails + Postgres),
+# with synthetic frames and a throwaway Target Scheduler database instead of
+# NINA and PixInsight. Runs when any component or the contract changes.
+on:
+  pull_request:
+    paths: [ "hub/**", "rig-agent/**", "processing/**", "contracts/**", "tools/e2e/**", ".github/workflows/e2e.yml" ]
+  push:
+    branches: [ main ]
+    paths: [ "hub/**", "rig-agent/**", "processing/**", "contracts/**", "tools/e2e/**", ".github/workflows/e2e.yml" ]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: [ "5432:5432" ]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      RAILS_ENV: development
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/hub_e2e
+      HUB: http://localhost:3055
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          working-directory: hub
+          bundler-cache: true
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Start the Hub with seed data
+        working-directory: hub
+        run: |
+          bin/rails db:create db:schema:load db:seed
+          bin/rails server -p 3055 -d
+          for i in $(seq 1 60); do curl -fs "$HUB/up" >/dev/null && exit 0; sleep 1; done
+          echo "::error::the Hub did not start"; exit 1
+
+      - name: Altair ↔ Hub
+        working-directory: processing
+        run: |
+          uv sync --locked --extra dev
+          uv run --locked python ../tools/e2e/altair_hub_e2e.py --hub "$HUB" --hub-dir ../hub \
+            --telescope backyard-16in --train backyard-16in
+
+      - name: Rig agent ↔ Hub
+        working-directory: rig-agent
+        run: |
+          uv sync --locked --extra dev
+          uv run --locked python ../tools/e2e/worker_hub_e2e.py --hub "$HUB" --hub-dir ../hub --telescope backyard-16in
+
+      - name: Hub log
+        if: failure()
+        working-directory: hub
+        run: tail -n 200 log/development.log

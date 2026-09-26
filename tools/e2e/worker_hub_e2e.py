@@ -95,7 +95,7 @@ def main() -> int:
     print(robs("end-of-night", "--config", str(config)))
     after = int(rails(args.hub_dir, f"print ProcessingNode.find({info['node']}).processing_commands.where(kind: 'night_ready').count"))
     check("session_end became night_ready for the node", after > info["before"], f"{info['before']} -> {after}")
-    check("no files uploaded", rails(args.hub_dir, "print DataProduct.legacy.where('created_at > ?', 5.minutes.ago).count") == "0")
+    check("nothing uploaded", rails(args.hub_dir, "print DataProduct.where(processing_node_id: nil).where('created_at > ?', 5.minutes.ago).count") == "0")
     heartbeat = rails(args.hub_dir, f"print Telescope.find_by!(slug: {args.telescope!r}).worker_last_heartbeat_at.present?")
     check("worker heartbeat recorded", heartbeat == "true")
     print(robs("check-config", "--config", str(config)))

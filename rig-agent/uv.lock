@@ -788,6 +788,7 @@ dependencies = [
     { name = "observatory-contracts" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
 
 [package.optional-dependencies]
@@ -810,6 +811,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31" },
     { name = "responses", marker = "extra == 'dev'", specifier = ">=0.25" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
 provides-extras = ["dev"]
 

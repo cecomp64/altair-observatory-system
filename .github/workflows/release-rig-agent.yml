@@ -1,0 +1,74 @@
+name: release-rig-agent
+
+# Tag rig-agent-vX.Y.Z (matching rig-agent/pyproject.toml) to release robs.exe for
+# the rig PCs. The rig agent's CI runs first; a tag with a suffix (-rc1) is a
+# pre-release.
+on:
+  push:
+    tags: [ "rig-agent-v*" ]
+
+permissions:
+  contents: write
+
+jobs:
+  checks:
+    uses: ./.github/workflows/rig-agent.yml
+
+  build:
+    needs: checks
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: rig-agent
+        shell: bash
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: The tag matches the package version
+        id: version
+        run: |
+          version=$(sed -nE 's/^version = "(.*)"/\1/p' pyproject.toml | head -1)
+          tag="${GITHUB_REF_NAME#rig-agent-v}"
+          if [ "$tag" != "$version" ]; then echo "::error::tag $tag != pyproject version $version"; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build robs.exe
+        run: |
+          uv sync --locked
+          uv run --no-sync --with pyinstaller pyinstaller --noconfirm packaging/robs.spec
+          ./dist/robs.exe --help
+          mkdir -p ../release
+          cp dist/robs.exe "../release/robs-${{ steps.version.outputs.version }}-windows-x64.exe"
+          cp config/example.telescope.yml ../release/
+          cd ../release && sha256sum * > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rig-agent
+          path: release/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rig-agent
+          path: release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: rig agent ${{ needs.build.outputs.version }}
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
+          files: release/*
+          body: |
+            `robs` ${{ needs.build.outputs.version }} for the rig PCs (Windows, single file).
+            Copy the executable and `example.telescope.yml` to the rig PC, fill in the config,
+            then run `robs check-config --config <file>` and `robs check-schema --config <file>`.
+            See rig-agent/README.md for the NINA wiring.

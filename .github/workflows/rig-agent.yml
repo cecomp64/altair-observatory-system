@@ -7,18 +7,26 @@ on:
   push:
     branches: [ main ]
     paths: [ "rig-agent/**", "contracts/**", ".github/workflows/rig-agent.yml" ]
+  workflow_call:    # the release workflow runs the same checks first
+  workflow_dispatch:
 
 defaults:
   run:
     working-directory: rig-agent
+    shell: bash
 
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.10", "3.12" ]
-    runs-on: ubuntu-latest
+        # The oldest supported Python, and the one robs.exe is built with on Windows
+        # (the rig PCs run Windows).
+        include:
+          - { os: ubuntu-latest, python-version: "3.10" }
+          - { os: ubuntu-latest, python-version: "3.12" }
+          - { os: windows-latest, python-version: "3.12" }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
 

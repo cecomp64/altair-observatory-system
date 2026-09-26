@@ -20,7 +20,10 @@ import argparse
 import json
 import subprocess
 import sys
+import random
 import tempfile
+import uuid
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -41,9 +44,16 @@ def rails(hub_dir: str, code: str) -> str:
     return out.stdout.strip().splitlines()[-1] if out.stdout.strip() else ""
 
 
+# Every run gets new frames (new SHA-256s) on its own night, so reruns against
+# the same Hub database start clean.
+RUN_ID = uuid.uuid4().hex
+OBS_DAY = date(2000, 1, 1) + timedelta(days=random.randrange(9000))  # UTC date of the frames
+NIGHT = (OBS_DAY - timedelta(days=1)).isoformat()  # local night (the site is west of UTC)
+
+
 def fits_frame(path: Path, *, obj: str, ra: float, dec: float, filt: str, i: int, imagetyp: str = "LIGHT") -> None:
     header = fits.Header()
-    header.update({"IMAGETYP": imagetyp, "OBJECT": obj, "FILTER": filt, "EXPTIME": 300.0, "DATE-OBS": f"2026-09-26T0{6 + i // 10}:{(i % 10) * 5:02d}:00",
+    header.update({"E2ERUN": RUN_ID, "IMAGETYP": imagetyp, "OBJECT": obj, "FILTER": filt, "EXPTIME": 300.0, "DATE-OBS": f"{OBS_DAY}T0{6 + i // 10}:{(i % 10) * 5:02d}:00",
                    "RA": ra, "DEC": dec, "TELESCOP": "e2e-scope", "INSTRUME": "e2e-cam", "GAIN": 100, "XBINNING": 1, "YBINNING": 1})
     path.parent.mkdir(parents=True, exist_ok=True)
     fits.writeto(path, np.random.default_rng(i).normal(1000, 10, (32, 48)).astype(np.float32), header)
@@ -67,6 +77,7 @@ def main() -> int:
     info = json.loads(rails(args.hub_dir, f"""
       t = Telescope.find_by!(slug: {args.telescope!r}); node = ProcessingNode.find_or_create_by!(name: {args.node!r})
       node.telescopes << t unless node.telescopes.include?(t)
+      node.processing_commands.where(state: %w[pending delivered]).update_all(state: "cancelled")  # leftovers from other runs
       k = node.api_keys.new(name: "e2e #{{Time.now.to_i}}"); k.generate_token!; k.save!
       target = Target.not_draft.where(telescope: t).first
       print({{ key: k.plaintext_token, target: target.id, name: target.nina_name, ra: target.ra_deg.to_f, dec: target.dec_deg.to_f,
@@ -109,19 +120,19 @@ def main() -> int:
     shas = [r["sha256"] for r in catalog.query("SELECT sha256 FROM frames WHERE image_type = 'light'")]
     with catalog.transaction() as tx:
         reporters.enqueue_data_product(tx, "night_master", 9001, {
-            "target_id": info["target"], "night": "2026-09-25", "filter": "Ha", "sha256": "e" * 64, "size_bytes": 1, "archive_uri": "s3://e2e/nm.xisf",
+            "target_id": info["target"], "night": NIGHT, "filter": "Ha", "sha256": "e" * 64, "size_bytes": 1, "archive_uri": "s3://e2e/nm.xisf",
             "metrics": {"frames": len(shas), "frame_sha256s": shas}}, preview=str(preview), thumbnail=str(thumb))
     sync.sync_now()
     attached = rails(args.hub_dir, "print DataProduct.find_by(altair_id: 9001)&.preview&.attached?")
     check("night master with preview in the Hub", attached == "true", attached)
 
     rails(args.hub_dir, f"""t = Telescope.find_by!(slug: {args.telescope!r}); Processing::CommandIssuer.issue!(kind: 'night_ready', telescope: t,
-      payload: {{ optical_train: {args.train!r}, night: '2026-09-25', at: '2026-09-26T12:40:00Z', closed_by: 'session_end' }})""")
+      payload: {{ optical_train: {args.train!r}, night: '{NIGHT}', at: '{OBS_DAY}T12:40:00Z', closed_by: 'session_end' }})""")
     sync.sync_now()
-    night = catalog.one("SELECT state, closed_by FROM collections WHERE rig = 'e2e' AND night = '2026-09-25'")
+    night = catalog.one("SELECT state, closed_by FROM collections WHERE rig = 'e2e' AND night = ?", (NIGHT,))
     check("night_ready closed the night", night and night["state"] == "closed", dict(night) if night else None)
     sync.sync_now()
-    hub_night = rails(args.hub_dir, f"print ObservingNight.find_by(optical_train: OpticalTrain.find_by(key: {args.train!r}), night: '2026-09-25')&.state")
+    hub_night = rails(args.hub_dir, f"print ObservingNight.find_by(optical_train: OpticalTrain.find_by(key: {args.train!r}), night: '{NIGHT}')&.state")
     check("... and the Hub knows", hub_night == "closed", hub_night)
     results = reconcile(catalog, config, client)
     check("reconcile clean", results and all(r["ok"] for r in results), results)
