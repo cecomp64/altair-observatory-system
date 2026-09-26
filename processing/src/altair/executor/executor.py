@@ -40,7 +40,7 @@ from altair.planner.plan import plan_hash, resolve_plan
 from altair.issues import raise_issue, resolve_issue
 from altair.projects import weights as weights_mod
 from altair.publish.publisher import Publisher, VerifyError
-from altair.storage.stager import Stager
+from altair.storage.stager import Stager, remove_work_dir
 
 log = logging.getLogger("altair.executor")
 PRIORITY = {"CALIB_MASTER": 0, "PROJECT_REFERENCE": 1, "NIGHT_STACK": 2, "MERGE": 3}
@@ -216,7 +216,7 @@ class Executor:
             return self._wait(job, staged.waiting_reason or "waiting for data")
         work = self.work_dir(job_id)
         if work.exists():
-            shutil.rmtree(work, ignore_errors=True)
+            remove_work_dir(work)
         work.mkdir(parents=True, exist_ok=True)
         if (reason := self._disk_guard(job, plan, inputs, work)) is not None:
             return self._wait(job, reason)
@@ -386,7 +386,7 @@ class Executor:
             if self.config.hub.enabled:
                 enqueue_job(tx, job["id"])
         if not self.keep_work_dirs:
-            shutil.rmtree(work, ignore_errors=True)
+            remove_work_dir(work)
         return JobReport(job["id"], job["kind"], "succeeded")
 
     def _fail(self, job: sqlite3.Row, error: str, *, retry: bool) -> JobReport:
@@ -419,7 +419,7 @@ class Executor:
             active = {str(r["id"]) for r in self.catalog.query(f"SELECT id FROM jobs WHERE status IN ({','.join('?' * len(ACTIVE))})", ACTIVE)}
             for d in work_root.iterdir():
                 if d.is_dir() and d.name not in active and now - d.stat().st_mtime > failed_days * 86400:
-                    shutil.rmtree(d, ignore_errors=True)
+                    remove_work_dir(d)
                     removed["work_dirs"] += 1
         logs = self.config.paths.logs_dir / "jobs"
         if logs.exists():

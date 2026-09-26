@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,7 @@ from altair.storage.locations import COLD_CLASSES, IntegrityMismatch, RestoreReq
 
 log = logging.getLogger("altair.stager")
 IN_PLACE = {"raw_light", "raw_calibration", "calibrated_frame"}
+LINKS_FILE = ".altair-links.json"   # inputs/ hard links to cache files (see remove_work_dir)
 GB = 1024 ** 3
 
 
@@ -370,6 +372,7 @@ class Stager:
         inputs = work_dir / "inputs"
         inputs.mkdir(parents=True, exist_ok=True)
         out = {}
+        links: dict[str, str] = {}
         for sha, path in paths.items():
             if not str(path).startswith(str(self.cache_root)):
                 out[sha] = path
@@ -379,7 +382,43 @@ class Stager:
             if not target.exists():
                 try:
                     os.link(path, target)
+                    links[name] = str(path)
                 except OSError:
                     shutil.copyfile(path, target)
             out[sha] = str(target)
+        if links:
+            (inputs / LINKS_FILE).write_text(json.dumps(links), encoding="utf-8")
         return out
+
+
+def remove_work_dir(work_dir: Path) -> None:
+    """Delete a job's work directory. Its ``inputs/`` hold hard links to
+    read-only cache files, and a hard link shares the file's attributes: on
+    Windows the link must be made writable to delete it, which makes the cache
+    copy writable too, so it is made read-only again afterwards."""
+    if not work_dir.exists():
+        return
+    inputs = work_dir / "inputs"
+    manifest = inputs / LINKS_FILE
+    if manifest.exists():
+        try:
+            links = json.loads(manifest.read_text(encoding="utf-8"))
+        except ValueError:
+            links = {}
+        for name, cache_path in links.items():
+            link = inputs / name
+            if link.exists():
+                remove_file(link)
+            if Path(cache_path).exists():
+                make_read_only(Path(cache_path))
+
+    def writable_then_retry(func, path, _exc):
+        try:
+            os.chmod(path, 0o666)
+            func(path)
+        except OSError:
+            pass
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(work_dir, onexc=writable_then_retry)
+    else:
+        shutil.rmtree(work_dir, onerror=writable_then_retry)

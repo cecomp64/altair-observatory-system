@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -17,7 +18,7 @@ def test_command_line_follows_the_spec(tmp_path):
     cfg = PixInsight(executable="C:/PI/PixInsight.exe", runner="C:/Altair/pjsr/altair_runner.js", instance_slot=5)
     assert pixinsight.command(cfg, tmp_path / "job.json") == [
         "C:/PI/PixInsight.exe", "-n=5", "--automation-mode", "--no-startup-scripts", "--force-exit",
-        f"-r=C:/Altair/pjsr/altair_runner.js,{tmp_path / 'job.json'}"]
+        f"-r={Path('C:/Altair/pjsr/altair_runner.js')},{tmp_path / 'job.json'}"]   # native separators on each OS
     assert pixinsight.runner_path(PixInsight()).name == "altair_runner.js" and pixinsight.runner_path(PixInsight()).exists()
 
 
@@ -92,3 +93,25 @@ def test_merge_gates(tmp_path):
     assert (gates["n2"].issue, gates["n3"].issue, gates["n4"].issue, gates["n5"].issue, gates["n6"].issue) == (
         "STALE_REFERENCE", "FLAT_MISSING", "LOW_OVERLAP", "QUALITY_OUTLIER", "SCALE_MISMATCH")
     assert gates["n5"].severity == "warning" and gates["n7"].reason == "excluded by the user"
+
+
+def test_removing_a_work_dir_keeps_its_cache_inputs_read_only(tmp_path):
+    import os
+    import stat
+
+    from altair.storage.locations import make_read_only
+    from altair.storage.stager import LINKS_FILE, remove_work_dir
+
+    cache = tmp_path / "cache" / "master.xisf"
+    cache.parent.mkdir()
+    cache.write_bytes(b"master")
+    make_read_only(cache)
+    inputs = tmp_path / "work" / "7" / "inputs"
+    inputs.mkdir(parents=True)
+    os.link(cache, inputs / "master.xisf")
+    (inputs / LINKS_FILE).write_text(json.dumps({"master.xisf": str(cache)}))
+    (tmp_path / "work" / "7" / "out.fits").write_bytes(b"x")
+    remove_work_dir(tmp_path / "work" / "7")
+    assert not (tmp_path / "work" / "7").exists()
+    assert cache.read_bytes() == b"master" and not cache.stat().st_mode & stat.S_IWUSR
+    remove_work_dir(tmp_path / "work" / "7")   # already gone: no error

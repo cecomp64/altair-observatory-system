@@ -86,7 +86,13 @@ def restore(config: AltairConfig, *, nas: FsLocation | None = None, s3: S3Locati
         restored = work / "catalog.db"
         with packed.open("rb") as src, restored.open("wb") as dst:
             zstandard.ZstdDecompressor().copy_stream(src, dst)
-        sqlite3.connect(restored).execute("PRAGMA integrity_check").fetchone()
+        check = sqlite3.connect(restored)
+        try:
+            result = check.execute("PRAGMA integrity_check").fetchone()[0]
+        finally:
+            check.close()   # Windows can't move a file that is still open
+        if result != "ok":
+            raise ValueError(f"{chosen} fails the integrity check: {result}")
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         for suffix in ("", "-wal", "-shm"):
             current = Path(str(target) + suffix)
