@@ -7,6 +7,13 @@ alongside v1 (SYSTEM_ARCHITECTURE.md §5). Clients report the revision they
 speak in heartbeats; checking it in `robs check-config` / `altair doctor` is still to do
 (SYSTEM_ARCHITECTURE.md §9.4).
 
+## api_revision 3
+
+- `PUT /processing/data_products/:kind/:altair_id` accepts an optional `report` multipart
+  part: the product's Markdown report (text/markdown, UTF-8, at most 256 KB), which the
+  Hub stores beside the preview and renders on the product's report page. Older Hubs
+  ignore the part.
+
 ## api_revision 2
 
 Removes the legacy worker upload path. No client ever used it in production: the rig agent

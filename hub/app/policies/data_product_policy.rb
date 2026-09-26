@@ -5,4 +5,8 @@ class DataProductPolicy < ApplicationPolicy
   def download?
     user.admin? || (record.project && ProjectPolicy.new(user, record.project).show?)
   end
+
+  def report?
+    download?
+  end
 end

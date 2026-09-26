@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://observatory.local/contracts/processing/data_product.metadata.json",
   "title": "DataProductMetadata",
-  "description": "The 'metadata' JSON part of PUT /api/v1/processing/data_products/:kind/:altair_id (scope products:write). Multipart; optional 'preview' (JPEG, long edge <= 2048 px) and 'thumbnail' (<= 512 px) parts.",
+  "description": "The 'metadata' JSON part of PUT /api/v1/processing/data_products/:kind/:altair_id (scope products:write). Multipart; optional 'preview' (JPEG, long edge <= 2048 px) and 'thumbnail' (<= 512 px) parts, and (api_revision 3) an optional 'report' part: the product's Markdown report (text/markdown, UTF-8, <= 256 KB; GitHub-flavoured tables), which the Hub renders.",
   "type": "object",
   "required": ["target_id", "filter", "sha256", "size_bytes", "archive_uri"],
   "properties": {

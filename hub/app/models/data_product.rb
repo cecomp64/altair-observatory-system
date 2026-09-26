@@ -10,6 +10,9 @@ class DataProduct < ApplicationRecord
   belongs_to :superseded_by, class_name: "DataProduct", optional: true
   has_one_attached :preview
   has_one_attached :thumbnail
+  # Altair's Markdown report (api_revision 3), kept in Active Storage like the
+  # previews (local disk or S3), never in the database.
+  has_one_attached :report
 
   # 0–3 were the legacy worker uploads (removed in api_revision 2).
   enum :kind, {

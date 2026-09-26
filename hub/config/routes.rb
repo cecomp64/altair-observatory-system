@@ -63,6 +63,7 @@ Rails.application.routes.draw do
 
   resources :data_products, only: [] do
     get :download, on: :member
+    get :report, on: :member
   end
 
   resources :targets, only: [ :index, :show ] do

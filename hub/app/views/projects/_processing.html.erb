@@ -28,6 +28,9 @@
             <div class="rounded-lg w-full aspect-square bg-slate-100"></div>
           <% end %>
           <p class="text-sm font-medium mt-1"><%= product.filter %> · v<%= product.version %>
+            <% if product.report.attached? %>
+              · <%= link_to "Report", report_data_product_path(product), class: "text-indigo-600 hover:underline font-normal" %>
+            <% end %>
             <% if archive.downloadable?(product) %>
               · <%= link_to "Download", download_data_product_path(product), class: "text-indigo-600 hover:underline font-normal", data: { turbo: false } %>
             <% end %>
@@ -58,7 +61,12 @@
               <td class="py-1.5"><%= n[:count] %></td>
               <td class="py-1.5"><%= n[:hours] %></td>
               <td class="py-1.5"><%= n[:fwhm] || "—" %></td>
-              <td class="py-1.5 text-xs"><%= n[:master] ? n[:master].kind.humanize : "—" %></td>
+              <td class="py-1.5 text-xs">
+                <% if n[:master] %>
+                  <%= n[:master].kind.humanize %>
+                  <% if n[:master].report.attached? %>· <%= link_to "Report", report_data_product_path(n[:master]), class: "text-indigo-600 hover:underline" %><% end %>
+                <% else %>—<% end %>
+              </td>
               <td class="py-1.5 text-xs"><%= n[:in_merge] ? n[:weight].to_f.round(2) : "not merged" %></td>
               <td class="py-1.5 text-right">
                 <% if policy(@project).update? && target && @served[target] %>

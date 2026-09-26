@@ -2,9 +2,11 @@ module Api
   module V1
     module Processing
       # PUT /api/v1/processing/data_products/:kind/:altair_id — multipart:
-      # a `metadata` JSON part, optional `preview` and `thumbnail` JPEGs.
+      # a `metadata` JSON part, optional `preview` and `thumbnail` JPEGs, and
+      # an optional Markdown `report` (api_revision 3).
       class DataProductsController < BaseController
         MAX_IMAGE = 10.megabytes
+        MAX_REPORT = 256.kilobytes
 
         require_scope "products:write"
 
@@ -23,6 +25,9 @@ module Api
           bad = images.find { |_, file| !jpeg?(file) }
           return render_error("#{bad.first} must be a JPEG up to 10 MB", status: :unprocessable_content) if bad
 
+          report = params[:report]
+          return render_error("report must be UTF-8 Markdown up to 256 KB", status: :unprocessable_content) if report && !markdown?(report)
+
           product = DataProduct.find_or_initialize_by(processing_node: node, kind: kind, altair_id: params[:altair_id])
           product.assign_attributes(
             target: target, project: target.project, optical_train: target.effective_optical_train,
@@ -33,6 +38,9 @@ module Api
           DataProduct.transaction do
             product.save!
             images.each { |name, file| product.public_send(name).attach(file) }
+            if report
+              product.report.attach(io: report, filename: "#{kind}_#{params[:altair_id]}.md", content_type: "text/markdown")
+            end
             supersede(product, meta["supersedes_altair_id"])
           end
           target.target_events.create!(event_type: :master_updated, payload: { kind: kind, filter: product.filter, night: product.night&.iso8601,
@@ -55,6 +63,14 @@ module Api
 
         def jpeg?(file)
           file.respond_to?(:read) && file.size <= MAX_IMAGE && file.read(3)&.b == "\xFF\xD8\xFF".b
+        ensure
+          file.rewind if file.respond_to?(:rewind)
+        end
+
+        def markdown?(file)
+          return false unless file.respond_to?(:read) && file.size <= MAX_REPORT
+
+          file.read.dup.force_encoding(Encoding::UTF_8).valid_encoding?
         ensure
           file.rewind if file.respond_to?(:rewind)
         end

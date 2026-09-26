@@ -1,0 +1,25 @@
+<div class="mb-4 flex items-center justify-between gap-4">
+  <div>
+    <p class="text-sm text-slate-500">
+      <%= link_to @product.target.name, target_path(@product.target), class: "hover:text-indigo-600" %>
+      <% if @product.project %> · <%= link_to @product.project.name, project_path(@product.project), class: "hover:text-indigo-600" %><% end %>
+    </p>
+    <p class="text-xs text-slate-400">
+      <%= @product.kind.humanize %><%= " · #{@product.filter}" if @product.filter.present? %><%= " · v#{@product.version}" if @product.version %><%= " · #{@product.night.strftime('%b %-d, %Y')}" if @product.night %>
+      <% if @product.superseded_by %> · superseded by a newer master<% end %>
+    </p>
+  </div>
+  <div class="flex gap-3 text-sm">
+    <% if @product.preview.attached? %>
+      <%= link_to "Preview", rails_blob_path(@product.preview, disposition: "inline"), class: "text-indigo-600 hover:underline", target: "_blank", rel: "noopener" %>
+    <% end %>
+    <% if archive.downloadable?(@product) %>
+      <%= link_to "Download", download_data_product_path(@product), class: "text-indigo-600 hover:underline", data: { turbo: false } %>
+    <% end %>
+    <%= link_to "Markdown", rails_blob_path(@product.report, disposition: "attachment"), class: "text-slate-500 hover:underline" %>
+  </div>
+</div>
+
+<article class="altair-report rounded-xl border border-slate-200 bg-white p-6">
+  <%= @html %>
+</article>

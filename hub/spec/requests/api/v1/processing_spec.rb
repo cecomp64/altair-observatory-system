@@ -198,6 +198,21 @@ RSpec.describe "Processing API", type: :request do
       expect(plan.reload).to have_attributes(collected_count: 3, integrated_count: 2, integrated_seconds: 600)
     end
 
+    it "keeps the Markdown report in file storage and rejects one that isn't UTF-8 text" do
+      markdown = Rack::Test::UploadedFile.new(StringIO.new("# M31 · Ha\n\n| Night | Frames |\n| --- | ---: |\n| 2026-09-24 | 42 |\n"),
+                                              "text/markdown", original_filename: "r.md")
+      put_product(5, { target_id: target.id, version: 1, filter: "Ha", sha256: sha(53), size_bytes: 1, archive_uri: nil }, report: markdown)
+      expect(response).to have_http_status(:ok)
+      product = DataProduct.find_by!(altair_id: 5)
+      expect(product.report).to be_attached
+      expect(product.report.download.force_encoding(Encoding::UTF_8)).to start_with("# M31 · Ha")
+      expect(product.attributes.keys.grep(/report/)).to be_empty   # nothing in the database row
+
+      binary = Rack::Test::UploadedFile.new(StringIO.new("\xFF\xFE\x00bad".b), "text/markdown", original_filename: "r.md")
+      put_product(6, { target_id: target.id, filter: "Ha", sha256: sha(54), size_bytes: 1, archive_uri: nil }, report: binary)
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
     it "rejects a non-JPEG preview and an unknown kind" do
       svg = Rack::Test::UploadedFile.new(StringIO.new("<svg/>"), "image/svg+xml", original_filename: "p.svg")
       put_product(3, { target_id: target.id, filter: "Ha", sha256: sha(52), size_bytes: 1, archive_uri: nil }, preview: svg)

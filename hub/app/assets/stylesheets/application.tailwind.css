@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+/* Altair's Markdown reports (DataProductsController#report). */
+@layer components {
+  .altair-report { @apply text-sm text-slate-700 overflow-x-auto; }
+  .altair-report h1 { @apply text-xl font-semibold text-slate-900 mb-2; }
+  .altair-report h2 { @apply text-base font-semibold text-slate-900 mt-6 mb-2; }
+  .altair-report h3 { @apply text-sm font-semibold text-slate-900 mt-4 mb-1; }
+  .altair-report p { @apply my-2; }
+  .altair-report ul { @apply list-disc pl-5 my-2 space-y-1; }
+  .altair-report ol { @apply list-decimal pl-5 my-2 space-y-1; }
+  .altair-report code { @apply rounded bg-slate-100 px-1 py-0.5 text-xs; }
+  .altair-report pre { @apply rounded bg-slate-100 p-3 overflow-x-auto; }
+  .altair-report a { @apply text-indigo-600 hover:underline; }
+  .altair-report table { @apply my-2 border-collapse text-sm; }
+  .altair-report th { @apply border-b border-slate-200 px-3 py-1.5 font-medium text-slate-500; }
+  .altair-report td { @apply border-b border-slate-100 px-3 py-1.5 tabular-nums; }
+  .altair-report tr:hover td { @apply bg-slate-50; }
+}

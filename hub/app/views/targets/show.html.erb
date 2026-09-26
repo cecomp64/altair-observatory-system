@@ -81,6 +81,9 @@
               <% if master.preview.attached? %>
                 <%= link_to "Preview", rails_blob_path(master.preview, disposition: "inline"), class: "text-indigo-600 hover:underline", target: "_blank", rel: "noopener" %>
               <% end %>
+              <% if master.report.attached? %>
+                <%= link_to "Report", report_data_product_path(master), class: "text-indigo-600 hover:underline" %>
+              <% end %>
               <% if archive.downloadable?(master) %>
                 <%= link_to "Download", download_data_product_path(master), class: "text-indigo-600 hover:underline", data: { turbo: false } %>
               <% end %>
