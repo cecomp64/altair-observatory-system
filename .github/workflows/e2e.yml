@@ -28,7 +28,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/hub_e2e
       HUB: http://localhost:3055
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: ruby/setup-ruby@v1
         with:
