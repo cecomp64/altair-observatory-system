@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -10,48 +9,8 @@ import click
 
 from altair import __version__
 from altair import frames as frame_ops
-from altair.catalog.db import Catalog
-from altair.config import AltairConfig, load
-
-DEFAULT_CONFIG = os.environ.get("ALTAIR_CONFIG", "C:/ProgramData/Altair/altair.yaml")
-
-
-class Ctx:
-    def __init__(self, config_path: str):
-        self.config_path = config_path
-        self._config: AltairConfig | None = None
-        self._catalog: Catalog | None = None
-
-    @property
-    def config(self) -> AltairConfig:
-        if self._config is None:
-            self._config = load(self.config_path)
-        return self._config
-
-    @property
-    def catalog(self) -> Catalog:
-        if self._catalog is None:
-            self._catalog = Catalog(self.config.catalog_path)
-        return self._catalog
-
-    def client(self):
-        from altair.hub.client import HubClient
-
-        hub = self.config.hub
-        if not hub.enabled:
-            raise click.ClickException("hub.enabled is false in altair.yaml")
-        key = hub.api_key()
-        if not key:
-            raise click.ClickException(f"No Hub API key: set ALTAIR_HUB_API_KEY or store it in Windows Credential Manager as {hub.credential_target!r}")
-        return HubClient(hub.base_url, key)
-
-    def sync(self):
-        from altair.hub.sync import HubSync
-
-        return HubSync(self.catalog, self.config, self.client())
-
-
-pass_ctx = click.make_pass_decorator(Ctx)
+from altair.cli_context import DEFAULT_CONFIG, Ctx, pass_ctx
+from altair.config import AltairConfig
 
 
 @click.group()
@@ -259,11 +218,7 @@ def index_cmd(ctx: Ctx, directory: Path, rig: str, adopt: bool, dry_run: bool, n
 
 
 def _nas_root(config: AltairConfig) -> str | None:
-    storage = getattr(config, "storage", None) or {}
-    for location in storage.get("locations", []) if isinstance(storage, dict) else []:
-        if location.get("name") == "nas":
-            return location.get("root")
-    return None
+    return config.storage.nas.root if config.storage.nas else None
 
 
 # ── doctor ───────────────────────────────────────────────────────────────
@@ -317,6 +272,12 @@ def doctor(ctx: Ctx) -> None:
 def serve_hub(ctx: Ctx, interval: float) -> None:
     """Run the hub_sync loop in the foreground (altaird runs it as a thread)."""
     ctx.sync().run_forever(interval)
+
+
+from altair import cli_storage  # noqa: E402 - command families live in their own modules
+
+for command in cli_storage.COMMANDS:
+    main.add_command(command)
 
 
 if __name__ == "__main__":

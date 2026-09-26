@@ -5,7 +5,6 @@ import random
 
 import httpx
 
-from altair import nights
 from altair.hub.reconcile import local_digest
 
 from conftest import TRAIN

@@ -26,7 +26,7 @@
   <div><label class="block text-xs text-slate-500 mb-1">Exposure (s)</label><input type="number" step="any" name="exposure" value="<%= p[:exposure] %>" class="<%= field %>"></div>
   <div><label class="block text-xs text-slate-500 mb-1">Gain</label><input type="number" step="any" name="gain" value="<%= p[:gain] %>" class="<%= field %>"></div>
   <div><label class="block text-xs text-slate-500 mb-1">Binning</label><input type="text" name="binning" value="<%= p[:binning] %>" placeholder="1x1" class="<%= field %>"></div>
-  <div><label class="block text-xs text-slate-500 mb-1">Storage</label><%= select_tag :storage, options_for_select([ [ "On the NAS", "nas" ], [ "S3 only", "s3_only" ], [ "S3 Standard-IA", "STANDARD_IA" ], [ "S3 Deep Archive", "DEEP_ARCHIVE" ] ], p[:storage]), include_blank: "Any", class: field %></div>
+  <div><label class="block text-xs text-slate-500 mb-1">Storage</label><%= select_tag :storage, options_for_select([ [ "On the NAS", "nas" ], [ "S3 only", "s3_only" ], [ "S3 Standard", "STANDARD" ], [ "S3 Standard-IA", "STANDARD_IA" ], [ "S3 Glacier IR", "GLACIER_IR" ], [ "S3 Deep Archive", "DEEP_ARCHIVE" ] ], p[:storage]), include_blank: "Any", class: field %></div>
   <div><label class="block text-xs text-slate-500 mb-1">Cone: RA</label><input type="text" name="ra" value="<%= p[:ra] %>" placeholder="00:42:44" class="<%= field %>"></div>
   <div><label class="block text-xs text-slate-500 mb-1">Dec</label><input type="text" name="dec" value="<%= p[:dec] %>" placeholder="+41:16:09" class="<%= field %>"></div>
   <div><label class="block text-xs text-slate-500 mb-1">Radius (°)</label><input type="number" step="any" name="radius" value="<%= p[:radius] %>" placeholder="1" class="<%= field %>"></div>

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import struct
 import xml.etree.ElementTree as ET
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo

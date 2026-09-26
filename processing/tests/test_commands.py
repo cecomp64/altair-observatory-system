@@ -1,4 +1,3 @@
-from altair import frames as frame_ops
 
 from conftest import TRAIN
 from helpers import index_night, make_sync

@@ -32,9 +32,50 @@ CREATE TABLE IF NOT EXISTS replicas (
   storage_class TEXT,
   restore_expires_at TEXT,
   verified_at TEXT,
-  verify_method TEXT,
+  verify_method TEXT,              -- sha256_full / s3_checksum_sha256 / size_only
   last_seen_at TEXT,
+  version_id TEXT,                 -- S3 object version the replica refers to
+  missing_reason TEXT,             -- cleanup / external_delete / never_arrived
   PRIMARY KEY (sha256, location)
+);
+
+-- Staging and restore bookkeeping (§7.7).
+CREATE TABLE IF NOT EXISTS fetch_requests (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER,
+  sha256 TEXT NOT NULL REFERENCES blobs(sha256),
+  source_location TEXT,
+  state TEXT NOT NULL,             -- pending / restoring / downloading / done / failed / awaiting_approval
+  bytes_done INTEGER DEFAULT 0,
+  error TEXT, updated_at TEXT
+);
+
+-- Every deletion Altair ever performs (§7.6).
+CREATE TABLE IF NOT EXISTS cleanup_ledger (
+  id INTEGER PRIMARY KEY,
+  sha256 TEXT, location TEXT NOT NULL, uri TEXT NOT NULL,
+  rule TEXT NOT NULL,              -- e.g. rig:esprit100_2600mm.raw_light
+  relied_on_json TEXT NOT NULL,    -- the verified backup replica(s) checked right before deleting
+  bytes INTEGER,
+  deleted_at TEXT NOT NULL, dry_run INTEGER NOT NULL
+);
+
+-- What the collector has seen in each rig's raw root (§7.3).
+CREATE TABLE IF NOT EXISTS rig_files (
+  rig TEXT NOT NULL, rel_path TEXT NOT NULL,
+  size INTEGER, mtime REAL, first_seen_at TEXT, stable_since TEXT,
+  state TEXT NOT NULL,             -- seen / collecting / collected / stuck / excluded / gone / cleaned
+  sha256 TEXT,
+  night TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  PRIMARY KEY (rig, rel_path)
+);
+CREATE INDEX IF NOT EXISTS rig_files_state ON rig_files(rig, state);
+
+-- Verified frames waiting in the collector spool until S3 no longer needs them (§7.3).
+CREATE TABLE IF NOT EXISTS spool_files (
+  sha256 TEXT PRIMARY KEY, path TEXT NOT NULL, created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS collections (
@@ -44,6 +85,7 @@ CREATE TABLE IF NOT EXISTS collections (
   n_files INTEGER, total_bytes INTEGER,
   manifest_sha256 TEXT,
   opened_at TEXT, closed_at TEXT, session_end_at TEXT,
+  last_frame_at TEXT,              -- newest collected frame (quiescence, §6.1)
   PRIMARY KEY (rig, night)
 );
 

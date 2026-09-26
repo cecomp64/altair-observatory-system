@@ -17,6 +17,9 @@ no longer uploads or stacks frames, because Altair owns all image data.
 - **Removed:** the `file_added` value of `target_event.request.json`'s `event_type`.
 - `POST /heartbeat` responses carry the Hub's `api_revision`; `robs check-config` and
   `altair doctor` compare it with the client's.
+- **Widened:** a frame's `storage.s3` accepts every S3 storage class (`STANDARD`,
+  `ONEZONE_IA`, `INTELLIGENT_TIERING`, `GLACIER_IR`, `GLACIER` as well as `STANDARD_IA`
+  and `DEEP_ARCHIVE`), since each data class's storage class is configurable.
 
 ## api_revision 1
 

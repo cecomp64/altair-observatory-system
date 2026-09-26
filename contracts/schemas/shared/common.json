@@ -42,7 +42,7 @@
     },
     "S3StorageClass": {
       "anyOf": [
-        { "type": "string", "enum": ["STANDARD_IA", "DEEP_ARCHIVE"] },
+        { "type": "string", "enum": ["STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"] },
         { "type": "null" }
       ]
     },

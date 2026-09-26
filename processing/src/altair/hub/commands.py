@@ -100,8 +100,8 @@ class CommandRunner:
         rig = self._rig_for(payload["optical_train"])
         from altair import nights
 
-        nights.close(self.catalog, self.config, rig=rig, night=payload["night"], closed_by="session_end", at=payload["at"])
-        return {"rig": rig, "night": payload["night"], "closed": True}
+        state = nights.request_close(self.catalog, self.config, rig=rig, night=payload["night"], closed_by="session_end", at=payload["at"])
+        return {"rig": rig, "night": payload["night"], "state": state, "closed": state == "closed"}
 
     def _issue_waive(self, payload: dict) -> dict:
         with self.catalog.transaction() as tx:

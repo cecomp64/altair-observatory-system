@@ -158,8 +158,8 @@ def mismatches(config: AltairConfig, rig_name: str, hub_config: HubConfig) -> li
         return problems + [f"optical train {rig.hub.optical_train} isn't in the Hub config (are its optics filled in?)"]
     if abs(train["focal_length_mm"] - rig.focal_length_mm) > rig.focal_length_tolerance_mm:
         problems.append(f"focal length {rig.focal_length_mm} mm vs Hub {train['focal_length_mm']} mm")
-    cameras = getattr(config, "cameras", None) or {}  # SPEC §5 `cameras:` (kept as an extra section)
-    camera_type = (cameras.get(rig.camera) or {}).get("type")
+    camera = config.camera(rig.camera)
+    camera_type = camera.type if camera else None
     if camera_type and camera_type != train["camera_type"]:
         problems.append(f"camera type {camera_type} vs Hub {train['camera_type']}")
     return problems

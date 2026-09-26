@@ -12,8 +12,8 @@ from altair.config import AltairConfig
 
 def raise_issue(tx: sqlite3.Connection, config: AltairConfig, *, kind: str, severity: str, fingerprint: str, message: str,
                 scope: dict[str, Any], requirement: dict[str, Any] | None = None) -> int:
-    row = tx.execute("SELECT id, status, message FROM issues WHERE fingerprint = ?", (fingerprint,)).fetchone()
-    if row and row["status"] == "open" and row["message"] == message:
+    row = tx.execute("SELECT id, status, message, severity FROM issues WHERE fingerprint = ?", (fingerprint,)).fetchone()
+    if row and row["status"] == "open" and row["message"] == message and row["severity"] == severity:
         return row["id"]
     if row:
         tx.execute("UPDATE issues SET status = 'open', severity = ?, message = ?, scope_json = ?, requirement_json = ?, "

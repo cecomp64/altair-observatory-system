@@ -3,12 +3,14 @@ index`, the collector and Hub commands (SPEC §6.2, §17.2)."""
 from __future__ import annotations
 
 import json
-from typing import Any
+import sqlite3
+from typing import Any, Callable
 
 from altair.catalog.db import Catalog, now_iso
 from altair.config import AltairConfig
 from altair.hub.reporters import enqueue_frame
 from altair.issues import raise_issue, resolve_issue
+from altair.storage import blobs
 
 
 def unresolved_fingerprint(rig: str, night: str, object_header: str | None) -> str:
@@ -17,36 +19,38 @@ def unresolved_fingerprint(rig: str, night: str, object_header: str | None) -> s
 
 def register(catalog: Catalog, config: AltairConfig, *, sha256: str, size: int, logical_path: str, data_class: str,
              location: str, uri: str, fields: dict[str, Any], rig: str, origin: str, file_name: str, headers: dict[str, Any],
-             resolution: tuple[int | None, str] | None, verified_at: str | None = None) -> tuple[int, bool]:
-    """Blob + replica + frame + outbox item, in one transaction. Returns
+             resolution: tuple[int | None, str] | None, verified_at: str | None = None,
+             extra_replicas: list[tuple[str, str]] = (), status: str | None = None, status_reason: str | None = None,
+             on_created: Callable[[sqlite3.Connection, int], None] | None = None) -> tuple[int, bool]:
+    """Blob + replicas + frame + outbox item, in one transaction. Returns
     (frame_id, created). A blob that is already known is only linked to the
-    new replica; it is never registered twice."""
+    new replicas; it is never registered twice. ``status`` (from ingest
+    validation) overrides the default; ``on_created`` runs in the same
+    transaction for a new frame."""
     with catalog.transaction() as tx:
         existing = tx.execute("SELECT id FROM frames WHERE sha256 = ?", (sha256,)).fetchone()
-        tx.execute("INSERT OR IGNORE INTO blobs(sha256, size_bytes, data_class, logical_path, origin_rig, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                   (sha256, size, data_class, logical_path, rig, now_iso()))
-        tx.execute("INSERT OR IGNORE INTO locations(name, kind, durable, read_only) VALUES (?, 'fs', ?, ?)",
-                   (location, int(location == "nas"), int(location.startswith("external:"))))
-        tx.execute("INSERT OR REPLACE INTO replicas(sha256, location, uri, state, verified_at, verify_method, last_seen_at) "
-                   "VALUES (?, ?, ?, 'present', ?, 'sha256_full', ?)", (sha256, location, uri, verified_at or now_iso(), now_iso()))
+        blobs.add_blob(tx, sha256, size, data_class, logical_path, rig)
+        for loc, loc_uri in [(location, uri), *extra_replicas]:
+            blobs.set_replica(tx, sha256, loc, loc_uri, verified_at=verified_at)
         if existing:
             return existing["id"], False
 
         target_id, source = resolution or (None, None)
         is_light = fields["image_type"] == "light"
-        status = "valid"
-        if is_light and target_id is None and config.hub.enabled and config.hub.require_target_link:
-            status = "held"
+        if status is None:
+            status = "valid"
+            if is_light and target_id is None and config.hub.enabled and config.hub.require_target_link:
+                status = "held"
         frame_id = tx.execute(
             """INSERT INTO frames(sha256, image_type, night, date_obs, rig, telescope, camera, filter, target, focal_length, exposure,
                  gain, offset, sensor_temp, binning, readout_mode, width, height, bayer_pattern, rotator_pos, rotator_units,
-                 ra_deg, dec_deg, rotation_deg, raw_headers_json, status, origin, file_name, hub_target_id, assignment_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 ra_deg, dec_deg, rotation_deg, raw_headers_json, status, status_reason, origin, file_name, hub_target_id, assignment_source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (sha256, fields["image_type"], str(fields["night"]), fields["date_obs"].isoformat().replace("+00:00", "Z"), rig,
              fields["telescope"], fields["camera"], fields["filter"], fields["target"], fields["focal_length"], fields["exposure"],
              fields["gain"], fields["offset"], fields["sensor_temp"], fields["binning"], fields["readout_mode"],
              _int(fields["width"]), _int(fields["height"]), fields["bayer_pattern"], fields["rotator_pos"], fields["rotator_units"],
-             fields["ra_deg"], fields["dec_deg"], fields["rotation_deg"], json.dumps(headers, default=str), status, origin, file_name,
+             fields["ra_deg"], fields["dec_deg"], fields["rotation_deg"], json.dumps(headers, default=str), status, status_reason, origin, file_name,
              target_id, source if is_light else None),
         ).lastrowid
         if status == "held":
@@ -56,6 +60,8 @@ def register(catalog: Catalog, config: AltairConfig, *, sha256: str, size: int, 
                         message=f"Lights on {rig} for the night of {night} match no Hub target (OBJECT {fields['target']!r}). Assign them in the Hub.",
                         scope={"rig": rig, "night": night, "object": fields["target"], "filter": fields["filter"]},
                         requirement={"assign_target": True})
+        if on_created:
+            on_created(tx, frame_id)
         if config.hub.enabled:
             enqueue_frame(tx, config, frame_id)
         return frame_id, True

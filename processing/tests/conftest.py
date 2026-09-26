@@ -227,3 +227,25 @@ def write_fits(path: Path, *, imagetyp="LIGHT", object_="#34 M31", filter_="H-al
     path.parent.mkdir(parents=True, exist_ok=True)
     fits.writeto(path, data, header, overwrite=True)
     return path
+
+
+@pytest.fixture
+def s3_client():
+    """A moto S3 with the archive bucket (versioning + Object Lock), as SPEC §7.5 sets it up."""
+    import boto3
+    from moto import mock_aws
+
+    with mock_aws():
+        client = boto3.client("s3", region_name="us-west-2")
+        client.create_bucket(Bucket="astro-archive", CreateBucketConfiguration={"LocationConstraint": "us-west-2"},
+                             ObjectLockEnabledForBucket=True)
+        yield client
+
+
+@pytest.fixture(autouse=True)
+def _wall_clock():
+    """Tests that drive time call altair.catalog.db.use_clock; restore it after."""
+    from altair.catalog import db
+
+    yield
+    db.use_clock(None)

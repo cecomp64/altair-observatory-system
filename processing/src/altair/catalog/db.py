@@ -13,13 +13,32 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
-SCHEMA_VERSION = "8"
+SCHEMA_VERSION = "9"
+
+# Columns added after a table first shipped: (table, column, declaration).
+# CREATE TABLE IF NOT EXISTS leaves an older catalog's tables as they were, so
+# these are added in place when missing.
+ADDED_COLUMNS = [
+    ("replicas", "version_id", "TEXT"),
+    ("replicas", "missing_reason", "TEXT"),
+    ("collections", "last_frame_at", "TEXT"),
+]
+
+
+_clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return _clock().astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def use_clock(clock: Callable[[], datetime] | None) -> None:
+    """Timestamps written to the catalog come from ``clock`` (tests and replays
+    drive time; None restores the wall clock)."""
+    global _clock
+    _clock = clock or (lambda: datetime.now(timezone.utc))
 
 
 class Catalog:
@@ -34,6 +53,10 @@ class Catalog:
         if self.path != ":memory:":
             self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(resources.files("altair.catalog").joinpath("schema.sql").read_text())
+        for table, column, declaration in ADDED_COLUMNS:
+            columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            if column not in columns:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
         self.conn.execute("INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('version', ?)", (SCHEMA_VERSION,))
 
     @contextmanager

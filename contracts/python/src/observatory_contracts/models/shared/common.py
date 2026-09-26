@@ -30,7 +30,9 @@ class Sha256(RootModel[str]):
 
 class FrameStorage(BaseModel):
     nas: bool | None = None
-    s3: Literal["STANDARD_IA", "DEEP_ARCHIVE"] | None = None
+    s3: Literal["STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"] | None = (
+        None
+    )
     verified_at: AwareDatetime | None = None
 
 

@@ -13,7 +13,10 @@ dependencies = [
   "numpy>=1.26",
   "Pillow>=10.0",
   "keyring>=24.0",
+  "boto3>=1.34",
+  "zstandard>=0.22",
   "tzdata; sys_platform == 'win32'",
+  "pywin32>=306; sys_platform == 'win32'",   # Job Objects, exclusive-open checks, toasts
 ]
 
 [project.optional-dependencies]
@@ -22,6 +25,8 @@ dev = [
   "respx>=0.21",
   "jsonschema[format]>=4.18",
   "import-linter>=2.0",
+  "moto[s3]>=5.0",
+  "hypothesis>=6.100",
 ]
 
 [project.scripts]
