@@ -112,6 +112,23 @@ class Publisher:
             f"AND n.location = 'nas' AND n.state = 'present')", tuple(classes))
         return sum(self._to_nas(r["sha256"], Path(r["uri"]), r["logical_path"], r["data_class"]) for r in rows if Path(r["uri"]).exists())
 
+    # ── sidecars (§7.9: the archive describes itself) ────────────────────
+    def project_block(self, project_id: int) -> dict:
+        p = self.catalog.one("SELECT * FROM projects WHERE id = ?", (project_id,))
+        return {k: p[k] for k in ("path", "target", "telescope", "camera", "rig", "hub_target_id", "hub_project_id", "drizzle_scale",
+                                  "multi_night_mode", "reference_version", "settings_json", "created_at")}
+
+    def blob_block(self, sha: str) -> dict:
+        b = self.catalog.one("SELECT * FROM blobs WHERE sha256 = ?", (sha,))
+        return {"sha256": sha, "logical_path": b["logical_path"], "size": b["size_bytes"], "class": b["data_class"]}
+
+    def write_sidecar(self, work_dir: Path, name: str, logical: str, body: dict, rig: str | None, *, to_nas: bool = True) -> str:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        path = work_dir / name
+        path.write_text(json.dumps({"schema": 1, **body}, indent=1, sort_keys=True, default=str), encoding="utf-8")
+        sha, _, _ = self.store(path, lambda s: logical, "metadata", rig=rig, to_nas=to_nas)
+        return sha
+
     # ── dispatch ─────────────────────────────────────────────────────────
     def publish(self, job: sqlite3.Row, result: RunResult, work_dir: Path) -> dict[str, Any]:
         plan = json.loads(job["plan_json"])
@@ -159,6 +176,11 @@ class Publisher:
                 for s in plan["inputs"]:
                     enqueue_frame_patch(tx, s, {"status": "processed"})
             self.auto_resolve(tx, dict(master))
+        master_logical = self.blob_block(sha)["logical_path"]
+        self.write_sidecar(work_dir, f"master_{_sha8(sha)}.json", master_logical.rsplit(".", 1)[0] + ".json",
+                           {"type": "calibration_master", "blob": self.blob_block(sha), "master": {**m, "n_frames": master["n_frames"]},
+                            "source_frames": plan["inputs"], "calibrate_with": plan.get("calibrate_with"), "metrics": result.metrics,
+                            "software": result.software}, m["rig"])
         return {"master": sha, "calibration_master_id": master["id"]}
 
     def auto_resolve(self, tx: sqlite3.Connection, master: dict) -> list[int]:
@@ -214,6 +236,10 @@ class Publisher:
             tx.execute("UPDATE projects SET reference_sha256 = ?, reference_night = ?, pixel_scale_arcsec = coalesce(?, pixel_scale_arcsec) "
                        "WHERE id = ? AND reference_version = ? AND reference_sha256 IS NULL",
                        (sha, plan["night"], metrics.get("pixel_scale_arcsec"), plan["project_id"], version))
+        ref_logical = self.blob_block(sha)["logical_path"]
+        self.write_sidecar(work_dir, f"reference_{_sha8(sha)}.json", ref_logical.rsplit(".", 1)[0] + ".json",
+                           {"type": "project_reference", "blob": self.blob_block(sha), "project": self.project_block(plan["project_id"]),
+                            "version": version, "night": plan["night"], "source_sha256": out.source_sha256, "metrics": metrics}, plan["rig"])
         products.render_preview(self.config, "project_reference", ref["id"], out.path)
         with self.catalog.transaction() as tx:
             products.enqueue(tx, self.config, "project_reference", ref["id"])
@@ -251,7 +277,9 @@ class Publisher:
                                          "calibrated_frame", rig=plan["rig"])
                 calibrated.append(c_sha)
 
-        sidecar = {"schema": 1, "project_id": plan["project_id"], "night": plan["night"], "filter": plan["filter"], "rig": plan["rig"],
+        sidecar = {"schema": 1, "type": "night_master", "project_id": plan["project_id"], "project": self.project_block(plan["project_id"]),
+                   "blob": self.blob_block(sha), "calibrated_blobs": [self.blob_block(c) for c in calibrated],
+                   "night": plan["night"], "filter": plan["filter"], "rig": plan["rig"],
                    "kind": plan["stack_kind"], "master_sha256": sha, "reference": plan.get("reference"),
                    "reference_version": plan["reference_version"], "groups": plan["groups"], "inputs": all_lights, "used": used,
                    "frames": result.frames, "metrics": metrics, "calibrated_frames": calibrated, "software": result.software,
@@ -350,9 +378,12 @@ class Publisher:
                    "percent": 100.0 * (weights.get(n["sha256"]) or 0) / total_w, "frames": n.get("frames"), "exposure_s": n.get("exposure_s")}
                   for n in plan["nights"]]
         frames = sorted({s for n in plan["nights"] for s in n.get("frame_sha256s", [])})
-        sidecar = {"schema": 1, "project_id": plan["project_id"], "filter": plan["filter"], "version": version, "sha256": sha,
+        sidecar = {"schema": 1, "type": "multi_night_master", "project_id": plan["project_id"], "project": self.project_block(plan["project_id"]),
+                   "blob": self.blob_block(sha), "extra_blobs": {role: self.blob_block(x) for role, x in extra.items()},
+                   "input_frames": frames, "total_exposure_s": float(sum(n.get("exposure_s") or 0 for n in plan["nights"])),
+                   "plan_hash": job["plan_hash"], "filter": plan["filter"], "version": version, "sha256": sha,
                    "mode": plan["mode"], "weighting": plan["weighting"], "normalization": plan["normalization"], "inputs": inputs,
-                   "excluded": plan.get("excluded", []), "outputs": extra, "metrics": result.metrics, "plan_hash": job["plan_hash"],
+                   "excluded": plan.get("excluded", []), "outputs": extra, "metrics": result.metrics,
                    "reference": plan.get("reference"), "software": result.software}
         sidecar_path = work_dir / f"v{version:03d}.json"
         sidecar_path.write_text(json.dumps(sidecar, indent=1, sort_keys=True, default=str), encoding="utf-8")

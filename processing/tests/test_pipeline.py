@@ -79,7 +79,8 @@ def test_a_night_end_to_end(setup, tmp_path):
         assert reps["cache"]["state"] == "present"
     assert catalog.one("SELECT data_class FROM blobs WHERE sha256 = ?", (nm["sha256"],))["data_class"] == "night_master"
     assert catalog.one("SELECT count(*) AS n FROM blobs WHERE data_class = 'calibrated_frame'")["n"] == 6
-    assert catalog.one("SELECT count(*) AS n FROM blobs WHERE data_class = 'metadata'")["n"] == 2   # night + merge sidecars
+    # Sidecars: 3 calibration masters, the reference, the night, the merge.
+    assert catalog.one("SELECT count(*) AS n FROM blobs WHERE data_class = 'metadata'")["n"] == 6
     published = list((tmp_path / "published").rglob("*.fits"))
     assert any("6x300s" in p.name for p in published) and any("_v001" in p.name for p in published)
     # Work directories of succeeded jobs are gone.

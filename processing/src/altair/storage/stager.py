@@ -331,6 +331,38 @@ class Stager:
             busy |= set(json.loads(job["plan_json"]).get("input_paths", {}))
         return busy
 
+    # ── repopulating a replaced NAS (§7.10) ──────────────────────────────
+    def replicate_to_nas(self, classes: list[str], *, dry_run: bool = False) -> dict:
+        """Write every blob of ``classes`` whose NAS copy is missing to the NAS,
+        from the cache or S3 (downloaded and verified first)."""
+        if self.nas is None:
+            raise ValueError("no NAS configured")
+        marks = ",".join("?" * len(classes))
+        out = {"written": 0, "bytes": 0, "present": 0, "no_source": 0, "planned": []}
+        for row in self.catalog.query(f"SELECT * FROM blobs WHERE data_class IN ({marks}) ORDER BY logical_path", tuple(classes)):
+            target = self.nas.path(row["logical_path"])
+            if target.exists():
+                out["present"] += 1
+                continue
+            reps = blobs.replicas(self.catalog.conn, row["sha256"])
+            cache = reps.get("cache")
+            local = Path(cache["uri"]) if blobs.verified(cache) and Path(cache["uri"]).exists() else None
+            source = "cache" if local else ("s3" if self.s3 and reps.get("s3") and reps["s3"]["state"] in ("present", "restored") else None)
+            if source is None:
+                out["no_source"] += 1
+                continue
+            out["planned"].append((row["logical_path"], source, row["size_bytes"]))
+            if dry_run:
+                continue
+            if local is None:
+                local = self._fetch(row["sha256"], row, ("s3", dict(reps["s3"])))
+            uri = self.nas.write_verified(local, row["logical_path"], row["sha256"])
+            with self.catalog.transaction() as tx:
+                blobs.set_replica(tx, row["sha256"], "nas", uri)
+            out["written"] += 1
+            out["bytes"] += row["size_bytes"]
+        return out
+
     # ── hand-off (§7.7 step 7) ───────────────────────────────────────────
     def handoff(self, work_dir: Path, paths: dict[str, str], names: dict[str, str]) -> dict[str, str]:
         """NAS paths stay as they are; cache files are hard-linked into

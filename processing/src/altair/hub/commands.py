@@ -14,7 +14,6 @@ from altair import frames as frame_ops
 from altair.catalog.db import Catalog, now_iso
 from altair.config import AltairConfig
 from altair.hub.client import HubClient, HubUnavailable
-from altair.issues import resolve_issue
 
 
 class CommandError(Exception):
@@ -104,11 +103,13 @@ class CommandRunner:
         return {"rig": rig, "night": payload["night"], "state": state, "closed": state == "closed"}
 
     def _issue_waive(self, payload: dict) -> dict:
-        with self.catalog.transaction() as tx:
-            done = resolve_issue(tx, self.config, payload["fingerprint"], status="waived", resolution=f"waived:{payload['note']}")
-        if not done:
-            raise CommandError(f"no open issue {payload['fingerprint']}")
-        return {"waived": True}
+        from altair.issue_actions import ActionError, waive
+
+        try:
+            result = waive(self.catalog, self.config, payload["fingerprint"], payload["note"], source="hub")
+        except ActionError as exc:
+            raise CommandError(f"no open issue {payload['fingerprint']}") from exc
+        return {"waived": True, "excluded_nights": len(result["excluded"])}
 
     def _refresh_config(self, payload: dict) -> dict:
         if self.refresh_config:

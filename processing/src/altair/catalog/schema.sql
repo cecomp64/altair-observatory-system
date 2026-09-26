@@ -221,6 +221,12 @@ CREATE TABLE IF NOT EXISTS issues (
   created_at TEXT, last_notified_at TEXT, resolved_at TEXT, resolution TEXT, rerun_job_ids_json TEXT
 );
 
+-- Every notification sent, per channel (SPEC §10.3): each is sent once.
+CREATE TABLE IF NOT EXISTS notifications_sent (
+  key TEXT NOT NULL, channel TEXT NOT NULL, sent_at TEXT NOT NULL,
+  PRIMARY KEY (key, channel)
+);
+
 -- Requests the planner consumes: re-plans after assignments, reruns,
 -- include/exclude, re-reference, mode changes (from the CLI or Hub commands).
 CREATE TABLE IF NOT EXISTS plan_requests (

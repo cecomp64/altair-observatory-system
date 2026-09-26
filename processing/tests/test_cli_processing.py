@@ -45,3 +45,32 @@ def test_processing_commands(tmp_path):
     assert "blocked - excluded by the user" in run("merge", "--target", "34", "--filter", "Ha").output
     assert "viewing copies written" in run("publish", "--refresh").output
     assert "job 1 queued" in run("rerun", "--job", "1").output
+
+
+def test_ops_commands(tmp_path):
+    config = pipeline_config(tmp_path, pixinsight=fake_pixinsight(tmp_path))
+    path = tmp_path / "altair.yaml"
+    path.write_text(yaml.safe_dump(config.model_dump(mode="json")))
+    catalog = Catalog(config.catalog_path)
+    nas = config.storage.nas.root
+    for i in range(6):
+        add_frame(catalog, night="2026-09-24", date_obs=f"2026-09-25T06:{i:02d}:00Z", nas_root=nas, width=60, height=40)
+        add_frame(catalog, "dark", night="2026-09-24", date_obs=f"2026-09-25T12:{i:02d}:00Z", nas_root=nas, width=60, height=40)
+    catalog.close()
+    run = lambda *args: CliRunner().invoke(main, ["--config", str(path), *args], catch_exceptions=False)
+
+    run("rerun", "--night", "2026-09-24")
+    out = run("serve", "--once").output
+    assert "processing: ok" in out and "notify: ok" in out
+    assert "FLAT_MISSING" in run("issues", "--open").output
+    assert "| esprit | Ha |" in run("issue", "flats-plan").output
+    assert run("issue", "show", "1").output.startswith("#1 ")
+    status = run("status", "--write").output
+    assert "blocking" in status and "status page:" in status and (tmp_path / "state" / "ALTAIR_STATUS.html").exists()
+    doctor = run("doctor").output
+    assert "[ok] state folder writable" in doctor and "PixInsight executable" in doctor
+    assert "standalone mode" in doctor
+    assert "waived" in run("issue", "waive", "1", "--note", "testing").output
+    rebuilt = run("storage", "rebuild-catalog", "--out", str(tmp_path / "rebuilt.sqlite")).output
+    assert "rebuilt" in rebuilt
+    assert "exists" in CliRunner().invoke(main, ["--config", str(path), "storage", "rebuild-catalog"]).output

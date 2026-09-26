@@ -225,7 +225,8 @@ def _nas_root(config: AltairConfig) -> str | None:
 @main.command()
 @pass_ctx
 def doctor(ctx: Ctx) -> None:
-    """Hub checks (SPEC §5.1): reachability, key scopes, node, optical trains, timezone, filters."""
+    """This PC (state, PixInsight, disks, session) and the Hub (SPEC §4.1, §5.1): reachability, key scopes, node,
+    optical trains, timezone, filters."""
     from observatory_contracts import check_hub_revision
 
     from altair.hub.client import HubError
@@ -238,9 +239,12 @@ def doctor(ctx: Ctx) -> None:
         ok &= passed
         click.echo(f"[{'ok' if passed else 'FAIL'}] {label}{': ' + detail if detail else ''}")
 
+    from altair.cli_ops import local_checks
+
+    ok = local_checks(ctx)
     if not ctx.config.hub.enabled:
         click.echo("hub.enabled is false: standalone mode, no Hub checks.")
-        return
+        sys.exit(0 if ok else 1)
     try:
         sync = ctx.sync()
         hub_config = sync.pull_config()
@@ -274,9 +278,9 @@ def serve_hub(ctx: Ctx, interval: float) -> None:
     ctx.sync().run_forever(interval)
 
 
-from altair import cli_processing, cli_storage  # noqa: E402 - command families live in their own modules
+from altair import cli_ops, cli_processing, cli_storage  # noqa: E402 - command families live in their own modules
 
-for command in cli_storage.COMMANDS + cli_processing.COMMANDS:
+for command in cli_storage.COMMANDS + cli_processing.COMMANDS + cli_ops.COMMANDS:
     main.add_command(command)
 
 

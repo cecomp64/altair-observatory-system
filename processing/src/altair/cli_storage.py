@@ -310,6 +310,55 @@ def restore_catalog(ctx: Ctx, latest: bool, name: str | None, source: str) -> No
     click.echo(f"catalog restored to {path}; the previous one is kept beside it")
 
 
+@storage.command("replicate")
+@click.option("--to", "to", type=click.Choice(["nas"]), required=True)
+@click.option("--classes", default="calibration_master,project_reference,night_master,multi_night_master,metadata", show_default=True)
+@click.option("--dry-run", is_flag=True)
+@pass_ctx
+def storage_replicate(ctx: Ctx, to: str, classes: str, dry_run: bool) -> None:
+    """Backfill a location, e.g. a replaced NAS, from the cache and S3 (SPEC §7.10)."""
+    from altair.storage.stager import Stager
+
+    report = Stager(ctx.catalog, ctx.config, s3=ctx.s3(required=False)).replicate_to_nas(
+        [c.strip() for c in classes.split(",") if c.strip()], dry_run=dry_run)
+    if dry_run:
+        by_source: dict[str, int] = {}
+        for _, source, size in report["planned"]:
+            by_source[source] = by_source.get(source, 0) + size
+        click.echo(f"would write {len(report['planned'])} file(s): " + ", ".join(f"{human_bytes(n)} from {s}" for s, n in by_source.items()))
+    else:
+        click.echo(f"wrote {report['written']} file(s), {human_bytes(report['bytes'])}")
+    click.echo(f"already on the NAS: {report['present']}; no source: {report['no_source']}")
+
+
+@storage.command("rebuild-catalog")
+@click.option("--from", "source", type=click.Choice(["nas", "s3", "both"]), default="nas", show_default=True)
+@click.option("--out", "out", type=click.Path(dir_okay=False), help="Write the rebuilt catalog here (default: the configured catalog path)")
+@pass_ctx
+def storage_rebuild_catalog(ctx: Ctx, source: str, out: str | None) -> None:
+    """Rebuild the catalog from manifests and sidecars, reading no images (SPEC §7.9)."""
+    from pathlib import Path
+
+    from altair.catalog.db import Catalog
+    from altair.storage.rebuild import FsSource, Rebuilder, S3Source
+
+    target = Path(out) if out else ctx.config.catalog_path
+    if target.exists():
+        raise click.ClickException(f"{target} exists: move it aside (or pass --out) so nothing is overwritten")
+    sources = []
+    if source in ("nas", "both"):
+        sources.append(FsSource(ctx.nas()))
+    if source in ("s3", "both"):
+        sources.append(S3Source(ctx.s3()))
+    report = Rebuilder(Catalog(target), ctx.config, sources).run()
+    click.echo(f"rebuilt {target}: {report.frames} frames ({report.frames_without_copy} without any copy), {report.collections} nights, "
+               f"{report.calibration_masters} calibration masters, {report.projects} projects, {report.references} references, "
+               f"{report.night_masters} night masters, {report.multi_night_masters} multi-night masters, {report.blobs} blobs")
+    for note in report.skipped:
+        click.echo(f"  note: {note}")
+    click.echo("Issues are re-derived by re-planning: `altair rerun --night …` for nights still to process.")
+
+
 @storage.command("approve")
 @click.argument("fingerprint")
 @pass_ctx

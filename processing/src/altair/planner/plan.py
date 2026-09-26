@@ -214,11 +214,24 @@ class Planner:
                                              cooled=self._cooled(rig_cfg.camera))
             group.flat = matching.match_flat(group.need, candidates, self.config.calibration_matching, rig_cfg.rotator,
                                              focal_tolerance=rig_cfg.focal_length_tolerance_mm, events=events)
+            if isinstance(group.flat, Miss):
+                group.flat = self._flat_override(rig, night, group, candidates) or group.flat
             plan.groups.append(group)
         self._plan_stacks(plan, {p["id"]: p for p in projects.values()})
         if not dry_run:
             self._commit(plan)
         return plan
+
+    def _flat_override(self, rig: str, night: str, group: LightGroup, candidates: list[dict]) -> Match | None:
+        """`altair issue resolve --flat … --force-match` (§10.4): the user's flat, recorded as an override."""
+        from altair.issue_actions import override_key
+
+        override = self.catalog.get_state(override_key(rig, night, group.filter))
+        master = next((m for m in candidates if override and m.get("sha256") == override["sha256"]), None)
+        if master is None:
+            return None
+        return Match(master, {"night": master["night"], "flat_override": True, "override_reason": override["reason"],
+                              "issue_id": override["issue_id"]})
 
     def _cooled(self, camera: str) -> bool:
         cam = self.config.camera(camera)
