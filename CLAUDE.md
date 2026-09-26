@@ -13,7 +13,7 @@ status and the outstanding work. Superseded plans are in `docs/archive/`.
 |---|---|---|
 | `hub/` | The Hub: central server, UI, API, PostgreSQL | Ruby 3.3, Rails 8, Hotwire, Tailwind, RSpec |
 | `rig-agent/` | Rig agent `robs` (NINA Target Scheduler sync) | Python ≥ 3.10, click, pytest, uv |
-| `processing/` | Processing core Altair | Python 3.12, uv, PixInsight (planned) |
+| `processing/` | Processing core Altair | Python 3.12, uv, PixInsight |
 | `contracts/` | JSON Schemas + generated pydantic models (`observatory-contracts`) | JSON Schema 2020-12, pydantic v2 |
 | `tools/` | Repo-wide scripts (contract validation and codegen) | Python |
 
@@ -68,8 +68,9 @@ uv sync --extra dev
 uv run pytest
 uv run lint-imports                      # no imports of robs or hub
 ```
-Spec: `processing/docs/SPEC.md` (v0.8). The Hub sync (`src/altair/hub/`), catalog and
-`altair index` are implemented; the PixInsight pipeline is not yet.
+Spec: `processing/docs/SPEC.md` (v0.8). SPEC phases 1–8 are implemented and tested with a
+fake PixInsight (`tests/fake_pixinsight.py`). The PJSR scripts in `src/altair/pjsr/` follow
+`docs/pixinsight-cli.md` but have not run on a real PixInsight yet (SPEC phase 0).
 
 ### End-to-end (needs a running Hub)
 ```bash

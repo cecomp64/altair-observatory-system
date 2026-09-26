@@ -671,7 +671,8 @@ and §17).
 |---|---|
 | Hub integration (SPEC §5.1, §17) | **Built and tested:** config, catalog, header ingest, target resolution, outbox, commands, config sync, reconciliation, previews, `altair index`, and the CLI below. |
 | Integration points for the pipeline | `altair.frames.register` (a collected or indexed frame enters the catalog and the outbox), `altair.nights.close`, `altair.issues.raise_issue` / `resolve_issue` (mirrored to the Hub), and `plan_requests` (commands the planner must act on). |
-| SPEC phases 0–8: PixInsight spike, collector, NAS, S3 backup, cleanup, planner, staging, night stacks, calibration library, merger, issue and rerun loop, `altaird` daemon, disaster recovery | **Not built** (§9.3). `altair serve-hub` runs only the Hub sync loop in the foreground. |
+| SPEC phases 1–8: collector, NAS, S3 backup, cleanup, planner, staging, night stacks, calibration library, merger, issue and rerun loop, notifications, `altaird` daemon, disaster recovery | **Built and tested** with a fake PixInsight that follows the job contract (`processing/docs/pixinsight-cli.md`). Whole nights run end to end in the tests: `altaird` collects, plans, runs, merges and reports, and then the catalog is rebuilt from the NAS. |
+| SPEC phase 0: the PixInsight spike | **Open** (§9.3). The PJSR scripts (`src/altair/pjsr/`) have not run on a real PixInsight. Headless WBPP driving waits on the spike, so `night_stack_engine` defaults to `native` (ImageCalibration → StarAlignment → LocalNormalization → ImageIntegration). |
 
 #### 8.2.2 Configuration (`altair.yaml`)
 
@@ -718,38 +719,64 @@ frames fall back to a text-target project (standalone sites).
 
 SQLite in WAL mode. It has the SPEC §6.3 tables (`blobs`, `locations`, `replicas`,
 `collections`, `frames`, `calibration_masters`, `equipment_events`, `projects`,
-`night_masters`, `multi_night_masters`, `jobs`, `issues`) plus `plan_requests`, and the Hub
-tables: `hub_outbox`, `hub_commands` (executed command ids), `hub_cache` (the last good
-config) and `hub_state`. Frames carry `hub_target_id`, `assignment_source` and
-`hub_synced_at`. Projects are keyed by (`hub_target_id`, `rig`).
+`night_masters`, `multi_night_masters`, `jobs`, `issues`) and these further tables:
+
+| Group | Tables |
+|---|---|
+| Storage | `fetch_requests`, `cleanup_ledger`, `rig_files`, `spool_files` |
+| Processing | `reference_frames`, `night_decisions`, `publish_intents` |
+| Planner input and alerts | `plan_requests`, `notifications_sent` |
+| Hub | `hub_outbox`, `hub_commands` (executed command ids), `hub_cache` (the last good config), `hub_state` |
+
+Frames carry `hub_target_id`, `assignment_source` and `hub_synced_at`. Projects are keyed
+by (`hub_target_id`, `rig`), and their logical path is fixed when they are created. Jobs
+are keyed by `plan_hash`. `resolved_hash` is the same plan with the masters it waited
+for filled in, so re-planning a processed night adds no work.
 
 #### 8.2.5 CLI
 
 ```
-altair doctor
-altair hub status | sync-now | pull-config
-altair hub reconcile [--night DATE --rig R]
-altair hub outbox list [--parked] | retry ID | drop ID
-altair frames unlinked [--night DATE --rig R]
-altair frames assign --target ID (--sha256 H... | --night DATE --rig R --object NAME)
-altair project list [--hub-project ID] | show --target ID
-altair index DIR --rig R [--adopt] [--dry-run]
-altair serve-hub [--interval S]
+altair serve [--windowless] [--once]                 # altaird
+altair doctor                                        # this PC, then the Hub
+altair status [--write] | jobs [--status S]
+altair plan --night DATE [--rig R] | run [--max-jobs N]
+altair rerun --job ID | --issue ID | --night DATE [--target ID] [--filter F]
+altair issues [--open] | issue show|waive|resolve|flats-plan ...
+altair calib list | import FILE --kind K --rig R [...]
+altair night include|exclude --target ID --night DATE --filter F
+altair merge --target ID --filter F [--dry-run]
+altair publish --refresh
+altair rigs list | check;  altair collect status | now | close-night | exclude
+altair storage status | locate | fetch | approve | deny | scrub | cleanup | ledger | replicate --to nas
+altair storage backup status | run;  storage nas init | status;  storage s3 init | policy | check
+altair storage backup-catalog | restore-catalog | rebuild-catalog --from nas|s3|both
+altair hub status | sync-now | pull-config | reconcile | outbox list|retry|drop
+altair frames unlinked | assign;  altair project list | show;  altair index DIR --rig R
 ```
-
-The pipeline commands in SPEC §12.1 (`run`, `rerun`, `status`, `storage …`, `plan`, …)
-arrive with the pipeline.
 
 #### 8.2.6 Modules
 
 ```
 src/altair/
-  config.py          altair.yaml; node key from ALTAIR_HUB_API_KEY or Credential Manager (keyring)
-  catalog/           schema.sql, db.py (transactions, WAL)
-  ingest/headers.py  FITS/XISF headers → canonical fields, night, rotator
+  config.py          altair.yaml (SPEC §5); node key from ALTAIR_HUB_API_KEY or Credential Manager (keyring)
+  catalog/           schema.sql, db.py (transactions, WAL, added columns)
+  collector/         rig polling, stability, double read, verified NAS writes, manifests (§7.3)
+  ingest/            headers → canonical fields; ingest checks (HEADER_INCOMPLETE, UNKNOWN_RIG)
   frames.py          register / assign / adopt a frame (catalog + outbox in one transaction)
-  nights.py          close a night
-  issues.py          raise / resolve issues, mirrored to the Hub
+  nights.py          request_close / close a night; triggers.py: quiescence and the scheduled fallback
+  storage/           locations (NAS, S3), blobs, replicator, cleanup, stager, scrub, nas, s3_setup,
+                     catalog_backup, rebuild (§7)
+  planner/           plan (jobs, issues, plan requests), matching (§8), projects
+  executor/          pixinsight (process, Job Object, timeout), executor (queue, staging, retries,
+                     recovery), contract (job.json / result.json)
+  pjsr/              altair_runner.js and the per-kind PixInsight scripts
+  publish/           verify, publisher (blobs, sidecars, viewing copies), products (Hub data products)
+  projects/          merge (gates, MERGE planning), weights
+  calibration.py     the calibration library, `calib import`
+  issues.py          raise / resolve issues, mirrored to the Hub; issue_actions.py: waive, resolve, flats plan
+  notify/            toast, Pushover, ntfy, email; the notifier
+  status_page.py     ALTAIR_STATUS.html / .json
+  daemon.py          altaird: every worker on its own thread
   hub/
     client.py        httpx client: auth, ETag, multipart, typed errors
     config_sync.py   /config → hub_cache → HubConfig (targets, aliases, trains, filters)
@@ -762,7 +789,7 @@ src/altair/
     reconcile.py     night digests
     previews.py      auto-STF stretch → JPEG preview and thumbnail (FITS; XISF with the xisf package)
   index/indexer.py   altair index
-  cli.py
+  cli.py, cli_*.py   the CLI
 ```
 
 #### 8.2.7 `altair index`
@@ -855,9 +882,12 @@ Every feature of the desktop app is in the Hub or Altair:
 - The processing API and file search (P3).
 - Altair's Hub integration (P4).
 - Rig agent integration (P5).
+- The legacy paths removed (§9.2).
+- The Hub gaps closed (§9.4).
+- Releases, packaging and end-to-end CI (§9.5).
+- The Altair pipeline, SPEC phases 1–8 (§9.3).
 
-The phase names come from the [archived plan](archive/2026-09-integration-plan.md). All CI
-workflows are green on `main`.
+The phase names come from the [archived plan](archive/2026-09-integration-plan.md).
 
 The items below are open, grouped by area.
 
@@ -884,11 +914,17 @@ deployment is a fresh install:
    - Install `robs` and run `robs check-config` and `robs check-schema`.
    - Wire NINA: `robs roof-open` on roof open, `robs end-of-night` at the end of the
      sequence, and `robs sync-progress` on a schedule.
-5. **Verify on the first nights** (open questions §13 #2, #3, #13):
+5. **Processing PC:** run the PixInsight spike (§9.3, phase 0) and fix the PJSR scripts
+   where needed. Then:
+   - `altair storage nas init` and `altair storage s3 init`;
+   - `altair doctor`;
+   - `deploy/windows/install-task.ps1`;
+   - the disaster-recovery drill in `processing/docs/dr-runbook.md`.
+6. **Verify on the first nights** (open questions §13 #2, #3, #13):
    - NINA writes `#<id> <name>` into `OBJECT`.
    - Target Scheduler has the per-project columns.
    - Telescopius returns right ascension in the unit the client assumes.
-6. **Retire the old repositories:**
+7. **Retire the old repositories:**
    - Archive `remote-observatory-queueing-system`, `remote-observatory-worker` and
      `altair-pre-processor` on GitHub.
    - Make a final release of `astrophotography-database`, disable its workflows and
@@ -906,21 +942,20 @@ stays as the fallback for older Target Scheduler versions.
 
 ### 9.3 Altair processing pipeline (SPEC §15)
 
-These are the SPEC phases, in order:
+| Phase | Deliverable | State |
+|---|---|---|
+| 0 | PixInsight spike: CLI flags, `jsArguments`, headless WBPP with a manual reference; SubframeSelector, LocalNormalization and ImageIntegration with keyword weights | **Open**: needs the processing PC with PixInsight |
+| 1 | Collector, NAS, ingest, S3 backup, cleanup with a ledger, catalog backups, `storage s3 init` | Done |
+| 2, 2b | Planner and calibration matching; staging, retrieval, restores and approvals; scrubbing | Done |
+| 3 | Executor and PJSR runner; night stacks, verifier, publisher, Hub data products with previews | Done (scripts unverified, see phase 0) |
+| 4, 5 | Calibration library (`calib list/import`); merger with gates, weights and versions | Done |
+| 6 | Issue and rerun loop: auto-resolution by new masters, waive, resolve with a flat, flats plan, notifications, status page | Done |
+| 7 | `altaird` (`altair serve`) with every worker, crash recovery, and a Task Scheduler install script | Done |
+| 8 | Disaster recovery: `rebuild-catalog` from sidecars and manifests, `replicate --to nas`, the runbook, and a drill in the tests | Done; the drill on real hardware is part of §9.1 |
 
-| Phase | Deliverable |
-|---|---|
-| 0 | PixInsight spike: headless WBPP with a manual reference; SubframeSelector, LocalNormalization and ImageIntegration with keyword weights |
-| 1 | Collector (SMB pull, hash verification, NAS), ingest wired to `frames.register`, S3 backup, cleanup, `storage s3 init` |
-| 2, 2b | Planner and calibration matching (consuming `plan_requests`); staging and retrieval |
-| 3 | Night stacks, verifier, publisher, and data-product reporting with `previews.py` |
-| 4, 5 | Calibration library; merger (multi-night masters) |
-| 6 | Issue and rerun loop, including the Hub commands that are only queued today (§5.4) |
-| 7 | The `altaird` daemon (Task Scheduler install, triggers, crash recovery), running `hub_sync` as a thread |
-| 8 | Disaster-recovery drill |
-
-Phase 1 comes first so the raw-data backup runs on real nights before any processing code
-exists. It doesn't depend on the PixInsight spike.
+What the phase 0 spike must check is listed in `processing/docs/pixinsight-cli.md`. After
+it, set `pixinsight.night_stack_engine: wbpp` if WBPP driving works, or keep the native
+pipeline.
 
 ### 9.4 Hub gaps against the design (done)
 
@@ -959,7 +994,7 @@ These have not been started:
 |---|---|---|
 | Hub | Kamal from `hub/` (`config/deploy.yml`, Dockerfile), PostgreSQL | Rails credentials; `TELESCOPIUS_API_KEY`; optionally `ACTIVE_STORAGE_SERVICE` + `ACTIVE_STORAGE_S3_*`, and `ARCHIVE_READER_*` + `ARCHIVE_BUCKET` for master downloads. Solid Queue runs inside Puma (`SOLID_QUEUE_IN_PUMA`) until jobs move to their own server. |
 | Rig agent | `robs.exe` from a `rig-agent-v*` release on each rig PC, run by NINA External Script steps and a scheduled `sync-progress` | One YAML per telescope (`config/example.telescope.yml`); `ROBS_<SLUG>_API_KEY` |
-| Altair | `altair.exe` from a `processing-v*` release on the processing PC; the `altaird` service arrives with SPEC phase 7 | `altair.yaml`; the node key in Windows Credential Manager (`altair-hub`) or `ALTAIR_HUB_API_KEY` |
+| Altair | `altair.exe` from a `processing-v*` release on the processing PC. `altaird` (`altair serve --windowless`) runs as a Task Scheduler task at log-on (`processing/deploy/windows/install-task.ps1`), because PixInsight needs an interactive session | `altair.yaml`; the node key in Windows Credential Manager (`altair-hub`) or `ALTAIR_HUB_API_KEY`; notification secrets in environment variables |
 
 Components upgrade independently. Because the API is additive, an older rig agent or Altair
 keeps working against a newer Hub.
@@ -979,10 +1014,21 @@ keeps working against a newer Hub.
   synthetic-night replay (`spec/requests/synthetic_night_spec.rb`: counters equal a
   from-scratch recompute, and replaying a batch N times gives the same state); the golden
   visibility tests (§7.2).
-- **Altair:** resolution, the outbox (coalescing, batching, back-off, parking), commands
-  (idempotency), config and reconciliation, headers, index and previews. **Offline
-  properties** (`tests/test_offline.py`): randomly failing the Hub during a simulated night
-  never loses an outbox item, and after recovery the Hub matches the local catalog.
+- **Altair:**
+  - Hub integration: resolution, the outbox (coalescing, batching, back-off,
+    parking), commands (idempotency), config and reconciliation, headers, index and
+    previews.
+  - **Offline properties** (`tests/test_offline.py`): randomly failing the Hub during
+    a simulated night never loses an outbox item, and after recovery the Hub matches
+    the local catalog.
+  - Pipeline: collector, replicator (moto S3 with Object Lock), cleanup (with a
+    hypothesis property test), stager, scrubbing, calibration matching tables, and the
+    planner.
+  - Whole nights through a fake PixInsight (`tests/fake_pixinsight.py`): masters,
+    reference, stack, merge, gates, retries, crash recovery, missing flats and their
+    auto-resolution, and the Hub reports.
+  - `altaird` end to end, followed by the disaster-recovery drill (a catalog rebuild,
+    and a NAS replacement).
 - **Rig agent:** Target Scheduler sync against a throwaway SQLite schema (per-project
   projects, `schedule_count`, migration from a single project), cleanup, config, state, the
   API client, session events and standalone mode.

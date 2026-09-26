@@ -20,29 +20,46 @@ code from `hub/` or `rig-agent/`; everything it shares with them is the API cont
 
 ## What's implemented
 
-The Hub integration of SPEC v0.8 (§5.1, §17), as the Python package `altair`:
+SPEC v0.8 phases 1–8 and the Hub integration (§5.1, §17), as the Python package `altair`:
 
-| Module | What |
+| Area | Modules |
 |---|---|
-| `altair.config` | `altair.yaml` (site, rigs with their `hub:` mapping, aliases, `hub:` block); the node key from `ALTAIR_HUB_API_KEY` or Windows Credential Manager |
-| `altair.catalog` | The SQLite catalog (SPEC §6.3 tables + the §17.5 Hub columns and tables), WAL mode |
-| `altair.ingest.headers` | FITS/XISF headers → canonical fields, night, rotator |
-| `altair.hub.resolver` | Hub target resolution (§17.2) |
-| `altair.hub.outbox` | Transactional outbox, coalescing, batching, back-off, parking (§17.3) |
-| `altair.hub.commands` | Hub commands, idempotent by id (§17.4) |
-| `altair.hub.config_sync`, `sync` | Config pull with ETag + cache, the `hub_sync` loop, `HUB_*` issues |
-| `altair.hub.reconcile`, `previews` | Nightly digest reconciliation (§17.6); auto-STF JPEG previews |
-| `altair.index` | `altair index` (§17.7) |
-
-The collector, storage engine, planner and PixInsight executor (SPEC phases 0–8)
-write to the same catalog: frames through `altair.frames.register`, night closes
-through `altair.nights.close`, and they read planning requests from `plan_requests`.
+| Config and catalog | `config` (`altair.yaml`, SPEC §5), `catalog` (SQLite, WAL; SPEC §6.3 + §17.5 tables) |
+| Collection (§7.3) | `collector` (rig polling, stability, double read, verified NAS writes, manifests), `ingest`, `frames`, `nights`, `triggers` |
+| Storage (§7) | `storage.locations` (NAS, S3 with conditional writes and checksums), `replicator`, `cleanup` (ledger, re-check before delete), `stager` (in place, cache, rig, S3, restores, approvals), `scrub`, `nas`, `s3_setup`, `catalog_backup`, `rebuild` |
+| Planning (§6.4, §8) | `planner.plan`, `planner.matching` (calibration rules, rotator, equipment events), `planner.projects` |
+| Processing (§6.5, §6.6) | `executor` (PixInsight runner, queue, retries, crash recovery), `pjsr/` (the PixInsight scripts), `publish` (checks, blobs, sidecars, viewing copies, Hub data products), `calibration` |
+| Multi-night (§9) | `projects.merge` (gates, MERGE planning), `projects.weights` |
+| Issues and alerts (§10) | `issues`, `issue_actions` (waive, resolve with a flat, flats plan), `notify` (toast, Pushover, ntfy, email), `status_page` |
+| Daemon (§4.1) | `daemon` (`altair serve`; every worker on its own thread) |
+| Hub (§17) | `hub.resolver`, `outbox`, `commands`, `config_sync`, `sync`, `reconcile`, `previews`; `index` (`altair index`) |
 
 ```bash
 uv sync --extra dev
-uv run pytest            # includes a contract-checking fake Hub and offline properties
+uv run pytest            # a fake PixInsight and a contract-checking fake Hub; whole nights end to end
 uv run lint-imports      # never imports robs or hub
-uv run altair --config altair.yaml hub status
+uv run altair --config altair.yaml doctor
+uv run altair --config altair.yaml serve          # altaird in the foreground
 ```
 
-`tools/e2e/altair_hub_e2e.py` runs the same flow against a real Hub.
+- [`docs/pixinsight-cli.md`](docs/pixinsight-cli.md): the job.json/result.json contract
+  with PixInsight.
+- [`docs/dr-runbook.md`](docs/dr-runbook.md): disaster recovery.
+- [`deploy/windows/`](deploy/windows/): the rig setup and the Task Scheduler install.
+
+## Not verified yet
+
+The PJSR scripts (`src/altair/pjsr/`) have never run on a real PixInsight. The SPEC
+phase 0 spike on the processing PC needs to check:
+- the CLI flags;
+- whether `jsArguments` receives the job path;
+- the process parameters and the `SubframeSelector` measurement columns.
+
+Headless WBPP driving is one of the things to verify. Until it is,
+`pixinsight.night_stack_engine` defaults to `native`: calibration, StarAlignment to
+the project reference, LocalNormalization and ImageIntegration, with the same contract.
+
+Everything else is exercised by the tests, but not yet on real rigs, a real NAS or
+real nights.
+
+`tools/e2e/altair_hub_e2e.py` runs the Hub flow against a real Hub.

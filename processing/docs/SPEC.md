@@ -514,6 +514,7 @@ pixinsight:
   timeout_minutes: 360
   max_concurrent_jobs: 1
   tested_versions: ["1.9.3"]              # altair doctor warns on any other version
+  night_stack_engine: native              # native | wbpp; wbpp once headless WBPP driving passes the phase 0 spike (§6.5 fallback)
 
 triggers:
   require_after_dawn: true
