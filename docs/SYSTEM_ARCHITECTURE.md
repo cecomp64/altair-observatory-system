@@ -397,7 +397,8 @@ percentage (the mean across goal filters).
 - **Header token** (Altair): `^#(\d+)(\s|$)`.
 - **Night** = `(date_obs in the telescope timezone − 12 h).date`. The Hub telescope's
   timezone, the rig agent's `timezone` and Altair's site timezone must agree;
-  `robs check-config` and `altair doctor` check it.
+  `robs check-config` and `altair doctor` check it, and also check that the Hub's
+  `api_revision` is not older than theirs (`observatory_contracts.check_hub_revision`).
 - **Canonical filter names** come from `optical_trains.filters[].name`. Raw `FILTER` values
   map onto them case-insensitively, then through the aliases.
 - **Altair logical paths** for linked projects are anchored by the target id
@@ -554,7 +555,9 @@ settings change that forces a re-reference (such as `drizzle_scale`) asks for a 
   and lines with `chartjs-plugin-annotation`) and `bulk_select`.
 - Lists (catalogue, frames, issues) use server-side pagination (`pagy`). Filters are GET
   parameters, so every view can be linked to.
-- Project pages refresh live through Turbo (`broadcasts_refreshes`) when counters change.
+- Pages refresh live through Turbo morphing: project pages when counters or masters
+  change, target pages when a master arrives, and the issue list, issue page and dashboard
+  when an issue changes.
 - Authorization uses Pundit on every page.
 
 ### 7.2 Visibility and FOV engine (`app/lib/astro/`)
@@ -590,6 +593,7 @@ settings change that forces a re-reference (such as `drizzle_scale`) asks for a 
 | `/projects`, `/projects/:id` | Project cards. Project page: per-filter progress, tonight's visibility, targets and plans, integration over time, latest multi-night masters, nights (include/exclude), open issues, and processing controls (settings, rerun, re-reference, mode). |
 | `/projects/new` | The wizard: objects → telescope (each candidate shows tonight's altitude and best season with its horizon) → exposures (filters from the optical train) → review. `/targets/new` redirects here. |
 | `/frames` | File search: object or alias, cone search, project, target, telescope, optical train, filter, image type, night range, exposure, gain, binning, status, unassigned only. Stats by filter. |
+| `/data_products/:id/download` | Redirects to a 10-minute presigned S3 link for a master in Altair's archive (§12), when the archive reader is configured. Offered on target and project pages. |
 | `/frames/:id`, `/frames/unassigned` | Frame detail (headers, FOV objects, storage, links). The inbox of unresolved lights grouped by night and `OBJECT`, with a suggested target, and bulk assignment. |
 | `/issues`, `/issues/:id` | Processing issues: waive, and approve or deny fetches (admins). |
 | `/telescopes/:slug/optical_trains/:key` | Optics, filters and aliases, equipment events, calibration library, and a flats shopping list built from open `FLAT_MISSING` issues. |
@@ -629,19 +633,21 @@ Recurring jobs are declared in `config/recurring.yml`.
 ### 8.1 `hub/`
 
 - **Stack:** Ruby 3.3, Rails 8.1, PostgreSQL (with `pg_trgm`), Devise, Pundit, Solid
-  Queue / Cache / Cable, Faraday (Telescopius and survey clients), pagy, and `sqlite3`
-  (for the astrophotography-database import only). Specs: RSpec, FactoryBot and
-  `json_schemer` for contract checks.
-- **Migrations:** the original queueing-system tables, then ten additive migrations
-  (`db/migrate/20260926000001`–`…10`): trigram extension, telescope site fields, optical
+  Queue / Cache / Cable, Faraday (Telescopius and survey clients), pagy, `aws-sdk-s3`
+  (presigned master links, optional S3 Active Storage), and `sqlite3` (for the
+  astrophotography-database import only). Specs: RSpec, FactoryBot, `json_schemer` for
+  contract checks, and Capybara with Cuprite (headless Chrome) for browser specs.
+- **Migrations:** the original queueing-system tables, then eleven migrations
+  (`db/migrate/20260926000001`–`…10`, `20260927000011`): trigram extension, telescope site fields, optical
   trains, the catalogue, projects (backfilling one per existing target), plan counters,
   `target_files` renamed to `data_products`, processing nodes with scoped polymorphic API
-  keys, frames and nights, and issues, jobs and commands.
+  keys, frames and nights, and issues, jobs and commands, then the removal of the legacy worker uploads.
 - **Services** (`app/services/`):
   - `Catalogue::*`: the importers, `AliasNormalizer`, `NameResolver` (local first, then Telescopius, with misses cached) and `TelescopiusClient`
   - `Frames::BatchUpserter`, `PlanMatcher`, `Search`, `Assigner`
   - `Progress::Calculator`, `Progress::Recompute`
   - `Processing::ConfigBuilder` (payload and ETag), `Processing::CommandIssuer`
+  - `Archive::Presigner` (master download links)
   - `Imports::AstroDb`, `TonightPlanner`, `IssueNotifier`, `DiscordNotifier`
 - **API controllers:** `Api::V1::BaseController` (key authentication, scopes, rate limit),
   `TelescopesController#active_targets`, `TargetsController`, `SessionsController`,
@@ -861,8 +867,11 @@ There is no existing deployment, so no cutover or parallel running is needed. Th
 deployment is a fresh install:
 
 1. **Deploy the Hub** with Kamal from `hub/`:
-   - Configure production Active Storage. `config/storage.yml` only defines local disk
-     today; previews and showcases need a durable service such as S3.
+   - Choose where uploaded files live: the local disk on the Kamal storage volume (the
+     default) or S3 (`ACTIVE_STORAGE_SERVICE=amazon` with `ACTIVE_STORAGE_S3_*`).
+   - Optionally, for master downloads: a read-only `hub-archive-reader` IAM user with
+     `s3:GetObject` on the archive's `altair/projects/*` and `altair/calibration/masters/*`,
+     given to the Hub as `ARCHIVE_READER_*` and `ARCHIVE_BUCKET`.
    - Add credentials: SMTP, the Discord webhook, and `TELESCOPIUS_API_KEY`.
    - Run `bin/rails catalogue:import`.
 2. **Set up equipment in the Hub:**
@@ -913,17 +922,14 @@ These are the SPEC phases, in order:
 Phase 1 comes first so the raw-data backup runs on real nights before any processing code
 exists. It doesn't depend on the PixInsight spike.
 
-### 9.4 Hub gaps against the design
+### 9.4 Hub gaps against the design (done)
 
-- **Master downloads:** presigned S3 links for masters, using an `aws-sdk-s3` client and a
-  read-only `hub-archive-reader` IAM user. Data products currently store `archive_uri` but
-  offer no download.
-- **Live updates:** only project pages refresh live. Issue lists and master galleries
-  don't yet.
-- **Version negotiation:** clients send their `api_revision` in heartbeats and the Hub
-  replies with its own, but `robs check-config` and `altair doctor` don't compare them yet.
-- **Tests:** there are no browser system specs for the wizard and frame search yet; they
-  are covered by request specs.
+- Presigned master downloads (`Archive::Presigner`, `/data_products/:id/download`).
+- Live updates for issues, targets and master galleries.
+- API revision checks in `robs check-config` and `altair doctor`.
+- Browser system specs for the project wizard and frame search (they found that the
+  frame list's select-all controller was never registered).
+- S3 as an option for Active Storage in production.
 
 ### 9.5 Releases, packaging and end-to-end tests
 
@@ -951,7 +957,7 @@ These have not been started:
 
 | Component | How it is deployed | Configuration and secrets |
 |---|---|---|
-| Hub | Kamal from `hub/` (`config/deploy.yml`, Dockerfile), PostgreSQL | Rails credentials; `TELESCOPIUS_API_KEY`. Solid Queue runs inside Puma (`SOLID_QUEUE_IN_PUMA`) until jobs move to their own server. |
+| Hub | Kamal from `hub/` (`config/deploy.yml`, Dockerfile), PostgreSQL | Rails credentials; `TELESCOPIUS_API_KEY`; optionally `ACTIVE_STORAGE_SERVICE` + `ACTIVE_STORAGE_S3_*`, and `ARCHIVE_READER_*` + `ARCHIVE_BUCKET` for master downloads. Solid Queue runs inside Puma (`SOLID_QUEUE_IN_PUMA`) until jobs move to their own server. |
 | Rig agent | Python package on each rig PC, run by NINA External Script steps and a scheduled `sync-progress` | One YAML per telescope (`config/example.telescope.yml`); `ROBS_<SLUG>_API_KEY` |
 | Altair | Python package on the processing PC; the `altaird` service arrives with SPEC phase 7 | `altair.yaml`; the node key in Windows Credential Manager (`altair-hub`) or `ALTAIR_HUB_API_KEY` |
 
@@ -967,7 +973,8 @@ keeps working against a newer Hub.
   with the generated models and validate them with jsonschema. Altair's tests use a
   contract-checking fake Hub (`processing/tests/conftest.py`). A change under `contracts/`
   runs every component's suite.
-- **Hub:** model and service specs; a request spec for every API endpoint (authentication,
+- **Hub:** model and service specs; browser specs (`spec/system/`, Cuprite) for the
+  project wizard and frame search; a request spec for every API endpoint (authentication,
   scopes, resource scoping, idempotent upserts, manual-assignment precedence, counters); a
   synthetic-night replay (`spec/requests/synthetic_night_spec.rb`: counters equal a
   from-scratch recompute, and replaying a batch N times gives the same state); the golden
@@ -991,9 +998,12 @@ keeps working against a newer Hub.
   telescopes, revocable one at a time, and show `last_used_at` in admin.
 - **Secrets:** the Altair node key lives in Windows Credential Manager (or an environment
   variable), never in YAML. The rig agent key comes from `ROBS_<SLUG>_API_KEY`. The
-  Telescopius key and any future archive-reader AWS credentials go in Rails credentials.
+  Telescopius key and the archive-reader AWS credentials go in Rails credentials or the
+  environment.
 - **Storage least privilege:** the Hub never gets NAS credentials or any S3 write or delete
-  permission on the archive. Raw frames are never downloadable from the Hub.
+  permission on the archive. Its optional archive reader can only `GetObject`, and the Hub
+  signs only keys under `projects/` and `calibration/masters/`, for users who can see the
+  project, valid for 10 minutes. Raw frames are never downloadable from the Hub.
 - **Transport:** HTTPS only, and every connection is outbound from the observatory.
 - **Authorization:** Pundit policies. Frames, products and issues follow the project's
   visibility (the owner, admins, and club members for `club` projects). Admin only: nodes,

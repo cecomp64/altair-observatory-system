@@ -9,6 +9,7 @@ import logging
 import sys
 
 import click
+from observatory_contracts import check_hub_revision
 
 from .api_client import ApiError
 from .cleanup import cleanup_completed_projects
@@ -110,6 +111,8 @@ def check_config(config_path: str):
             hub_tz = (response.get("telescope") or {}).get("timezone")
             check("timezone matches the Hub telescope", bool(config.timezone) and config.timezone == hub_tz,
                   f"config {config.timezone or 'unset'}, Hub {hub_tz or 'unknown'}")
+            revision_ok, revision_note = check_hub_revision(hub.api.heartbeat({"telescope": config.slug, "last_command": "check-config"}).get("api_revision"))
+            check("Hub API revision compatible", revision_ok, revision_note)
         except (ApiError, OSError) as e:
             check("Hub reachable, key accepted", False, str(e))
     else:

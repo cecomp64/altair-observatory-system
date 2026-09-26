@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import responses
 from jsonschema import Draft202012Validator
+from observatory_contracts import API_REVISION
 from referencing import Registry, Resource
 
 from robs import scheduler_db, state
@@ -199,3 +200,20 @@ def test_night_rolls_over_at_local_noon(tmp_path, scheduler_db_path):
     hub = Hub(write_config(tmp_path, scheduler_db_path), None)
     assert hub.night_for(datetime(2026, 9, 25, 12, 41, tzinfo=timezone.utc)) == "2026-09-24"  # 05:41 PDT
     assert hub.night_for(datetime(2026, 9, 25, 20, 0, tzinfo=timezone.utc)) == "2026-09-25"  # 13:00 PDT
+
+
+@responses.activate
+@pytest.mark.parametrize("hub_revision, ok", [(API_REVISION, True), (API_REVISION + 1, True), (API_REVISION - 1, False)])
+def test_check_config_compares_the_hubs_api_revision(tmp_path, scheduler_db_path, hub_revision, ok):
+    from click.testing import CliRunner
+
+    from robs.cli import main
+
+    write_config(tmp_path, scheduler_db_path)
+    responses.get(f"{BASE}/telescopes/test-scope/active_targets", json=response())
+    responses.post(f"{BASE}/heartbeat", json={"ok": True, "api_revision": hub_revision})
+
+    result = CliRunner().invoke(main, ["check-config", "--config", str(tmp_path / "t.yml")])
+
+    assert ("[ok] Hub API revision compatible" in result.output) is ok, result.output
+    assert ("[FAIL] Hub API revision compatible" in result.output) is not ok

@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 from referencing import Registry, Resource
 
-from observatory_contracts import API_REVISION
+from observatory_contracts import API_REVISION, check_hub_revision
 from observatory_contracts.commands import PAYLOAD_MODELS, parse_payload
 from observatory_contracts.models.processing.command import NightReadyPayload
 from observatory_contracts.models.processing.commands_response import CommandsResponse
@@ -102,3 +102,11 @@ def test_night_ready_payload_requires_session_end() -> None:
 def test_api_revision_matches_changelog() -> None:
     changelog = (CONTRACTS / "CHANGELOG.md").read_text()
     assert f"## api_revision {API_REVISION}" in changelog
+
+
+def test_check_hub_revision() -> None:
+    assert check_hub_revision(API_REVISION)[0]
+    newer_ok, newer_note = check_hub_revision(API_REVISION + 1)
+    assert newer_ok and "compatible" in newer_note
+    assert not check_hub_revision(API_REVISION - 1)[0]
+    assert not check_hub_revision(None)[0]

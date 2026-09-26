@@ -12,6 +12,8 @@ from astropy.io import fits
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
+from observatory_contracts import API_REVISION
+
 from altair.catalog.db import Catalog
 from altair.config import AltairConfig
 from altair.hub.client import HubClient
@@ -34,7 +36,7 @@ TRAIN = "esprit100_2600mm"
 
 def hub_config_payload(targets: list[dict] | None = None) -> dict:
     return {
-        "api_revision": 1,
+        "api_revision": API_REVISION,
         "node": {"name": "altair-proc-01"},
         "telescopes": [{
             "slug": TELESCOPE, "timezone": "America/Los_Angeles", "latitude": 37.3, "longitude": -121.9, "elevation_m": 120,

@@ -80,6 +80,9 @@ group :test do
   gem "shoulda-matchers"
   # Validates API responses against the shared JSON Schemas in ../contracts (test-only)
   gem "json_schemer"
+  # Browser system specs (headless Chrome over CDP, no chromedriver needed)
+  gem "capybara"
+  gem "cuprite"
 end
 
 gem "csv", "~> 3.3"
@@ -87,3 +90,7 @@ gem "csv", "~> 3.3"
 gem "pagy", "~> 9.3"
 
 gem "sqlite3", "~> 2.9", require: false
+
+# Active Storage on S3 in production (optional) and presigned download links
+# for masters in Altair's archive bucket (docs/SYSTEM_ARCHITECTURE.md §12).
+gem "aws-sdk-s3", "~> 1.170", require: false

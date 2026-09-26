@@ -61,6 +61,10 @@ Rails.application.routes.draw do
     resource :showcase, only: [ :create, :destroy ]
   end
 
+  resources :data_products, only: [] do
+    get :download, on: :member
+  end
+
   resources :targets, only: [ :index, :show ] do
     member do
       post :cancel

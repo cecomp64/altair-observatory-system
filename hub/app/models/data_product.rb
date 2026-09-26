@@ -18,6 +18,12 @@ class DataProduct < ApplicationRecord
 
   before_validation { self.project_id ||= target&.project_id }
 
+  # Live updates: the target and project pages re-render with the new master.
+  after_commit do
+    target.broadcast_refresh_later
+    project&.broadcast_refresh_later
+  end
+
   scope :recent_first, -> { order(captured_at: :desc, created_at: :desc) }
   scope :masters, -> { where(kind: ALTAIR_KINDS) }
   scope :current, -> { where(superseded_by_id: nil) }

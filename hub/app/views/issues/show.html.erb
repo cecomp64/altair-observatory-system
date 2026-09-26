@@ -1,4 +1,5 @@
 <% content_for :title, @issue.kind %>
+<%= turbo_stream_from @issue %>
 
 <%= link_to "← Issues", issues_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
 <div class="mt-3 flex items-center gap-2"><h1 class="text-xl font-semibold font-mono"><%= @issue.kind %></h1><%= render "issues/severity", issue: @issue %></div>

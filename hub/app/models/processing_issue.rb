@@ -17,8 +17,17 @@ class ProcessingIssue < ApplicationRecord
   validates :status, inclusion: { in: %w[open resolved waived] }
   validates :kind, :message, presence: true
 
+  # Live updates: open pages re-render (Turbo morph) when an issue changes.
+  broadcasts_refreshes
+  after_commit :broadcast_to_lists
+
   scope :open, -> { where(status: "open") }
   scope :recent_first, -> { order(opened_at: :desc) }
+
+  def broadcast_to_lists
+    broadcast_refresh_later_to(:processing_issues)
+    project&.broadcast_refresh_later
+  end
 
   def project_scoped?
     PROJECT_KINDS.include?(kind)

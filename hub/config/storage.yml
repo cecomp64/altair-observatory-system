@@ -6,13 +6,16 @@ local:
   service: Disk
   root: <%= Rails.root.join("storage") %>
 
-# Use bin/rails credentials:edit to set the AWS secrets (as aws:access_key_id|secret_access_key)
-# amazon:
-#   service: S3
-#   access_key_id: <%= Rails.application.credentials.dig(:aws, :access_key_id) %>
-#   secret_access_key: <%= Rails.application.credentials.dig(:aws, :secret_access_key) %>
-#   region: us-east-1
-#   bucket: your_own_bucket-<%= Rails.env %>
+# Previews, thumbnails, showcases and horizon files on S3 (a bucket of the Hub's
+# own, not Altair's archive). Select it with ACTIVE_STORAGE_SERVICE=amazon; the
+# secrets come from ACTIVE_STORAGE_S3_* or credentials (aws: access_key_id,
+# secret_access_key, region, bucket).
+amazon:
+  service: S3
+  access_key_id: <%= ENV["ACTIVE_STORAGE_S3_ACCESS_KEY_ID"] || Rails.application.credentials.dig(:aws, :access_key_id) %>
+  secret_access_key: <%= ENV["ACTIVE_STORAGE_S3_SECRET_ACCESS_KEY"] || Rails.application.credentials.dig(:aws, :secret_access_key) %>
+  region: <%= ENV["ACTIVE_STORAGE_S3_REGION"] || Rails.application.credentials.dig(:aws, :region) || "us-east-1" %>
+  bucket: <%= ENV["ACTIVE_STORAGE_S3_BUCKET"] || Rails.application.credentials.dig(:aws, :bucket) %>
 
 # Remember not to checkin your GCS keyfile to a repository
 # google:

@@ -271,6 +271,8 @@ def _nas_root(config: AltairConfig) -> str | None:
 @pass_ctx
 def doctor(ctx: Ctx) -> None:
     """Hub checks (SPEC §5.1): reachability, key scopes, node, optical trains, timezone, filters."""
+    from observatory_contracts import check_hub_revision
+
     from altair.hub.client import HubError
     from altair.hub.sync import mismatches
 
@@ -289,6 +291,7 @@ def doctor(ctx: Ctx) -> None:
         hub_config = sync.pull_config()
         check("Hub reachable, key accepted", True, ctx.config.hub.base_url)
         check("node name matches", hub_config.raw["node"]["name"] == ctx.config.hub.node, hub_config.raw["node"]["name"])
+        check("Hub API revision compatible", *check_hub_revision(hub_config.api_revision))
         for scope_check in ("commands", "heartbeat"):
             try:
                 sync.commands.ack_unacked() if scope_check == "commands" else sync.heartbeat()

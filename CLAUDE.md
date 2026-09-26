@@ -39,6 +39,7 @@ bundle install && yarn install
 bin/rails db:create db:migrate db:seed
 bin/dev                                  # Rails + esbuild + Tailwind watchers
 bundle exec rspec                        # includes spec/requests/api/contract_spec.rb (reads ../contracts)
+                                         # spec/system needs Chrome; set BROWSER_PATH if it isn't on the PATH
 bin/rubocop && bin/brakeman --no-pager && bin/bundler-audit
 kamal deploy                             # Kamal builds from hub/ (repo-relative)
 ```

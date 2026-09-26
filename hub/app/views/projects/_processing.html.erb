@@ -27,7 +27,11 @@
           <% else %>
             <div class="rounded-lg w-full aspect-square bg-slate-100"></div>
           <% end %>
-          <p class="text-sm font-medium mt-1"><%= product.filter %> · v<%= product.version %></p>
+          <p class="text-sm font-medium mt-1"><%= product.filter %> · v<%= product.version %>
+            <% if archive.downloadable?(product) %>
+              · <%= link_to "Download", download_data_product_path(product), class: "text-indigo-600 hover:underline font-normal", data: { turbo: false } %>
+            <% end %>
+          </p>
           <p class="text-xs text-slate-500"><%= targets_by_id[product.target_id]&.name %> · <%= product.metrics["frames"] %> frames<%= " · #{(product.metrics['total_exposure_s'].to_f / 3600).round(1)} h" if product.metrics["total_exposure_s"] %></p>
         </div>
       <% end %>
