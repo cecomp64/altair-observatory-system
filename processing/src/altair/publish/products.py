@@ -58,9 +58,11 @@ def _metrics(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def enqueue(tx: sqlite3.Connection, config: AltairConfig, kind: str, altair_id: int) -> bool:
-    """kind: night_master / provisional_noflat / multi_night_master / project_reference."""
+    """kind: night_master / provisional_noflat / multi_night_master / project_reference / masters_bundle
+    (``altair_id`` is then the project id)."""
     if not config.hub.enabled:
         return False
+    extra: dict[str, Any] = {}
     if kind in ("night_master", "provisional_noflat"):
         row = tx.execute("SELECT n.*, p.hub_target_id FROM night_masters n JOIN projects p ON p.id = n.project_id WHERE n.id = ?",
                          (altair_id,)).fetchone()
@@ -72,6 +74,20 @@ def enqueue(tx: sqlite3.Connection, config: AltairConfig, kind: str, altair_id: 
                            (altair_id, row["kind"])).fetchone()
         meta = {"target_id": row["hub_target_id"], "night": row["night"], "version": None, "filter": row["filter"],
                 "supersedes_altair_id": prior["id"] if prior else None}
+        bundle_sha = json.loads(row["calib_json"] or "{}").get("calibrated_bundle")
+        if bundle_sha:   # the night's calibrated subs, one zip (api_revision 4)
+            frames = tx.execute("SELECT count(*) AS n FROM bundle_members WHERE bundle_sha256 = ?", (bundle_sha,)).fetchone()["n"]
+            extra["calibrated_bundle"] = {"sha256": bundle_sha, "size_bytes": _size(tx, bundle_sha), "archive_uri": _archive(tx, bundle_sha)[0],
+                                          "frames": frames}
+    elif kind == "masters_bundle":
+        row = tx.execute("SELECT b.*, p.hub_target_id FROM masters_bundles b JOIN projects p ON p.id = b.project_id WHERE b.project_id = ?",
+                         (altair_id,)).fetchone()
+        if row is None or row["hub_target_id"] is None:
+            return False
+        contents = json.loads(row["contents_json"])
+        metrics = {"total_exposure_s": sum(c.get("total_exposure_s") or 0 for c in contents)}
+        meta = {"target_id": row["hub_target_id"], "night": None, "version": row["build"], "filter": "all", "supersedes_altair_id": None}
+        extra["contents"] = [{"filter": c["filter"], "version": c["version"], "name": c["name"]} for c in contents]
     elif kind == "multi_night_master":
         row = tx.execute("SELECT m.*, p.hub_target_id FROM multi_night_masters m JOIN projects p ON p.id = m.project_id WHERE m.id = ?",
                          (altair_id,)).fetchone()
@@ -97,7 +113,7 @@ def enqueue(tx: sqlite3.Connection, config: AltairConfig, kind: str, altair_id: 
         raise ValueError(kind)
     archive, nas = _archive(tx, row["sha256"])
     meta.update({"sha256": row["sha256"], "size_bytes": _size(tx, row["sha256"]), "archive_uri": archive, "nas_path": nas,
-                 "metrics": _metrics(metrics)})
+                 "metrics": _metrics(metrics), **extra})
     from altair.reports import report_path
 
     preview, thumb = preview_paths(config, kind, altair_id)
@@ -116,4 +132,8 @@ def reenqueue_for_blob(tx: sqlite3.Connection, config: AltairConfig, sha: str) -
         count += enqueue(tx, config, "multi_night_master", row["id"])
     for row in tx.execute("SELECT id FROM reference_frames WHERE sha256 = ?", (sha,)).fetchall():
         count += enqueue(tx, config, "project_reference", row["id"])
+    for row in tx.execute("SELECT project_id FROM masters_bundles WHERE sha256 = ?", (sha,)).fetchall():
+        count += enqueue(tx, config, "masters_bundle", row["project_id"])
+    for row in tx.execute("SELECT id, kind FROM night_masters WHERE json_extract(calib_json, '$.calibrated_bundle') = ?", (sha,)).fetchall():
+        count += enqueue(tx, config, "night_master" if row["kind"] == "final" else "provisional_noflat", row["id"])
     return count

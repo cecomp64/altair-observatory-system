@@ -34,6 +34,7 @@ from altair.catalog.db import Catalog, now_iso
 from altair.config import AltairConfig
 from altair.hashing import sha256_file
 from altair.issues import raise_issue, resolve_issue
+from altair import bundles
 from altair.storage import blobs
 from altair.storage import nas as nas_mod
 from altair.storage.locations import COLD_CLASSES, IntegrityMismatch, RestoreRequired, S3Location, make_read_only, nas_location, remove_file
@@ -98,10 +99,13 @@ class Stager:
                 plans.append((sha, info, source))
         if missing:
             return self._unavailable(job_id, result, missing, nas_ok)
-        if not nas_ok and not allow_s3_fallback and any(src[0] == "s3" for _, _, src in plans):
+        if not nas_ok and not allow_s3_fallback and any(src[0] in ("s3", "s3_bundle") for _, _, src in plans):
             return self._wait(job_id, result, "the NAS is unreachable; waiting for it rather than fetching from S3")
-        s3_hot = sum(i["size_bytes"] for _, i, src in plans if src[0] == "s3")
+        s3_hot = sum(i["size_bytes"] for _, i, src in plans if src[0] in ("s3", "s3_bundle"))
         cold = [(sha, i) for sha, i, src in plans if src[0] == "s3_cold"]
+        # A cold zip is restored whole, once, however many of its subs this job needs.
+        for bundle_sha in sorted({src[1]["bundle"]["sha256"] for _, _, src in plans if src[0] == "s3_bundle_cold"}):
+            cold.append((bundle_sha, blobs.blob(self.catalog.conn, bundle_sha)))
         cold_bytes = sum(i["size_bytes"] for _, i in cold)
         s3_cfg = self.config.storage.s3
         if s3_cfg and s3_hot + cold_bytes > s3_cfg.max_auto_download_gb * GB and not self._approved(f"FETCH_APPROVAL_NEEDED:job:{job_id}"):
@@ -164,6 +168,12 @@ class Stager:
         if self.s3 and s3 and s3["state"] in ("present", "archived_cold", "restoring", "restored"):
             cold = (s3["storage_class"] or "") in COLD_CLASSES and s3["state"] != "restored"
             return ("s3_cold" if cold else "s3", dict(s3))
+        # A calibrated sub whose S3 copy is inside its night's zip (bundles.py).
+        found = bundles.member(self.catalog, sha) if self.s3 else None
+        if found:
+            member, bundle, bundle_s3 = found
+            cold = (bundle_s3["storage_class"] or "") in COLD_CLASSES and bundle_s3["state"] != "restored"
+            return ("s3_bundle_cold" if cold else "s3_bundle", {"member": dict(member), "bundle": dict(bundle), "s3": dict(bundle_s3)})
         return None
 
     def _fetch(self, sha: str, info, source: tuple[str, dict]) -> Path:
@@ -171,7 +181,10 @@ class Stager:
         dest.parent.mkdir(parents=True, exist_ok=True)
         kind, row = source
         if not dest.exists():
-            if kind.startswith("s3"):
+            if kind in ("s3_bundle", "s3_bundle_cold"):   # cold only reaches here once the zip is restored
+                m = row["member"]
+                self.s3.download_range(row["bundle"]["logical_path"], m["data_offset"], m["size"], dest, sha)
+            elif kind.startswith("s3"):
                 self.s3.download(info["logical_path"], dest, sha)
             else:
                 partial = dest.with_name(dest.name + ".partial")

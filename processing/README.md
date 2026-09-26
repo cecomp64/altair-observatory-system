@@ -32,6 +32,7 @@ SPEC v0.8 phases 1–8 and the Hub integration (§5.1, §17), as the Python pack
 | Multi-night (§9) | `projects.merge` (gates, MERGE planning), `projects.weights` |
 | Issues and alerts (§10) | `issues`, `issue_actions` (waive, resolve with a flat, flats plan), `notify` (toast, Pushover, ntfy, email), `status_page` |
 | Daemon (§4.1) | `daemon` (`altair serve`; every worker on its own thread), `doctor` (setup checks) |
+| Bundles (§7.4) | `bundles` (the calibrated subs zip per night stack, with ranged reads; the masters zip per project) |
 | Observability (§12.2, §13) | `reports` (night and merge reports), `logs` (JSON logs, `altair logs`), `http_status` and `metrics` (local endpoint, Prometheus) |
 | Hub (§17) | `hub.resolver`, `outbox`, `commands`, `config_sync`, `sync`, `reconcile`, `previews`; `index` (`altair index`) |
 

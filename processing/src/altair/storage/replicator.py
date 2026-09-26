@@ -25,7 +25,7 @@ from altair.storage.locations import COLD_CLASSES, IntegrityMismatch, S3Location
 
 log = logging.getLogger("altair.replicator")
 PRIORITY = {"raw_light": 0, "metadata": 1, "calibration_master": 2, "project_reference": 2, "night_master": 2,
-            "multi_night_master": 2, "calibrated_frame": 3}
+            "multi_night_master": 2, "masters_bundle": 2, "calibrated_frame": 3, "calibrated_bundle": 3}
 
 
 @dataclass
@@ -67,6 +67,8 @@ class Replicator:
         order = " ".join(f"WHEN '{c}' THEN {p}" for c, p in PRIORITY.items())
         sql = (f"SELECT b.* FROM blobs b WHERE b.data_class IN ({marks}) AND NOT EXISTS (SELECT 1 FROM replicas r WHERE r.sha256 = b.sha256 "
                f"AND r.location = 's3' AND r.state IN ('present', 'archived_cold', 'restoring', 'restored')) "
+               # Only the current masters zip: an older one would overwrite it under the shared key.
+               f"AND (b.data_class != 'masters_bundle' OR b.sha256 IN (SELECT sha256 FROM masters_bundles)) "
                f"ORDER BY CASE b.data_class {order} END, b.created_at, b.sha256" + (f" LIMIT {int(limit)}" if limit else ""))
         return self.catalog.query(sql, tuple(classes))
 
@@ -138,7 +140,8 @@ class Replicator:
         """Raw lights ignore the bandwidth limit, like the upload window."""
         rate = self.cfg.upload_bandwidth_limit_mbps
         bytes_per_s = rate * 125_000 if rate and row["data_class"] != "raw_light" else None
-        return self.s3.upload(source, row["logical_path"], row["sha256"], row["data_class"], bytes_per_s=bytes_per_s)
+        return self.s3.upload(source, row["logical_path"], row["sha256"], row["data_class"], bytes_per_s=bytes_per_s,
+                              overwrite=row["data_class"] == "masters_bundle")
 
     def _record(self, row, info) -> None:
         cold = info.storage_class in COLD_CLASSES
@@ -146,7 +149,16 @@ class Replicator:
             blobs.set_replica(tx, row["sha256"], "s3", self.s3.uri(row["logical_path"]), kind="s3",
                               state="archived_cold" if cold else "present", method="s3_checksum_sha256",
                               storage_class=info.storage_class, version_id=info.version_id)
-            if row["data_class"] in ("night_master", "multi_night_master", "project_reference") and self.config.hub.enabled:
+            if row["data_class"] == "calibrated_bundle":
+                from altair import bundles
+
+                bundles.mark_members_backed_up(tx, self.s3, row["sha256"], row["logical_path"])
+            if row["data_class"] == "masters_bundle":
+                from altair import bundles
+
+                bundles.supersede_masters_zip(tx, row["sha256"], row["logical_path"])
+            if row["data_class"] in ("night_master", "multi_night_master", "project_reference", "calibrated_bundle", "masters_bundle") \
+                    and self.config.hub.enabled:
                 from altair.publish.products import reenqueue_for_blob
 
                 reenqueue_for_blob(tx, self.config, row["sha256"])   # now with its archive_uri

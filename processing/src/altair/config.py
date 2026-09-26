@@ -24,7 +24,7 @@ DEFAULT_HEADER_MAPPING: dict[str, list[str]] = {
 }
 
 DATA_CLASSES = ("raw_light", "raw_calibration", "calibration_master", "project_reference", "calibrated_frame",
-                "night_master", "multi_night_master", "registered_frame", "provisional", "metadata")
+                "night_master", "multi_night_master", "registered_frame", "provisional", "metadata", "calibrated_bundle", "masters_bundle")
 
 
 class Loose(BaseModel):
@@ -90,7 +90,7 @@ class LifecycleRule(Loose):
 class ObjectLock(Loose):
     mode: Literal["GOVERNANCE", "COMPLIANCE"] = "GOVERNANCE"
     retain_years: int = 10
-    classes: list[str] = Field(default_factory=lambda: ["raw_light", "calibrated_frame", "calibration_master",
+    classes: list[str] = Field(default_factory=lambda: ["raw_light", "calibrated_frame", "calibrated_bundle", "calibration_master",
                                                         "project_reference", "night_master"])
 
 
@@ -122,13 +122,18 @@ class Location(Loose):
     region: str | None = None
     endpoint_url: str | None = None   # S3-compatible stores (MinIO, B2, Wasabi)
     credentials: S3Credentials = Field(default_factory=S3Credentials)
+    # Calibrated subs go to S3 as one zip per night and filter (calibrated_bundle), not one object each;
+    # masters_bundle is the per-target download of the latest multi-night masters.
     backup_classes: list[str] = Field(default_factory=lambda: ["raw_light", "calibration_master", "project_reference",
-                                                               "calibrated_frame", "night_master", "multi_night_master", "metadata"])
+                                                               "calibrated_bundle", "night_master", "multi_night_master", "metadata",
+                                                               "masters_bundle"])
     storage_class: dict[str, str] = Field(default_factory=lambda: {"raw_light": "STANDARD_IA", "calibrated_frame": "STANDARD_IA",
-                                                                   "default": "STANDARD"})
+                                                                   "calibrated_bundle": "STANDARD_IA", "default": "STANDARD"})
     lifecycle: dict[str, LifecycleRule | int] = Field(default_factory=lambda: {
         "raw_light": LifecycleRule(to="DEEP_ARCHIVE", after_days=120),
         "calibrated_frame": LifecycleRule(to="GLACIER_IR", after_days=60),
+        "calibrated_bundle": LifecycleRule(to="GLACIER_IR", after_days=60),
+        "masters_bundle_noncurrent_days": 7,
         "abort_incomplete_multipart_after_days": 7})
     object_lock: ObjectLock | None = None
     restore: RestoreConfig = Field(default_factory=RestoreConfig)

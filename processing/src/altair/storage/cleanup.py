@@ -192,8 +192,10 @@ class Cleaner:
         frame = self.catalog.one("SELECT * FROM frames WHERE sha256 = ?", (sha,))
         project = self._project_for(frame) if frame else self._project_for_calibrated(row["logical_path"])
         for requirement in rule.require:
-            if requirement.startswith("s3_verified") and not blobs.verified(blobs.replicas(self.catalog.conn, sha).get("s3")):
-                return False
+            if requirement.startswith("s3_verified"):
+                reps = blobs.replicas(self.catalog.conn, sha)
+                if not (blobs.verified(reps.get("s3")) or blobs.verified(reps.get("s3_bundle"))):
+                    return False
             if requirement == "night_processed" and frame is not None and frame["status"] not in ("processed", "rejected"):
                 return False
             if requirement == "no_open_issue" and self._has_open_issue(sha, frame):
@@ -308,7 +310,7 @@ class Cleaner:
             if row is None or (st.st_size, st.st_mtime) != (row["size"], row["mtime"]) or self.rig_hash(rig_file) != c.sha256:
                 return [], "the rig file changed since it was collected"
         elif c.location == "nas":
-            s3 = self._fresh("s3", c.sha256, reps.get("s3"))
+            s3 = self._fresh("s3", c.sha256, reps.get("s3")) or self._fresh_in_bundle(c.sha256, reps.get("s3_bundle"))
             if not s3:
                 return [], "no fresh verified S3 copy"
             relied.append(s3)
@@ -357,6 +359,20 @@ class Cleaner:
         except OSError:
             return None
         return {"location": location, "uri": row["uri"], "checked": "stat"}
+
+    def _fresh_in_bundle(self, sha: str, row) -> dict | None:
+        """A sub whose S3 copy is inside its night's zip: the zip is re-checked
+        (HeadObject: size, SHA-256, Object Lock) right before the NAS copy goes."""
+        if not blobs.verified(row):
+            return None
+        from altair import bundles
+
+        found = bundles.member(self.catalog, sha)
+        if found is None:
+            return None
+        member, bundle, bundle_s3 = found
+        zipped = self._fresh("s3", bundle["sha256"], bundle_s3)
+        return {**zipped, "member": member["name"], "bundle_sha256": bundle["sha256"]} if zipped else None
 
     # ── deleting ─────────────────────────────────────────────────────────
     def _delete(self, c: Candidate) -> None:

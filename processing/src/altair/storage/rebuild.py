@@ -304,6 +304,19 @@ class Rebuilder:
         self._blob(b["sha256"], b["logical_path"], b["size"], b["class"], rig)
         for c in side.get("calibrated_blobs") or []:
             self._blob(c["sha256"], c["logical_path"], c["size"], "calibrated_frame", rig)
+        zipped = side.get("calibrated_bundle")
+        if zipped:
+            self._blob(zipped["sha256"], zipped["logical_path"], zipped["size"], "calibrated_bundle", rig)
+            with self.catalog.transaction() as tx:
+                for mem in zipped.get("members") or []:
+                    tx.execute("INSERT OR IGNORE INTO bundle_members(bundle_sha256, member_sha256, name, data_offset, size) VALUES (?, ?, ?, ?, ?)",
+                               (zipped["sha256"], mem["member_sha256"], mem["name"], mem["data_offset"], mem["size"]))
+                s3 = next((src.location for src in self.sources if isinstance(src, S3Source)), None)
+                if s3 is not None and blobs.verified(tx.execute("SELECT * FROM replicas WHERE sha256 = ? AND location = 's3'",
+                                                                (zipped["sha256"],)).fetchone()):
+                    from altair import bundles
+
+                    bundles.mark_members_backed_up(tx, s3, zipped["sha256"], zipped["logical_path"])
         m = side.get("metrics") or {}
         used = side.get("used") or []
         with self.catalog.transaction() as tx:

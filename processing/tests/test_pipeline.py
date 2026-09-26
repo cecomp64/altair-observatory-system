@@ -242,11 +242,15 @@ def test_hub_reports_products_jobs_and_masters(tmp_path, fake_hub):
     sync.drainer.drain()
     assert fake_hub.contract_violations == []
     kinds = {k for k, _ in fake_hub.products}
-    assert kinds == {"night_master", "project_reference", "multi_night_master"}
+    assert kinds == {"night_master", "project_reference", "multi_night_master", "masters_bundle"}
     night_product = next(v for (k, _), v in fake_hub.products.items() if k == "night_master")
     assert night_product["metadata"]["archive_uri"] is None and night_product["metadata"]["target_id"] == 34
     assert night_product["metadata"]["metrics"]["frames"] == 6 and len(night_product["metadata"]["metrics"]["frame_sha256s"]) == 6
     assert set(night_product["files"]) == {"preview", "thumbnail", "report"}
+    zipped = night_product["metadata"]["calibrated_bundle"]
+    assert zipped["frames"] == 6 and zipped["archive_uri"] is None     # no S3 here: not uploaded
+    bundle = next(v for (k, _), v in fake_hub.products.items() if k == "masters_bundle")["metadata"]
+    assert bundle["filter"] == "all" and [c["filter"] for c in bundle["contents"]] == ["Ha"]
     assert len(fake_hub.masters) == 3
     assert {j["status"] for j in fake_hub.jobs.values()} == {"succeeded"}
 

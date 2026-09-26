@@ -404,6 +404,13 @@ class Executor:
             reports.for_job(self.catalog, self.config, job["id"])
         except Exception:  # noqa: BLE001 - a report never fails a job
             log.exception("report for job %s failed", job["id"])
+        if job["kind"] == "MERGE":
+            try:
+                from altair import bundles
+
+                bundles.masters(self.catalog, self.config, job["project_id"])   # the target's masters zip for the Hub
+            except Exception:  # noqa: BLE001 - nor does the download zip
+                log.exception("masters zip for project %s failed", job["project_id"])
         return JobReport(job["id"], job["kind"], "succeeded")
 
     def _fail(self, job: sqlite3.Row, error: str, *, retry: bool) -> JobReport:

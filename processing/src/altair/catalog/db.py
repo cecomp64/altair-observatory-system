@@ -15,7 +15,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-SCHEMA_VERSION = "11"
+SCHEMA_VERSION = "12"
 
 # Columns added after a table first shipped: (table, column, declaration).
 # CREATE TABLE IF NOT EXISTS leaves an older catalog's tables as they were, so

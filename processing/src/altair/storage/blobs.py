@@ -7,7 +7,7 @@ from typing import Iterable
 
 from altair.catalog.db import now_iso
 
-DURABLE = {"nas": 1, "s3": 1}
+DURABLE = {"nas": 1, "s3": 1, "s3_bundle": 1}   # s3_bundle: a member of a zip bundle held in S3
 
 
 def ensure_location(tx: sqlite3.Connection, name: str, kind: str = "fs", *, durable: bool | None = None, read_only: bool = False) -> None:

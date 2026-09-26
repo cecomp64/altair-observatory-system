@@ -204,6 +204,22 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
 
+-- Zip bundles (stored, not compressed): each member's own SHA-256 and where
+-- its bytes sit inside the zip, so one member can be read with a ranged GET.
+CREATE TABLE IF NOT EXISTS bundle_members (
+  bundle_sha256 TEXT NOT NULL REFERENCES blobs(sha256),
+  member_sha256 TEXT NOT NULL,
+  name TEXT NOT NULL, data_offset INTEGER NOT NULL, size INTEGER NOT NULL,
+  PRIMARY KEY (bundle_sha256, member_sha256)
+);
+CREATE INDEX IF NOT EXISTS bundle_members_member ON bundle_members(member_sha256);
+
+-- The per-target (per-project) masters zip offered on the Hub: the latest.
+CREATE TABLE IF NOT EXISTS masters_bundles (
+  project_id INTEGER PRIMARY KEY REFERENCES projects(id),
+  sha256 TEXT NOT NULL, built_at TEXT NOT NULL, contents_json TEXT NOT NULL, build INTEGER NOT NULL DEFAULT 1
+);
+
 -- A job whose PixInsight run succeeded but whose outputs are not fully
 -- published yet; after a crash the executor publishes again from the work
 -- directory (publishing is idempotent) instead of re-running PixInsight.

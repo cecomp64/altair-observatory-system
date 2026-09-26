@@ -435,19 +435,21 @@ storage:                                  # see §7
         - raw_light
         - calibration_master
         - project_reference
-        - calibrated_frame
+        - calibrated_bundle               # the calibrated subs, one zip per night stack (not calibrated_frame)
         - night_master
         - multi_night_master
+        - masters_bundle                  # the project's masters zip for the Hub download
         - metadata                        # manifests, sidecars, catalog backups (small)
       storage_class:                      # applied on upload
         raw_light: STANDARD_IA
-        calibrated_frame: STANDARD_IA
+        calibrated_bundle: STANDARD_IA
         default: STANDARD
       lifecycle:                          # applied to the bucket by `altair storage s3 apply-lifecycle` — transitions only, never expiry of kept data
         raw_light:        { to: DEEP_ARCHIVE, after_days: 120 }
-        calibrated_frame: { to: GLACIER_IR,   after_days: 60 }
+        calibrated_bundle: { to: GLACIER_IR,  after_days: 60 }
+        masters_bundle_noncurrent_days: 7 # the only expiry: superseded versions of masters.zip (needs bucket versioning)
         abort_incomplete_multipart_after_days: 7
-      object_lock: { mode: GOVERNANCE, retain_years: 10, classes: [raw_light, calibrated_frame, calibration_master, project_reference, night_master] }
+      object_lock: { mode: GOVERNANCE, retain_years: 10, classes: [raw_light, calibrated_bundle, calibration_master, project_reference, night_master] }
       restore:
         tier: Bulk                        # Bulk | Standard | Expedited
         days: 7
@@ -1047,7 +1049,8 @@ After a `NIGHT_STACK` job:
    write, §7.5), kept pinned in the local cache, and queued for S3. The **calibrated light
    subs** of a final (flat-verified) stack, at `calibrated_frame_stage`, are copied from
    WBPP's local output to the NAS before the work directory is cleared. They are registered
-   as `calibrated_frame` blobs and queued for S3 too. Registered subs and all other
+   as `calibrated_frame` blobs, and zipped into one stored `calibrated_bundle` per night
+   stack, which is what goes to S3 (§7.4). Registered subs and all other
    intermediates are **not** kept beyond the job (§7.4).
 3. **Publish a viewing copy** (autocropped) to
    `published\<target>\<night>\<target>_<telescope>_<camera>_<filter>_<night>_<N>x<exp>s.xisf`.
@@ -1242,9 +1245,11 @@ everywhere keeps every location browsable by hand and makes rebuild-from-archive
 | `raw_calibration` | Raw dark / flat / bias / dark-flat subs | `raw/<rig>/<night>/…` | **Yes** (kept 365 d after its master is backed up; configurable) | **No** | — |
 | `calibration_master` | Master dark / flat / bias / dark-flat (+ sidecar) | `calibration/masters/<kind>/…/<name>_<sha8>.xisf` | Yes | Yes | STANDARD |
 | `project_reference` | Project reference frame (+ WCS sidecar) | `projects/<project>/reference/reference_v<N>.xisf` | Yes | Yes | STANDARD |
-| `calibrated_frame` | Calibrated light subs from a **final** (flat-verified) night stack | `projects/<project>/nights/<night>/<filter>/calibrated/<name>_c.xisf` | Yes. **Removed after 180 d** (S3-only after that) | Yes | STANDARD_IA → GLACIER_IR after 60 d |
+| `calibrated_frame` | Calibrated light subs from a **final** (flat-verified) night stack | `projects/<project>/nights/<night>/<filter>/calibrated/<name>_c.xisf` | Yes. **Removed after 180 d** (S3-only, inside the zip, after that) | Only inside `calibrated_bundle` | — |
+| `calibrated_bundle` | One stored (uncompressed) zip of a final night stack's calibrated subs plus `manifest.json`; `bundle_members` records each sub's offset, so one sub is read with a ranged GET | `projects/<project>/nights/<night>/<filter>/calibrated_<sha8>.zip` | **No** (the subs are there individually) | Yes | STANDARD_IA → GLACIER_IR after 60 d |
 | `night_master` | Night master (+ `night.json`) | `projects/<project>/nights/<night>/<filter>/night_master_<sha8>.xisf` | Yes | Yes | STANDARD |
 | `multi_night_master` | Multi-night master versions (+ sidecar, coverage map) | `projects/<project>/multinight/<filter>/v<NNN>.xisf` | Yes | Yes | STANDARD |
+| `masters_bundle` | The project's download zip: the latest multi-night master per filter, its report, a README; rebuilt after each merge, deterministic | `projects/<project>/bundles/masters.zip` (one key; S3 versioning) | **No** | Yes | STANDARD; noncurrent versions expire after `masters_bundle_noncurrent_days` (7) |
 | `metadata` | Manifests, sidecars, reports, catalog backups | `raw/<rig>/_manifests/…`, `catalog/…` | Yes | Yes | STANDARD |
 | `registered_frame` | Registered subs | local work dir / cache only | **No** | **No** | — (local only) |
 | `provisional` | No-flat preview masters and their calibrated subs | local cache and published copy only | **No** | **No** | — |
@@ -1304,7 +1309,8 @@ and otherwise from the NAS.
 
 **S3 priority order:** `raw_light` (pre-empts everything, ignores `upload_window`) →
 `metadata` → `calibration_master` / `project_reference` / `night_master` /
-`multi_night_master` → `calibrated_frame`.
+`multi_night_master` → `masters_bundle` → `calibrated_bundle`. A calibrated sub counts as
+backed up (replica `s3_bundle`) once its night's zip is in S3.
 
 **S3 upload:**
 

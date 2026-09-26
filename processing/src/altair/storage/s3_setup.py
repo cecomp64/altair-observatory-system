@@ -47,6 +47,12 @@ def lifecycle_rules(cfg: Location) -> list[dict[str, Any]]:
             rules.append({"ID": f"altair-{data_class}-to-{rule.to.lower()}", "Status": "Enabled",
                           "Filter": {"And": {"Prefix": cfg.prefix, "Tags": [{"Key": "altair-class", "Value": data_class}]}},
                           "Transitions": [{"Days": rule.after_days, "StorageClass": rule.to}]})
+    noncurrent = cfg.lifecycle.get("masters_bundle_noncurrent_days")
+    if isinstance(noncurrent, int):
+        # The masters zip is rewritten under one key; its superseded versions expire.
+        rules.append({"ID": "altair-masters_bundle-noncurrent", "Status": "Enabled",
+                      "Filter": {"And": {"Prefix": cfg.prefix, "Tags": [{"Key": "altair-class", "Value": "masters_bundle"}]}},
+                      "NoncurrentVersionExpiration": {"NoncurrentDays": noncurrent}})
     abort = cfg.lifecycle.get("abort_incomplete_multipart_after_days")
     if isinstance(abort, int):
         rules.append({"ID": "altair-abort-incomplete-multipart", "Status": "Enabled", "Filter": {"Prefix": cfg.prefix},

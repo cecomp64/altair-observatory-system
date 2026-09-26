@@ -66,12 +66,18 @@ class Publisher:
         return self.config.cache_dir / "blobs" / sha[:2] / f"{sha}{Path(logical_path).suffix.lower()}"
 
     def store(self, source: str | Path, logical_for: Callable[[str], str], data_class: str, *, rig: str | None = None,
-              to_nas: bool = True) -> tuple[str, str, int]:
-        """Hash, register, copy into the cache, write to the NAS. Returns (sha, logical path, size)."""
+              to_nas: bool = True, cache: bool = True) -> tuple[str, str, int]:
+        """Hash, register, copy into the cache, write to the NAS. Returns (sha, logical path, size).
+        ``cache=False`` (calibrated subs: big, and read from the NAS in place) writes the NAS straight
+        from ``source``, falling back to the cache only when the NAS can't take it."""
         source = Path(source)
         sha = sha256_file(source)
         size = source.stat().st_size
         logical = logical_for(sha)
+        with self.catalog.transaction() as tx:
+            blobs.add_blob(tx, sha, size, data_class, logical, rig)
+        if not cache and to_nas and self._to_nas(sha, source, logical, data_class):
+            return sha, logical, size
         cached = self.cache_path(sha, logical)
         if not cached.exists():
             cached.parent.mkdir(parents=True, exist_ok=True)
@@ -80,9 +86,8 @@ class Publisher:
             os.replace(partial, cached)
             make_read_only(cached)
         with self.catalog.transaction() as tx:
-            blobs.add_blob(tx, sha, size, data_class, logical, rig)
             blobs.set_replica(tx, sha, "cache", str(cached))
-        if to_nas:
+        if to_nas and cache:
             self._to_nas(sha, cached, logical, data_class)
         return sha, logical, size
 
@@ -268,17 +273,26 @@ class Publisher:
                    "total_exposure_s": float(sum(exposure.get(s) or 0 for s in used)), "frame_sha256s": used}
 
         calibrated: list[str] = []
+        bundled: list[dict] = []
         if final and plan.get("keep_calibrated_frames", True):
             for out in result.outputs_of("calibrated_frame"):
                 if not Path(out.path).exists():
                     continue
                 stem, ext = Path(out.path).stem, Path(out.path).suffix.lower()
-                c_sha, _, _ = self.store(out.path, lambda s, stem=stem, ext=ext: f"{base}/calibrated/{stem}_{_sha8(s)}{ext}",
-                                         "calibrated_frame", rig=plan["rig"])
+                c_sha, c_logical, _ = self.store(out.path, lambda s, stem=stem, ext=ext: f"{base}/calibrated/{stem}_{_sha8(s)}{ext}",
+                                                 "calibrated_frame", rig=plan["rig"], cache=False)
                 calibrated.append(c_sha)
+                bundled.append({"sha256": c_sha, "name": c_logical.rsplit("/", 1)[-1], "path": out.path, "source_sha256": out.source_sha256})
+        # S3 gets the night's subs as one zip (bundles.py), not one object each.
+        from altair import bundles
+
+        bundle_sha = bundles.calibrated(self, base=base, night=plan["night"], rig=plan["rig"], frames=bundled, work_dir=work_dir)
 
         sidecar = {"schema": 1, "type": "night_master", "project_id": plan["project_id"], "project": self.project_block(plan["project_id"]),
                    "blob": self.blob_block(sha), "calibrated_blobs": [self.blob_block(c) for c in calibrated],
+                   "calibrated_bundle": ({**self.blob_block(bundle_sha), "members": [dict(r) for r in self.catalog.query(
+                       "SELECT member_sha256, name, data_offset, size FROM bundle_members WHERE bundle_sha256 = ?", (bundle_sha,))]}
+                                         if bundle_sha else None),
                    "night": plan["night"], "filter": plan["filter"], "rig": plan["rig"],
                    "kind": plan["stack_kind"], "master_sha256": sha, "reference": plan.get("reference"),
                    "reference_version": plan["reference_version"], "groups": plan["groups"], "inputs": all_lights, "used": used,
@@ -297,7 +311,8 @@ class Publisher:
                 (plan["project_id"], plan["night"], plan["filter"], sha, json.dumps(used), plan["stack_kind"], plan["reference_version"],
                  len(used), len(all_lights) - len(used), metrics["total_exposure_s"],
                  json.dumps({"groups": [{k: g.get(k) for k in ("dark", "dark_evidence", "flat", "flat_evidence", "rotator_pos", "exposure")} for g in plan["groups"]],
-                             "calibrated": calibrated, "sidecar": side_sha, "drizzle_scale": plan.get("drizzle_scale", 1)}),
+                             "calibrated": calibrated, "calibrated_bundle": bundle_sha, "sidecar": side_sha,
+                             "drizzle_scale": plan.get("drizzle_scale", 1)}),
                  int(final), json.dumps(metrics), "pending" if final else "provisional", job["id"], nas_uri, size))
             row = tx.execute("SELECT * FROM night_masters WHERE project_id = ? AND night = ? AND filter = ? AND kind = ? AND reference_version = ? "
                              "AND sha256 = ?", (plan["project_id"], plan["night"], plan["filter"], plan["stack_kind"],

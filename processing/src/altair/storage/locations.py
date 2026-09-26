@@ -194,9 +194,11 @@ class S3Location:
 
     # ── writes ───────────────────────────────────────────────────────────
     def upload(self, source: str | Path, logical_path: str, sha256: str, data_class: str, *,
-               bytes_per_s: float | None = None) -> ObjectInfo:
+               bytes_per_s: float | None = None, overwrite: bool = False) -> ObjectInfo:
         """Upload once; never overwrite. Returns the verified object.
-        ``bytes_per_s`` throttles the upload (``upload_bandwidth_limit_mbps``)."""
+        ``bytes_per_s`` throttles the upload (``upload_bandwidth_limit_mbps``).
+        ``overwrite`` is only for the per-target masters zip (a fixed key that
+        versioning keeps; lifecycle expires its old versions)."""
         from botocore.exceptions import ClientError
 
         key = self.key(logical_path)
@@ -212,10 +214,11 @@ class S3Location:
             if size <= chunk:
                 with open(source, "rb") as handle:
                     body = _Throttled(handle, bytes_per_s) if bytes_per_s else handle
-                    self.client.put_object(Bucket=self.bucket, Key=key, Body=body, IfNoneMatch="*", ChecksumAlgorithm="SHA256",
-                                           ChecksumSHA256=base64.b64encode(bytes.fromhex(sha256)).decode(), **extra)
+                    condition = {} if overwrite else {"IfNoneMatch": "*"}
+                    self.client.put_object(Bucket=self.bucket, Key=key, Body=body, ChecksumAlgorithm="SHA256",
+                                           ChecksumSHA256=base64.b64encode(bytes.fromhex(sha256)).decode(), **condition, **extra)
             else:
-                self._multipart(source, key, chunk, extra, bytes_per_s)
+                self._multipart(source, key, chunk, extra, bytes_per_s, overwrite=overwrite)
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") not in ("PreconditionFailed", "412"):
                 raise
@@ -225,7 +228,8 @@ class S3Location:
             raise IntegrityMismatch(f"s3://{self.bucket}/{key} holds SHA-256 {found}…, expected {sha256[:12]}…; not overwritten")
         return info
 
-    def _multipart(self, source: str | Path, key: str, chunk: int, extra: dict, bytes_per_s: float | None = None) -> None:
+    def _multipart(self, source: str | Path, key: str, chunk: int, extra: dict, bytes_per_s: float | None = None, *,
+                   overwrite: bool = False) -> None:
         """Multipart with per-part SHA-256 checksums, resuming an unfinished
         upload of the same key (a lifecycle rule aborts orphans after 7 days)."""
         upload_id = None
@@ -252,7 +256,7 @@ class S3Location:
                     time.sleep(max(0.0, len(block) / bytes_per_s - (time.monotonic() - started)))
         parts = [{k: v for k, v in done[n].items() if v is not None} for n in sorted(done)]
         self.client.complete_multipart_upload(Bucket=self.bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts},
-                                              IfNoneMatch="*")
+                                              **({} if overwrite else {"IfNoneMatch": "*"}))
 
     def rewrite(self, source: str | Path, logical_path: str, sha256: str, data_class: str) -> ObjectInfo:
         """Scrub repair only (SPEC §7.8): re-upload a corrupt object under the
@@ -326,6 +330,31 @@ class S3Location:
         if got != sha256:
             partial.unlink(missing_ok=True)
             raise IntegrityMismatch(f"download of {logical_path} has SHA-256 {got[:12]}…, expected {sha256[:12]}…")
+        os.replace(partial, dest)
+        make_read_only(dest)
+        return dest
+
+    def download_range(self, logical_path: str, offset: int, length: int, dest: str | Path, sha256: str) -> Path:
+        """One member of a zip bundle: a ranged GET of its stored bytes, checked
+        against the member's own SHA-256 (the bundle's other members aren't read)."""
+        from botocore.exceptions import ClientError
+
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        partial = dest.with_name(dest.name + ".partial")
+        try:
+            body = self.client.get_object(Bucket=self.bucket, Key=self.key(logical_path), Range=f"bytes={offset}-{offset + length - 1}")["Body"]
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "InvalidObjectState":
+                raise RestoreRequired(f"{logical_path} is in cold storage and must be restored first") from exc
+            raise
+        with open(partial, "wb") as out:
+            for block in body.iter_chunks(CHUNK):
+                out.write(block)
+        got = sha256_file(partial)
+        if got != sha256:
+            partial.unlink(missing_ok=True)
+            raise IntegrityMismatch(f"member of {logical_path} at {offset} has SHA-256 {got[:12]}…, expected {sha256[:12]}…")
         os.replace(partial, dest)
         make_read_only(dest)
         return dest
