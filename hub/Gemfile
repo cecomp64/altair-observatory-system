@@ -2,7 +2,7 @@ source "https://rubygems.org"
 
 # Pin json: 3.0's JSON.parse no longer accepts a positional options hash,
 # which breaks ActiveSupport::JSON.decode (used by encrypted cookies/session).
-gem "json", "~> 2.9"
+gem "json", "~> 3.0"
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem "rails", "~> 8.1.3", ">= 8.1.3.1"
