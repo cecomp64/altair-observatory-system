@@ -12,7 +12,7 @@ its own thread so a slow S3 restore or upload never blocks processing.
 | cleanup | daily at ``storage.cleanup.schedule_local`` |
 | catalog backup | daily at ``catalog_backup_local`` (default 11:00) |
 | scrub | when due (``storage.verify.scrub_interval_days``) |
-| housekeeping (cache eviction, NAS backfill, old work dirs and logs) | hourly |
+| housekeeping (cache eviction, NAS backfill, old work dirs and logs, missing manifests) | hourly |
 
 A worker's exception is logged and the worker carries on at its next tick.
 Task Scheduler restarts the whole process if it dies (§4.1).
@@ -115,7 +115,8 @@ class Daemon:
         if cfg.storage.nas:
             workers.append(Worker("catalog_backup", 60, self.daily("catalog_backup", self.catalog_backup_local, self.backup_catalog)))
         workers.append(Worker("scrub", 3600, self.scrub))
-        workers.append(Worker("housekeeping", 3600, lambda: (stager.evict(), publisher.backfill_nas(), self.executor.cleanup())))
+        workers.append(Worker("housekeeping", 3600, lambda: (stager.evict(), publisher.backfill_nas(), self.executor.cleanup(),
+                                                             self.manifests())))
         return workers
 
     # ── worker bodies ────────────────────────────────────────────────────
@@ -150,6 +151,12 @@ class Daemon:
         scrubber = Scrubber(self.catalog, self.config, s3=self.s3, clock=self.clock)
         if scrubber.due():
             scrubber.run()
+
+    def manifests(self) -> None:
+        from altair.collector import manifest
+        from altair.storage.locations import nas_location
+
+        manifest.check_missing(self.catalog, self.config, nas_location(self.config))
 
     def write_status(self) -> None:
         from altair import status_page

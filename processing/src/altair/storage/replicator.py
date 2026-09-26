@@ -113,8 +113,26 @@ class Replicator:
             report.uploaded += 1
             report.bytes += row["size_bytes"]
             self._record(row, info)
+        self._track_reachability(report)
         self.check_backup(now)
         return report
+
+    def _track_reachability(self, report: ReplicationReport) -> None:
+        """LOCATION_UNREACHABLE (warning) while S3 refuses uploads; resolved by the next pass that gets through."""
+        fingerprint = "LOCATION_UNREACHABLE:s3"
+        open_issue = self.catalog.one("SELECT 1 FROM issues WHERE fingerprint = ? AND status = 'open'", (fingerprint,))
+        # With the issue open and nothing uploaded this pass, probe the bucket to see whether it is back.
+        back = bool(report.uploaded) or (open_issue is not None and not report.unreachable and self.s3.reachable())
+        with self.catalog.transaction() as tx:
+            blobs.ensure_location(tx, "s3", "s3")
+            tx.execute("UPDATE locations SET reachable = ?, last_probe_at = ? WHERE name = 's3'", (int(not report.unreachable), now_iso()))
+            if report.unreachable:
+                raise_issue(tx, self.config, kind="LOCATION_UNREACHABLE", severity="warning", fingerprint=fingerprint,
+                            message=f"S3 ({self.cfg.bucket}) can't be reached: {report.failed[-1]}. Uploads resume automatically; fetches from "
+                                    "S3 wait. Check the network and the credentials (`altair storage s3 check`).",
+                            scope={"location": "s3"})
+            elif back:
+                resolve_issue(tx, self.config, fingerprint, resolution="auto:reachable")
 
     def _upload(self, source: Path, row):
         """Raw lights ignore the bandwidth limit, like the upload window."""

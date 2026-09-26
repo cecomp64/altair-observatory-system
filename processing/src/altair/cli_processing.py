@@ -59,17 +59,47 @@ def _process_requests(ctx: Ctx) -> None:
         click.echo(f"request {done['id']} {done['kind']}: {', '.join(f'{k}={v}' for k, v in done.items() if k not in ('id', 'kind'))}")
 
 
+def _job_filter(ctx: Ctx, *, night: str | None = None, target_id: int | None = None, hub_project: int | None = None,
+                filter_: str | None = None, kinds: tuple[str, ...] = ()):
+    """A predicate over job rows for --night/--target/--project/--filter/--kind, or None for all."""
+    if not any((night, target_id, hub_project, filter_, kinds)):
+        return None
+    projects = None
+    if target_id is not None or hub_project is not None:
+        clauses, args = [], []
+        if target_id is not None:
+            clauses.append("hub_target_id = ?")
+            args.append(target_id)
+        if hub_project is not None:
+            clauses.append("hub_project_id = ?")
+            args.append(hub_project)
+        projects = {r["id"] for r in ctx.catalog.query(f"SELECT id FROM projects WHERE {' AND '.join(clauses)}", tuple(args))}
+    wanted = {k.upper() for k in kinds}
+
+    def where(job) -> bool:
+        return ((night is None or job["night"] == night) and (projects is None or job["project_id"] in projects)
+                and (filter_ is None or job["filter"] == filter_) and (not wanted or job["kind"] in wanted))
+    return where
+
+
 @click.command("run")
+@click.option("--night", help="Only this night's jobs (and what they need)")
+@click.option("--target", "target_id", type=int, help="Only this Hub target's jobs")
+@click.option("--project", "hub_project", type=int, help="Only this Hub project's jobs (every target, every rig)")
+@click.option("--filter", "filter_")
+@click.option("--kind", "kinds", multiple=True, type=click.Choice(["CALIB_MASTER", "PROJECT_REFERENCE", "NIGHT_STACK", "MERGE"], case_sensitive=False))
 @click.option("--max-jobs", type=int, help="Stop after this many jobs")
 @pass_ctx
-def run(ctx: Ctx, max_jobs: int | None) -> None:
-    """Process pending plan requests, then run every runnable job through PixInsight."""
+def run(ctx: Ctx, night: str | None, target_id: int | None, hub_project: int | None, filter_: str | None, kinds: tuple[str, ...],
+        max_jobs: int | None) -> None:
+    """Process pending plan requests, then run the runnable jobs through PixInsight."""
     _process_requests(ctx)
     executor = _executor(ctx)
     recovered = executor.recover()
     if recovered:
         click.echo(f"recovered job(s) {', '.join(map(str, recovered))} after a restart")
-    for report in executor.run_all(max_jobs=max_jobs):
+    where = _job_filter(ctx, night=night, target_id=target_id, hub_project=hub_project, filter_=filter_, kinds=kinds)
+    for report in executor.run_all(max_jobs=max_jobs, where=where):
         click.echo(f"job {report.job_id} {report.kind}: {report.status}{' - ' + report.detail if report.detail else ''}")
     click.echo(f"{executor.pending()} job(s) still pending")
 
@@ -154,6 +184,26 @@ def calib_import(ctx: Ctx, path: str, kind: str, rig: str, **overrides) -> None:
     click.echo(f"imported {master['kind']} {master['night']} as {master['logical_path']}")
     if master["reruns_queued"]:
         click.echo(f"it resolves issue(s) {', '.join(map(str, master['reruns_queued']))}: reruns queued (`altair run`)")
+
+
+@calib.command("build")
+@click.option("--night", required=True)
+@click.option("--rig", help="Default: every rig with frames that night")
+@pass_ctx
+def calib_build(ctx: Ctx, night: str, rig: str | None) -> None:
+    """Build the night's calibration masters now (without its stacks)."""
+    from altair.planner.plan import Planner
+
+    rigs = [rig] if rig else [r["rig"] for r in ctx.catalog.query("SELECT DISTINCT rig FROM frames WHERE night = ?", (night,)) if r["rig"] in ctx.config.rigs]
+    planner = Planner(ctx.catalog, ctx.config, ctx.hub_config)
+    for name in rigs:
+        planner.plan_night(name, night)
+    where = _job_filter(ctx, night=night, kinds=("CALIB_MASTER",))
+    reports = _executor(ctx).run_all(where=lambda j: where(j) and (rig is None or j["rig"] == rig))
+    for report in reports:
+        click.echo(f"job {report.job_id}: {report.status}{' - ' + report.detail if report.detail else ''}")
+    if not reports:
+        click.echo("no calibration masters to build")
 
 
 @click.group()

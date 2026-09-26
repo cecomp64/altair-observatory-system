@@ -64,3 +64,36 @@ def write(catalog: Catalog, config: AltairConfig, nas: FsLocation, rig: str, nig
 def _mk(path: Path) -> bool:
     path.mkdir(parents=True, exist_ok=True)
     return True
+
+
+def check_missing(catalog: Catalog, config: AltairConfig, nas: FsLocation | None) -> list[tuple[str, str]]:
+    """Closed nights of collector-managed rigs without a manifest (the close
+    happened while the NAS couldn't be written, or by an older version) get
+    one now; while the NAS is unusable they carry MANIFEST_MISSING. Returns
+    the (rig, night) pairs still missing one."""
+    from altair import nights
+    from altair.issues import raise_issue, resolve_issue
+    from altair.storage import nas as nas_mod
+
+    health = nas_mod.last(catalog)
+    usable = nas is not None and (health.usable if health else nas.reachable())
+    missing = []
+    rows = catalog.query("SELECT c.rig, c.night, c.closed_by FROM collections c WHERE c.state = 'closed' AND c.manifest_sha256 IS NULL "
+                         "AND EXISTS (SELECT 1 FROM frames f WHERE f.rig = c.rig AND f.night = c.night AND f.origin = 'collect')")
+    for row in rows:
+        if not nights.collector_managed(config, row["rig"]):
+            continue
+        fingerprint = f"MANIFEST_MISSING:{row['rig']}:{row['night']}"
+        if usable:
+            sha = write(catalog, config, nas, row["rig"], row["night"], row["closed_by"] or "manual")
+            with catalog.transaction() as tx:
+                tx.execute("UPDATE collections SET manifest_sha256 = ? WHERE rig = ? AND night = ?", (sha, row["rig"], row["night"]))
+                resolve_issue(tx, config, fingerprint, resolution="auto:written")
+            continue
+        missing.append((row["rig"], row["night"]))
+        with catalog.transaction() as tx:
+            raise_issue(tx, config, kind="MANIFEST_MISSING", severity="warning", fingerprint=fingerprint,
+                        message=f"Night {row['night']} on {row['rig']} has no collection manifest yet (the NAS isn't usable). It is written "
+                                "when the NAS is back; until then a catalog rebuild would have to rescan this night's files.",
+                        scope={"rig": row["rig"], "night": row["night"]})
+    return missing

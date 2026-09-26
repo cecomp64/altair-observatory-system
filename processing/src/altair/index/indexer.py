@@ -54,7 +54,8 @@ def index(catalog: Catalog, config: AltairConfig, root: str | Path, *, rig: str,
     nas = Path(nas_root).resolve() if nas_root else None
     report = IndexReport()
 
-    for path in sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in SUFFIXES):
+    files = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
+    for path in (p for p in files if p.suffix.lower() in SUFFIXES):
         report.seen += 1
         try:
             header = read_header(path)
@@ -85,7 +86,7 @@ def index(catalog: Catalog, config: AltairConfig, root: str | Path, *, rig: str,
             sha = sha256_file(path)
             location, uri = _placement(path, nas, rig, fields, sha, adopt)
             night = str(fields["night"])
-            rel = path.relative_to(root).as_posix()
+            rel = path.name if root.is_file() else path.relative_to(root).as_posix()
             logical = f"raw/{rig}/{rel}" if location != "nas" or not adopt else f"raw/{rig}/{night}/{path.name}"
             frame_id, created = frame_ops.register(
                 catalog, config, sha256=sha, size=path.stat().st_size, logical_path=logical,

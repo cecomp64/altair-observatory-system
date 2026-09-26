@@ -74,6 +74,13 @@ def ingest(catalog: Catalog, config: AltairConfig, hub_config: HubConfig | None,
         issue = ("HEADER_INCOMPLETE", f"HEADER_INCOMPLETE:{rig}:{fields['night']}:{','.join(missing)}",
                  f"Frames on {rig} for the night of {fields['night']} lack {', '.join(missing)} (e.g. {file_name}). "
                  "Fix the NINA headers or the header_mapping/aliases in altair.yaml, then re-ingest with `altair rerun`.")
+    elif unknown := _unknown_names(fields, config, image_type):
+        # A header name no alias maps to a known telescope or camera: the fix is in altair.yaml `aliases`.
+        status, reason = "invalid", f"unknown {' and '.join(f'{k} {v!r}' for k, v in unknown)}"
+        issue = ("UNKNOWN_ALIAS", f"UNKNOWN_ALIAS:{rig}:" + ":".join(f"{k}={v}" for k, v in unknown),
+                 f"{file_name} (rig {rig}) names {' and '.join(f'{k} {v!r}' for k, v in unknown)}, which no alias maps to a configured "
+                 f"{'/'.join(k for k, _ in unknown)}. Add it under `aliases` in altair.yaml (e.g. \"{unknown[0][1]}\": "
+                 f"{rig_cfg.telescope if unknown[0][0] == 'telescope' else rig_cfg.camera}), then re-ingest with `altair rerun`.")
     elif (fields["telescope"], fields["camera"]) != (rig_cfg.telescope, rig_cfg.camera) and image_type in ("light", "flat"):
         status, reason = "invalid", f"headers name {fields['telescope']}/{fields['camera']}, not rig {rig}"
         issue = ("UNKNOWN_RIG", f"UNKNOWN_RIG:{rig}:{fields['telescope']}:{fields['camera']}",
@@ -109,6 +116,13 @@ def ingest(catalog: Catalog, config: AltairConfig, hub_config: HubConfig | None,
     )
     row = catalog.one("SELECT status FROM frames WHERE id = ?", (frame_id,))
     return Ingested(frame_id, created, fields, row["status"], data_class_for(image_type))
+
+
+def _unknown_names(fields: dict[str, Any], config: AltairConfig, image_type: str | None) -> list[tuple[str, str]]:
+    """Telescope/camera header values that match no configured rig (after aliases)."""
+    known = {"telescope": {r.telescope for r in config.rigs.values()}, "camera": {r.camera for r in config.rigs.values()}}
+    kinds = ("telescope", "camera") if image_type in ("light", "flat") else ("camera",)
+    return [(k, fields[k]) for k in kinds if fields.get(k) and fields[k] not in known[k]]
 
 
 def _touch_collection(tx: sqlite3.Connection, rig: str, night: str) -> None:

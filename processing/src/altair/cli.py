@@ -9,7 +9,7 @@ import click
 
 from altair import __version__
 from altair import frames as frame_ops
-from altair.cli_context import DEFAULT_CONFIG, Ctx, pass_ctx
+from altair.cli_context import DEFAULT_CONFIG, Ctx, human_bytes, pass_ctx
 from altair.config import AltairConfig
 
 
@@ -191,6 +191,57 @@ def project_show(ctx: Ctx, target_id: int) -> None:
     for row in ctx.catalog.query("SELECT night, filter, count(*) AS n, sum(exposure) AS s FROM frames WHERE hub_target_id = ? AND image_type = 'light' "
                                  "GROUP BY night, filter ORDER BY night", (target_id,)):
         click.echo(f"  {row['night']} {row['filter']}: {row['n']} lights, {round((row['s'] or 0) / 3600, 2)} h")
+
+
+@project.command("rereference")
+@click.option("--target", "target_id", type=int, required=True)
+@click.option("--from-night", help="Build the new reference from this night")
+@click.option("--yes", is_flag=True, help="Don't ask for confirmation")
+@pass_ctx
+def project_rereference(ctx: Ctx, target_id: int, from_night: str | None, yes: bool) -> None:
+    """Pick a new reference (SPEC §9.7): every night is reprocessed and merged again."""
+    from altair.planner.plan import Planner
+    from altair.storage import blobs
+
+    rows = ctx.catalog.query("SELECT f.sha256, b.size_bytes FROM frames f JOIN blobs b USING (sha256) WHERE f.hub_target_id = ? "
+                             "AND f.image_type = 'light'", (target_id,))
+    if not rows:
+        raise click.ClickException(f"no lights for target {target_id}")
+    where: dict[str, int] = {}
+    for r in rows:
+        locations = blobs.verified_locations(ctx.catalog.conn, r["sha256"])
+        source = next((loc for loc in ("cache", "nas") if loc in locations), "s3" if "s3" in locations else "none")
+        where[source] = where.get(source, 0) + r["size_bytes"]
+    click.echo(f"{len(rows)} lights, {human_bytes(sum(where.values()))}: " + ", ".join(f"{human_bytes(n)} from {k}" for k, n in sorted(where.items())))
+    if not yes:
+        click.confirm("Re-reference and reprocess every night?", abort=True)
+    result = Planner(ctx.catalog, ctx.config, ctx.hub_config).rereference(target_id, from_night)
+    for item in result["rereferenced"]:
+        click.echo(f"project {item['project_id']}: {len(item['nights'])} night(s) re-planned; `altair run` processes them")
+
+
+@project.command("set-mode")
+@click.option("--target", "target_id", type=int, required=True)
+@click.argument("mode", type=click.Choice(["master_merge", "frame_reintegration"]))
+@pass_ctx
+def project_set_mode(ctx: Ctx, target_id: int, mode: str) -> None:
+    """How nights are combined (SPEC §9.5, §9.6). With a Hub, set it there instead."""
+    from altair.catalog.db import now_iso
+    from altair.planner.plan import Planner
+    from altair.planner.projects import set_mode
+
+    projects = ctx.catalog.query("SELECT id FROM projects WHERE hub_target_id = ?", (target_id,))
+    if not projects:
+        raise click.ClickException(f"no project for target {target_id}")
+    if ctx.config.hub.enabled:
+        raise click.ClickException("The Hub owns this setting: change it on the project's Processing tab (it reaches Altair as a command).")
+    with ctx.catalog.transaction() as tx:
+        for p in projects:
+            set_mode(tx, p["id"], mode)
+        tx.execute("INSERT INTO plan_requests(kind, payload_json, source, created_at) VALUES ('set_mode', ?, 'cli', ?)",
+                   (json.dumps({"target_id": target_id, "mode": mode}), now_iso()))
+    Planner(ctx.catalog, ctx.config, ctx.hub_config).process_requests()
+    click.echo(f"target {target_id}: {mode}; merges re-planned")
 
 
 # ── index ────────────────────────────────────────────────────────────────

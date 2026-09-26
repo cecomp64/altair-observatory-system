@@ -71,10 +71,16 @@ def init(client: Any, cfg: Location) -> dict[str, Any]:
         "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]})
     client.put_public_access_block(Bucket=bucket, PublicAccessBlockConfiguration={
         "BlockPublicAcls": True, "IgnorePublicAcls": True, "BlockPublicPolicy": True, "RestrictPublicBuckets": True})
+    apply_lifecycle(client, cfg)
+    return iam_policy(cfg)
+
+
+def apply_lifecycle(client: Any, cfg: Location) -> list[dict[str, Any]]:
+    """Replace the bucket's lifecycle configuration with the rules from altair.yaml."""
     rules = lifecycle_rules(cfg)
     if rules:
-        client.put_bucket_lifecycle_configuration(Bucket=bucket, LifecycleConfiguration={"Rules": rules})
-    return iam_policy(cfg)
+        client.put_bucket_lifecycle_configuration(Bucket=cfg.bucket, LifecycleConfiguration={"Rules": rules})
+    return rules
 
 
 def check(client: Any, cfg: Location) -> list[tuple[str, bool, str]]:

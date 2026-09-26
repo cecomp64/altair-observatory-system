@@ -36,7 +36,8 @@ def build(catalog: Catalog, config: AltairConfig) -> dict[str, Any]:
     for issue in issues:
         scope = json.loads(issue["scope_json"])
         item = {"id": issue["id"], "kind": issue["kind"], "severity": issue["severity"], "message": issue["message"],
-                "rig": scope.get("rig"), "night": scope.get("night"), "filter": scope.get("filter"), "since": issue["created_at"]}
+                "rig": scope.get("rig"), "night": scope.get("night"), "filter": scope.get("filter"), "project_id": scope.get("project_id"),
+                "since": issue["created_at"]}
         groups.setdefault(NEEDS.get(issue["kind"], "Other issues"), []).append(item)
     projects = []
     for p in catalog.query("SELECT * FROM projects ORDER BY id"):
@@ -45,7 +46,7 @@ def build(catalog: Catalog, config: AltairConfig) -> dict[str, Any]:
         nights = catalog.query("SELECT night, filter, kind, merge_status, merge_block_reason, n_frames, total_exposure_s FROM night_masters "
                                "WHERE project_id = ? AND superseded_by IS NULL ORDER BY night, filter", (p["id"],))
         projects.append({
-            "id": p["id"], "label": project_label(p), "hub_target_id": p["hub_target_id"], "rig": p["rig"],
+            "id": p["id"], "label": project_label(p), "hub_target_id": p["hub_target_id"], "hub_project_id": p["hub_project_id"], "rig": p["rig"],
             "reference_version": p["reference_version"], "reference_night": p["reference_night"],
             "multi_night": [{"filter": m["filter"], "version": m["version"], "nights": m["n_nights"],
                              "hours": round((m["total_exposure_s"] or 0) / 3600, 2), "created_at": m["created_at"],

@@ -261,6 +261,21 @@ def s3_init(ctx: Ctx, profile: str | None) -> None:
     click.echo(s3_setup.policy_json(cfg))
 
 
+@storage_s3.command("apply-lifecycle")
+@click.option("--profile", help="An admin AWS profile")
+@pass_ctx
+def s3_apply_lifecycle(ctx: Ctx, profile: str | None) -> None:
+    """(Re)apply the lifecycle rules from altair.yaml, e.g. after changing storage classes."""
+    import boto3
+
+    from altair.storage import s3_setup
+
+    cfg = ctx.s3().cfg
+    session = boto3.session.Session(profile_name=profile) if profile else boto3.session.Session()
+    rules = s3_setup.apply_lifecycle(session.client("s3", region_name=cfg.region, endpoint_url=cfg.endpoint_url), cfg)
+    click.echo(f"{len(rules)} lifecycle rule(s) applied to {cfg.bucket}: " + ", ".join(r["ID"] for r in rules))
+
+
 @storage_s3.command("policy")
 @pass_ctx
 def s3_policy(ctx: Ctx) -> None:
@@ -294,17 +309,24 @@ def backup_catalog(ctx: Ctx) -> None:
 @storage.command("restore-catalog")
 @click.option("--latest", is_flag=True, default=True)
 @click.option("--name", help="A specific backup, e.g. altair-20260925T101500Z.db.zst")
+@click.option("--at", "at", help="The newest backup taken at or before this time (ISO 8601, UTC)")
 @click.option("--from", "source", type=click.Choice(["any", "nas", "s3"]), default="any")
 @pass_ctx
-def restore_catalog(ctx: Ctx, latest: bool, name: str | None, source: str) -> None:
+def restore_catalog(ctx: Ctx, latest: bool, name: str | None, at: str | None, source: str) -> None:
     """Replace the catalog with a backup (stop altaird first)."""
     from altair.storage import catalog_backup
     from altair.storage.locations import nas_location
 
     nas = nas_location(ctx.config) if source in ("any", "nas") else None
     s3 = ctx.s3(required=False) if source in ("any", "s3") else None
+    from datetime import datetime, timezone
+
+    when = None
+    if at:
+        when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+        when = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
     try:
-        path = catalog_backup.restore(ctx.config, nas=nas, s3=s3, name=name)
+        path = catalog_backup.restore(ctx.config, nas=nas, s3=s3, name=name, at=when)
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"catalog restored to {path}; the previous one is kept beside it")

@@ -128,12 +128,17 @@ class CommandRunner:
         with self.catalog.transaction() as tx:
             tx.execute("INSERT OR IGNORE INTO equipment_events(at, rig, kind, filter, note, hub_event_id) VALUES (?, ?, ?, ?, ?, ?)",
                        (event["at"], rig, event["kind"], event.get("filter"), event.get("note"), event["id"]))
-            _plan_request(tx, "equipment_event", {"rig": rig, "event_id": event["id"]})
+            _plan_request(tx, "equipment_event", {"rig": rig, "event_id": event["id"], "at": event["at"]})
         return {"rig": rig, "recorded": True}
 
     def _set_mode(self, payload: dict) -> dict:
+        from altair.planner.projects import set_mode
+
         with self.catalog.transaction() as tx:
-            updated = tx.execute("UPDATE projects SET multi_night_mode = ? WHERE hub_target_id = ?", (payload["mode"], payload["target_id"])).rowcount
+            rows = tx.execute("SELECT id FROM projects WHERE hub_target_id = ?", (payload["target_id"],)).fetchall()
+            for row in rows:
+                set_mode(tx, row["id"], payload["mode"])
+            updated = len(rows)
             _plan_request(tx, "set_mode", payload)
         return {"projects_updated": updated}
 

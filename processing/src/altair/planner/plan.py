@@ -220,7 +220,19 @@ class Planner:
         self._plan_stacks(plan, {p["id"]: p for p in projects.values()})
         if not dry_run:
             self._commit(plan)
+            self._remerge_blocked(plan)
         return plan
+
+    def _remerge_blocked(self, plan: NightPlan) -> None:
+        """A night already merged whose calibration no longer matches (an
+        equipment event logged later) leaves the merge: re-plan it."""
+        from altair.projects import merge as merger
+
+        for project_id, filter_ in sorted({(g.project_id, g.filter) for g in plan.groups if g.misses}):
+            merged = self.catalog.one("SELECT 1 FROM night_masters WHERE project_id = ? AND filter = ? AND night = ? AND kind = 'final' "
+                                      "AND superseded_by IS NULL", (project_id, filter_, plan.night))
+            if merged:
+                merger.plan_merge(self.catalog, self.config, project_id, filter_)
 
     def _flat_override(self, rig: str, night: str, group: LightGroup, candidates: list[dict]) -> Match | None:
         """`altair issue resolve --flat … --force-match` (§10.4): the user's flat, recorded as an override."""
@@ -508,7 +520,17 @@ class Planner:
             rows = self.catalog.query("SELECT DISTINCT json_extract(scope_json, '$.rig') AS rig, json_extract(scope_json, '$.night') AS night "
                                       "FROM issues WHERE status = 'open' AND kind IN ('FLAT_MISSING', 'ROTATOR_POSITION_UNKNOWN') "
                                       "AND json_extract(scope_json, '$.rig') = ?", (payload["rig"],))
-            return [(r["rig"], r["night"]) for r in rows if r["night"]]
+            nights = {(r["rig"], r["night"]) for r in rows if r["night"]}
+            if payload.get("at"):
+                # Nights whose flat match the event can change: within the flat age limit of it.
+                from datetime import date, timedelta
+
+                day = date.fromisoformat(str(payload["at"])[:10])
+                span = timedelta(days=self.config.calibration_matching.flat.max_age_days)
+                nights |= {(payload["rig"], r["night"]) for r in self.catalog.query(
+                    "SELECT DISTINCT night FROM frames WHERE rig = ? AND image_type = 'light' AND night BETWEEN ? AND ?",
+                    (payload["rig"], (day - span).isoformat(), (day + span).isoformat()))}
+            return sorted(nights)
         if kind == "rerun" and payload.get("issue_id"):
             issue = self.catalog.one("SELECT scope_json FROM issues WHERE id = ? OR fingerprint = ?", (payload["issue_id"], str(payload["issue_id"])))
             scope = json.loads(issue["scope_json"]) if issue else {}

@@ -46,6 +46,14 @@ def evaluate(catalog: Catalog, config: AltairConfig, project: sqlite3.Row, filte
     fwhms = [f for f in fwhms if f]
     median_fwhm = statistics.median(fwhms) if fwhms else None
     ratio = opts.get("max_fwhm_ratio_to_project_median", config.multi_night.max_fwhm_ratio_to_project_median)
+    # Calibration issues opened after a night was stacked (e.g. an equipment event
+    # logged later invalidates its flat) keep it out until it is reprocessed.
+    open_calib = {}
+    for issue in catalog.query("SELECT kind, scope_json FROM issues WHERE status = 'open' AND kind IN "
+                               "('FLAT_MISSING', 'ROTATOR_POSITION_UNKNOWN', 'DARK_MISSING', 'BIAS_MISSING', 'DARKFLAT_MISSING')"):
+        scope = json.loads(issue["scope_json"])
+        if scope.get("project_id") == project["id"] and scope.get("filter") == filter_:
+            open_calib[scope.get("night")] = issue["kind"]
     gates = []
     for row in rows:
         m = _metrics(row)
@@ -58,6 +66,8 @@ def evaluate(catalog: Catalog, config: AltairConfig, project: sqlite3.Row, filte
                                           f"v{project['reference_version']}", "STALE_REFERENCE"))
         elif not row["flat_verified"]:
             gates.append(Gate(row, False, "no verified flat", "FLAT_MISSING"))
+        elif row["night"] in open_calib:
+            gates.append(Gate(row, False, f"its calibration no longer matches ({open_calib[row['night']]})", open_calib[row["night"]]))
         elif int(calib.get("drizzle_scale") or 1) != int(project["drizzle_scale"] or 1):
             gates.append(Gate(row, False, f"drizzle scale {calib.get('drizzle_scale')} vs the project's {project['drizzle_scale']}",
                               "SCALE_MISMATCH"))
@@ -105,7 +115,7 @@ def build(catalog: Catalog, config: AltairConfig, project: sqlite3.Row, filter_:
     from altair.planner.plan import plan_hash
 
     opts = settings(project, config)
-    mode = (opts.get("multi_night") or {}).get("mode") or project["multi_night_mode"] or config.multi_night.mode
+    mode = project["multi_night_mode"] or (opts.get("multi_night") or {}).get("mode") or config.multi_night.mode   # see projects.set_mode
     mn = config.multi_night
     nights = []
     input_paths: dict[str, str] = {}

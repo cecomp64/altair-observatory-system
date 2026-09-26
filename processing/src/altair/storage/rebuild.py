@@ -1,6 +1,8 @@
 """Rebuild the catalog from the archive (SPEC §7.9), without reading any image.
 
-The archive describes itself:
+It reads only manifests and sidecars, except for raw files that no
+manifest lists: those are rescanned (hashed, headers read) and the night
+gets MANIFEST_MISSING. The archive describes itself:
 - collection manifests (``raw/<rig>/_manifests/``) list every frame with its
   hash and headers;
 - sidecars sit next to every calibration master, project reference, night
@@ -35,6 +37,7 @@ log = logging.getLogger("altair.rebuild")
 class RebuildReport:
     frames: int = 0
     frames_without_copy: int = 0
+    rescanned: int = 0                # raw files no manifest lists, read from the NAS
     collections: int = 0
     calibration_masters: int = 0
     projects: int = 0
@@ -142,6 +145,7 @@ class Rebuilder:
     def run(self) -> RebuildReport:
         self._nas_identity()
         self._manifests()
+        self._rescan()
         self._calibration_masters()
         self._projects_and_products()
         self._catalog_backups()
@@ -188,6 +192,49 @@ class Rebuilder:
                 tx.execute("INSERT OR REPLACE INTO collections(rig, night, state, closed_by, n_files, closed_at) VALUES (?, ?, 'closed', ?, ?, ?)",
                            (rig, night, manifest.get("closed_by") or "rebuild", len(manifest["files"]), now_iso()))
             self.report.collections += 1
+
+    def _rescan(self) -> None:
+        """Raw files on the NAS that no manifest lists (a night closed without
+        one): hash them and read their headers, and raise MANIFEST_MISSING
+        for the night. This is the one place a rebuild reads image files."""
+        from altair.hashing import sha256_file
+        from altair.ingest.headers import read_header
+        from altair.ingest.ingest import ingest
+        from altair.issues import raise_issue
+
+        known = {r["logical_path"] for r in self.catalog.query("SELECT logical_path FROM blobs")}
+        nights: dict[tuple[str, str], int] = {}
+        for source in self.sources:
+            if not isinstance(source, FsSource):
+                continue
+            for logical, size in source.files("raw/"):
+                parts = logical.split("/")
+                if logical in known or "_manifests" in parts or len(parts) < 4 or not logical.lower().endswith((".fits", ".fit", ".fts", ".xisf")):
+                    continue
+                rig, night = parts[1], parts[2]
+                if rig not in self.config.rigs:
+                    continue
+                path = source.location.path(logical)
+                try:
+                    header = read_header(path)
+                except Exception as exc:  # noqa: BLE001 - an unreadable file is reported, not fatal
+                    self.report.skipped.append(f"unreadable raw file {logical}: {exc}")
+                    continue
+                done = ingest(self.catalog, self.config, None, rig=rig, header=header, sha256=sha256_file(path), size=size,
+                              logical_path=logical, file_name=path.name, replicas=[(source.name, str(path))], origin="rebuild")
+                known.add(logical)
+                key = (rig, str(done.fields.get("night") or night))
+                nights[key] = nights.get(key, 0) + 1
+                self.report.rescanned += 1
+        for (rig, night), count in sorted(nights.items()):
+            with self.catalog.transaction() as tx:
+                tx.execute("INSERT INTO collections(rig, night, state, closed_by, n_files, closed_at) VALUES (?, ?, 'closed', 'rebuild', ?, ?) "
+                           "ON CONFLICT(rig, night) DO UPDATE SET state = 'closed', closed_by = coalesce(collections.closed_by, 'rebuild'), "
+                           "n_files = coalesce(collections.n_files, 0) + excluded.n_files, closed_at = excluded.closed_at",
+                           (rig, night, count, now_iso()))
+                raise_issue(tx, self.config, kind="MANIFEST_MISSING", severity="warning", fingerprint=f"MANIFEST_MISSING:{rig}:{night}",
+                            message=f"Night {night} on {rig} had no collection manifest; {count} file(s) were rescanned from the NAS.",
+                            scope={"rig": rig, "night": night})
 
     def _calibration_masters(self) -> None:
         for logical, side in self._json("calibration/masters/", lambda body: (body.get("master") or {}).get("rig")):

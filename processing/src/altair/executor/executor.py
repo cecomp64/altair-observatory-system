@@ -129,12 +129,26 @@ class Executor:
             return "ready", None
         return "waiting", None
 
-    def candidates(self) -> list[sqlite3.Row]:
+    def selection(self, where: Callable[[sqlite3.Row], bool]) -> set[int]:
+        """Ids of the jobs ``where`` accepts, plus every job they depend on."""
+        rows = {r["id"]: r for r in self.catalog.query("SELECT * FROM jobs")}
+        chosen = {i for i, r in rows.items() if where(r)}
+        todo = list(chosen)
+        while todo:
+            for dep in json.loads(rows[todo.pop()]["depends_on_json"] or "[]"):
+                if dep in rows and dep not in chosen:
+                    chosen.add(dep)
+                    todo.append(dep)
+        return chosen
+
+    def candidates(self, only: set[int] | None = None) -> list[sqlite3.Row]:
         now = self.clock()
         self._unblock()
         rows = self.catalog.query("SELECT * FROM jobs WHERE status IN ('queued', 'waiting_data') ORDER BY id")
         out = []
         for job in rows:
+            if only is not None and job["id"] not in only:
+                continue
             not_before = _ts(job["not_before"])
             if not_before and not_before > now:
                 continue
@@ -163,14 +177,17 @@ class Executor:
                 return report
         return None
 
-    def run_all(self, *, max_jobs: int | None = None) -> list[JobReport]:
-        """Run until nothing is runnable (``altair run``); keeps Windows awake meanwhile."""
+    def run_all(self, *, max_jobs: int | None = None, where: Callable[[sqlite3.Row], bool] | None = None) -> list[JobReport]:
+        """Run until nothing is runnable (``altair run``); keeps Windows awake
+        meanwhile. ``where`` limits it to some jobs (and what they depend on);
+        jobs queued by those runs (e.g. a merge after a stack) are re-selected."""
         reports = []
         winapi.keep_awake(True)
         try:
             tried: set[int] = set()
             while max_jobs is None or len(reports) < max_jobs:
-                runnable = [j for j in self.candidates() if j["id"] not in tried]
+                only = self.selection(where) if where else None
+                runnable = [j for j in self.candidates(only) if j["id"] not in tried]
                 if not runnable:
                     break
                 job = runnable[0]
@@ -230,10 +247,10 @@ class Executor:
         drizzle = int(plan.get("drizzle_scale") or 1)
         need = DISK_FACTOR * size * drizzle * drizzle
         free = shutil.disk_usage(work).free
-        fingerprint = f"WORK_DISK_FULL:job:{job['id']}"
+        fingerprint = f"DISK_SPACE_LOW:job:{job['id']}"
         with self.catalog.transaction() as tx:
             if free < need:
-                raise_issue(tx, self.config, kind="WORK_DISK_FULL", severity="blocking", fingerprint=fingerprint,
+                raise_issue(tx, self.config, kind="DISK_SPACE_LOW", severity="blocking", fingerprint=fingerprint,
                             message=f"Job {job['id']} needs about {need / GB:.1f} GB of work space in {self.config.paths.work_dir}, "
                                     f"{free / GB:.1f} GB is free. It waits until there is room.", scope={"job_id": job["id"]})
                 return "not enough free space in the work directory"

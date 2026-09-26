@@ -107,25 +107,99 @@ def issue_flats_plan(ctx: Ctx, fmt: str, output: str | None) -> None:
 
 
 @click.command("status")
+@click.option("--night", help="Only this night's issues and night masters")
+@click.option("--target", "target_id", type=int, help="Only this Hub target")
+@click.option("--project", "hub_project", type=int, help="Only this Hub project")
 @click.option("--write", "write_page", is_flag=True, help="Also rewrite ALTAIR_STATUS.html/.json")
 @pass_ctx
-def status(ctx: Ctx, write_page: bool) -> None:
+def status(ctx: Ctx, night: str | None, target_id: int | None, hub_project: int | None, write_page: bool) -> None:
     """Open issues, projects, jobs and storage at a glance."""
     from altair import status_page
 
     s = status_page.build(ctx.catalog, ctx.config)
-    click.echo(f"issues: {s['issues']['open']} open ({s['issues']['blocking']} blocking)")
-    for need, items in s["issues"]["groups"].items():
+    projects = [p for p in s["projects"] if (target_id is None or p["hub_target_id"] == target_id)
+                and (hub_project is None or p["hub_project_id"] == hub_project)]
+    ids = {p["id"] for p in projects}
+    groups = {need: [i for i in items if (night is None or i["night"] == night)
+                     and (target_id is None and hub_project is None or i["project_id"] in ids)]
+              for need, items in s["issues"]["groups"].items()}
+    groups = {k: v for k, v in groups.items() if v}
+    n_open = sum(len(v) for v in groups.values())
+    n_blocking = sum(i["severity"] == "blocking" for v in groups.values() for i in v)
+    click.echo(f"issues: {n_open} open ({n_blocking} blocking)")
+    for need, items in groups.items():
         click.echo(f"  {need}: " + ", ".join(f"#{i['id']}" for i in items))
-    for p in s["projects"]:
+    for p in projects:
         merged = ", ".join(f"{m['filter']} v{m['version']} ({m['nights']} nights, {m['hours']} h)" for m in p["multi_night"]) or "no merge yet"
         click.echo(f"{p['label']} on {p['rig']}: {merged}")
+        for n in p["nights"]:
+            if night and n["night"] == night:
+                click.echo(f"  {n['night']} {n['filter']}: {n['kind']}, {n['n_frames']} frames, {n['merge_status']}"
+                           + (f" - {n['merge_block_reason']}" if n["merge_block_reason"] else ""))
         for x in p["excluded"]:
-            click.echo(f"  not merged: {x['night']} {x['filter']} - {x['reason']}")
+            if night is None:
+                click.echo(f"  not merged: {x['night']} {x['filter']} - {x['reason']}")
     click.echo("jobs: " + (", ".join(f"{n} {k}" for k, n in sorted(s["jobs"]["counts"].items())) or "none"))
     if write_page:
         html_path, _ = status_page.write(ctx.catalog, ctx.config)
         click.echo(f"status page: {html_path}")
+
+
+@click.group()
+def equipment() -> None:
+    """Equipment events that split flat validity (SPEC §8.3)."""
+
+
+@equipment.command("log")
+@click.option("--rig", required=True)
+@click.argument("kind", type=click.Choice(["sensor_cleaned", "filter_changed", "camera_rotated_manually", "reducer_changed", "collimated", "other"]))
+@click.option("--filter", "filter_", help="Only this filter's flats (e.g. filter_changed)")
+@click.option("--at", "at", help="When, ISO 8601 UTC (default: now)")
+@click.option("--note")
+@pass_ctx
+def equipment_log(ctx: Ctx, rig: str, kind: str, filter_: str | None, at: str | None, note: str | None) -> None:
+    """Record a change; nights near it are re-planned on the next run."""
+    from altair.catalog.db import now_iso
+    from altair.equipment import EquipmentError, log_event
+
+    try:
+        event_id = log_event(ctx.catalog, ctx.config, rig=rig, kind=kind, at=at or now_iso(), filter_=filter_, note=note)
+    except EquipmentError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"event {event_id} recorded; affected nights are re-planned on the next `altair run`")
+    if ctx.config.hub.enabled:
+        click.echo("Record it in the Hub too, so it shows on the optical train's history.")
+
+
+@equipment.command("list")
+@click.option("--rig")
+@pass_ctx
+def equipment_list(ctx: Ctx, rig: str | None) -> None:
+    from altair.equipment import events
+
+    for e in events(ctx.catalog, rig):
+        source = f"hub #{e['hub_event_id']}" if e["hub_event_id"] else "local"
+        click.echo(f"{e['id']:>4} {e['at']} {e['rig']:<14} {e['kind']:<24} {e['filter'] or '':<6} {source}  {e['note'] or ''}")
+
+
+@click.command("ingest")
+@click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
+@click.option("--rig", required=True)
+@pass_ctx
+def ingest_cmd(ctx: Ctx, paths: tuple[Path, ...], rig: str) -> None:
+    """Bring files or folders into the NAS layout and the catalog (like `index --adopt`)."""
+    from altair.index.indexer import index
+
+    nas = ctx.nas()
+    for path in paths:
+        try:
+            report = index(ctx.catalog, ctx.config, path, rig=rig, hub_config=ctx.hub_config(), nas_root=nas.root, adopt=True)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(f"{path}: {report.seen} seen, {report.indexed} ingested, {report.already_known} already known, "
+                   f"{report.skipped_unknown_rig} skipped (other rig)")
+        for error in report.errors:
+            click.echo(f"  {error}")
 
 
 @click.command("serve")
@@ -200,4 +274,4 @@ def local_checks(ctx: Ctx) -> bool:
     return ok
 
 
-COMMANDS = [issues, issue, status, serve]
+COMMANDS = [issues, issue, status, serve, equipment, ingest_cmd]

@@ -60,13 +60,17 @@ def list_backups(nas: FsLocation | None = None, s3: S3Location | None = None) ->
     return sorted(found.items(), reverse=True)
 
 
-def restore(config: AltairConfig, *, nas: FsLocation | None = None, s3: S3Location | None = None, name: str | None = None) -> Path:
+def restore(config: AltairConfig, *, nas: FsLocation | None = None, s3: S3Location | None = None, name: str | None = None,
+            at: datetime | None = None) -> Path:
     """Restore a backup (the newest, or ``name``) as the catalog. The current
     catalog file, if any, is kept beside it as ``.replaced-<utc>``. Run with
     altaird stopped."""
     backups = list_backups(nas, s3)
     if name:
         backups = [b for b in backups if b[0] == name]
+    if at is not None:
+        stamp = at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backups = [b for b in backups if b[0][len("altair-"):len("altair-") + 16] <= stamp]   # names sort by time
     if not backups:
         raise FileNotFoundError("no catalog backup found on the NAS or in S3")
     chosen, source = backups[0]

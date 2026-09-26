@@ -60,8 +60,8 @@ def project_for(tx: sqlite3.Connection, config: AltairConfig, hub_config: HubCon
                        (f"T{hub_target_id}", rig_cfg.telescope, rig_cfg.camera, rig, hub_target_id, target.get("project_id"),
                         json.dumps(settings, sort_keys=True), settings["multi_night"]["mode"], path, now_iso()))
         else:
-            tx.execute("UPDATE projects SET settings_json = ?, hub_project_id = coalesce(?, hub_project_id) WHERE id = ?",
-                       (json.dumps(settings, sort_keys=True), target.get("project_id"), row["id"]))
+            tx.execute("UPDATE projects SET settings_json = ?, multi_night_mode = ?, hub_project_id = coalesce(?, hub_project_id) WHERE id = ?",
+                       (json.dumps(settings, sort_keys=True), settings["multi_night"]["mode"], target.get("project_id"), row["id"]))
         return tx.execute("SELECT * FROM projects WHERE hub_target_id = ? AND rig = ?", (hub_target_id, rig)).fetchone()
     row = tx.execute("SELECT * FROM projects WHERE target = ? AND telescope = ? AND camera = ?",
                      (target_text, rig_cfg.telescope, rig_cfg.camera)).fetchone()
@@ -73,6 +73,16 @@ def project_for(tx: sqlite3.Connection, config: AltairConfig, hub_config: HubCon
         row = tx.execute("SELECT * FROM projects WHERE target = ? AND telescope = ? AND camera = ?",
                          (target_text, rig_cfg.telescope, rig_cfg.camera)).fetchone()
     return row
+
+
+def set_mode(tx: sqlite3.Connection, project_id: int, mode: str) -> None:
+    """The multi-night mode lives in the project's effective settings (from
+    the Hub target, or local defaults); ``multi_night_mode`` mirrors it. A
+    mode change updates both, so it applies before the next config pull."""
+    row = tx.execute("SELECT settings_json FROM projects WHERE id = ?", (project_id,)).fetchone()
+    current = json.loads(row["settings_json"]) if row and row["settings_json"] else {}
+    current.setdefault("multi_night", {})["mode"] = mode
+    tx.execute("UPDATE projects SET settings_json = ?, multi_night_mode = ? WHERE id = ?", (json.dumps(current, sort_keys=True), mode, project_id))
 
 
 def settings(project: sqlite3.Row, config: AltairConfig) -> dict[str, Any]:
