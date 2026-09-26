@@ -15,7 +15,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-SCHEMA_VERSION = "10"
+SCHEMA_VERSION = "11"
 
 # Columns added after a table first shipped: (table, column, declaration).
 # CREATE TABLE IF NOT EXISTS leaves an older catalog's tables as they were, so
@@ -29,6 +29,7 @@ ADDED_COLUMNS = [
     ("calibration_masters", "imported", "INTEGER NOT NULL DEFAULT 0"),
     ("projects", "path", "TEXT"), ("projects", "created_at", "TEXT"),
     ("jobs", "not_before", "TEXT"), ("jobs", "waiting_reason", "TEXT"), ("jobs", "result_json", "TEXT"), ("jobs", "created_at", "TEXT"),
+    ("jobs", "resolved_hash", "TEXT"),
 ]
 
 

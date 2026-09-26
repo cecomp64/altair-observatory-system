@@ -98,6 +98,73 @@ def _ref(master: dict) -> dict:
     return {"sha256": master["sha256"]} if master.get("sha256") else {"job": master["pending_job"]}
 
 
+def resolve_plan(plan: dict[str, Any], resolve: Callable[[dict, str], str | None]) -> dict[str, Any]:
+    """The plan with every master/reference ref given by SHA-256 (as a plan
+    made after those jobs succeeded would have it)."""
+    out = json.loads(json.dumps(plan))
+
+    def fix(ref: dict | None, role: str) -> dict | None:
+        if not ref or "job" not in ref:
+            return ref
+        sha = resolve(ref, role)
+        if role == "reference":
+            return {"sha256": sha, "version": out.get("reference_version")}
+        return {"sha256": sha}
+
+    for kind, ref in (out.get("calibrate_with") or {}).items():
+        out["calibrate_with"][kind] = fix(ref, "master")
+    for group in out.get("groups") or []:
+        for key in ("dark", "flat"):
+            if key in group:
+                group[key] = fix(group[key], "master")
+    if "reference" in out:
+        out["reference"] = fix(out["reference"], "reference")
+    return out
+
+
+def insert_job(tx: sqlite3.Connection, config: AltairConfig, job: dict, ids: dict[str, int], rig: str | None) -> int:
+    """Insert a planned job once (by ``plan_hash``); a failed or superseded
+    job with the same plan is queued again. A newer NIGHT_STACK or MERGE plan
+    for the same stack supersedes a queued older one."""
+    # A plan that refers to masters by SHA-256 is the same work as an earlier
+    # plan that referred to the jobs building them (resolved_hash).
+    existing = tx.execute("SELECT id, status FROM jobs WHERE plan_hash = ? OR resolved_hash = ? ORDER BY plan_hash = ? DESC, id DESC",
+                          (job["plan_hash"], job["plan_hash"], job["plan_hash"])).fetchone()
+    if existing:
+        if existing["status"] in ("failed", "superseded", "skipped", "blocked"):
+            tx.execute("UPDATE jobs SET status = 'queued', attempts = 0, error = NULL, not_before = NULL, waiting_reason = NULL WHERE id = ?",
+                       (existing["id"],))
+            if config.hub.enabled:
+                enqueue_job(tx, existing["id"])
+        return existing["id"]
+    depends = []
+    for dep in job.get("depends", []):
+        dep_id = ids.get(dep) or (tx.execute("SELECT id FROM jobs WHERE plan_hash = ?", (dep,)).fetchone() or {"id": None})["id"]
+        if dep_id:
+            depends.append(dep_id)
+    job_id = tx.execute(
+        "INSERT INTO jobs(kind, scope_json, plan_json, plan_hash, depends_on_json, status, project_id, night, filter, rig, created_at) "
+        "VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
+        (job["kind"], json.dumps(job["scope"]), json.dumps(job["plan"], sort_keys=True), job["plan_hash"], json.dumps(depends),
+         job.get("project_id"), job.get("night"), job.get("filter"), rig, now_iso())).lastrowid
+    superseded = []
+    if job["kind"] == "NIGHT_STACK":
+        superseded = tx.execute(
+            "SELECT id FROM jobs WHERE kind = 'NIGHT_STACK' AND project_id = ? AND night = ? AND filter = ? AND id != ? "
+            "AND status IN ('queued', 'waiting_data', 'blocked') AND json_extract(scope_json, '$.stack_kind') = ?",
+            (job["project_id"], job["night"], job["filter"], job_id, job["scope"]["stack_kind"])).fetchall()
+    elif job["kind"] == "MERGE":
+        superseded = tx.execute("SELECT id FROM jobs WHERE kind = 'MERGE' AND project_id = ? AND filter = ? AND id != ? "
+                                "AND status IN ('queued', 'waiting_data', 'blocked')", (job["project_id"], job["filter"], job_id)).fetchall()
+    for row in superseded:
+        tx.execute("UPDATE jobs SET status = 'superseded' WHERE id = ?", (row["id"],))
+        if config.hub.enabled:
+            enqueue_job(tx, row["id"])
+    if config.hub.enabled:
+        enqueue_job(tx, job_id)
+    return job_id
+
+
 class Planner:
     def __init__(self, catalog: Catalog, config: AltairConfig, hub_config: Callable[[], HubConfig | None] = lambda: None,
                  *, clock: Callable[[], datetime] | None = None):
@@ -198,8 +265,10 @@ class Planner:
                         continue   # a flat master can't be built without its dark-flat/bias
                     job_plan["calibrate_with"] = {dark.master["kind"].lower(): _ref(dark.master)}
                 job_hash = plan_hash(job_plan)
+                depends = [ref["job"] for ref in (job_plan.get("calibrate_with") or {}).values() if "job" in ref]
                 plan.calib_jobs.append({"kind": "CALIB_MASTER", "plan": job_plan, "plan_hash": job_hash, "night": plan.night,
-                                        "filter": master["filter"], "scope": {"rig": plan.rig, "night": plan.night, "master_kind": kind}})
+                                        "filter": master["filter"], "depends": depends,
+                                        "scope": {"rig": plan.rig, "night": plan.night, "master_kind": kind}})
                 pending.append({**master, "sha256": None, "pending_job": job_hash})
         return pending
 
@@ -361,28 +430,7 @@ class Planner:
             self._update_frame_status(tx, plan)
 
     def _insert_job(self, tx: sqlite3.Connection, job: dict, ids: dict[str, int], rig: str) -> int:
-        existing = tx.execute("SELECT id, status FROM jobs WHERE plan_hash = ?", (job["plan_hash"],)).fetchone()
-        if existing:
-            if existing["status"] in ("failed", "superseded", "skipped", "blocked"):
-                tx.execute("UPDATE jobs SET status = 'queued', attempts = 0, error = NULL, not_before = NULL WHERE id = ?", (existing["id"],))
-            return existing["id"]
-        depends = []
-        for dep in job.get("depends", []):
-            dep_id = ids.get(dep) or (tx.execute("SELECT id FROM jobs WHERE plan_hash = ?", (dep,)).fetchone() or {"id": None})["id"]
-            if dep_id:
-                depends.append(dep_id)
-        job_id = tx.execute(
-            "INSERT INTO jobs(kind, scope_json, plan_json, plan_hash, depends_on_json, status, project_id, night, filter, rig, created_at) "
-            "VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
-            (job["kind"], json.dumps(job["scope"]), json.dumps(job["plan"], sort_keys=True), job["plan_hash"], json.dumps(depends),
-             job.get("project_id"), job.get("night"), job.get("filter"), rig, now_iso())).lastrowid
-        if job["kind"] == "NIGHT_STACK":   # a newer plan for the same stack supersedes a queued older one
-            tx.execute("UPDATE jobs SET status = 'superseded' WHERE kind = 'NIGHT_STACK' AND project_id = ? AND night = ? AND filter = ? "
-                       "AND id != ? AND status IN ('queued', 'waiting_data', 'blocked') AND json_extract(scope_json, '$.stack_kind') = ?",
-                       (job["project_id"], job["night"], job["filter"], job_id, job["scope"]["stack_kind"]))
-        if self.config.hub.enabled:
-            enqueue_job(tx, job_id)
-        return job_id
+        return insert_job(tx, self.config, job, ids, rig)
 
     def _resolve_stale_issues(self, tx: sqlite3.Connection, plan: NightPlan, raised: set[str]) -> None:
         """Calibration issues for this rig-night that this plan no longer raises

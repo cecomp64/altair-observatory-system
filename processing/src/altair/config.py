@@ -304,7 +304,7 @@ class PixInsight(Loose):
     max_concurrent_jobs: int = 1
     max_attempts: int = 3
     tested_versions: list[str] = Field(default_factory=lambda: ["1.9.3"])
-    night_stack_engine: Literal["wbpp", "native"] = "wbpp"
+    night_stack_engine: Literal["wbpp", "native"] = "native"   # "wbpp" once WBPP driving is verified (phase 0)
 
 
 class DarkMatch(Loose):

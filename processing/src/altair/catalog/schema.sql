@@ -178,6 +178,15 @@ CREATE TABLE IF NOT EXISTS multi_night_masters (
   archive_uri TEXT, nas_path TEXT, size_bytes INTEGER, input_frames_json TEXT
 );
 
+-- Project reference frames, one per reference version (§9.2).
+CREATE TABLE IF NOT EXISTS reference_frames (
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  version INTEGER NOT NULL, sha256 TEXT NOT NULL,
+  night TEXT, filter TEXT, source_sha256 TEXT, metrics_json TEXT, job_id INTEGER, created_at TEXT,
+  UNIQUE(project_id, version, sha256)
+);
+
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY,
   kind TEXT NOT NULL,              -- CALIB_MASTER / PROJECT_REFERENCE / NIGHT_STACK / MERGE
@@ -190,9 +199,18 @@ CREATE TABLE IF NOT EXISTS jobs (
   not_before TEXT,                 -- retry back-off
   waiting_reason TEXT,             -- why a job waits for data (§7.7)
   result_json TEXT,                -- the executor's result.json, outputs registered
-  created_at TEXT
+  created_at TEXT,
+  resolved_hash TEXT               -- plan_hash of the plan with every {"job": …} ref resolved to its output
 );
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
+
+-- A job whose PixInsight run succeeded but whose outputs are not fully
+-- published yet; after a crash the executor publishes again from the work
+-- directory (publishing is idempotent) instead of re-running PixInsight.
+CREATE TABLE IF NOT EXISTS publish_intents (
+  job_id INTEGER PRIMARY KEY REFERENCES jobs(id),
+  work_dir TEXT NOT NULL, phase TEXT, created_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS issues (
   id INTEGER PRIMARY KEY,

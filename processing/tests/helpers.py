@@ -70,24 +70,35 @@ _counter = iter(range(1, 10**9))
 
 def add_frame(catalog, image_type="light", *, rig="esprit", night="2026-09-24", date_obs=None, target="#34 M31", hub_target_id=34,
               filter_="Ha", exposure=300.0, gain=100, offset=50, binning="1x1", sensor_temp=-10.0, rotator_pos=31250.0,
-              focal_length=550.0, width=6248, height=4176, status="valid", telescope="esprit100", camera="asi2600mm", nas=True, **extra):
+              focal_length=550.0, width=6248, height=4176, status="valid", telescope="esprit100", camera="asi2600mm", nas=True,
+              nas_root=None, **extra):
     """A frame row with its blob and a NAS replica, straight into the catalog
-    (planning never reads image data)."""
+    (planning never reads image data). With ``nas_root`` the NAS file really
+    exists (its content hashes to the frame's SHA-256)."""
     import hashlib
     import json
+    from pathlib import Path
 
     n = next(_counter)
-    sha = hashlib.sha256(f"frame-{n}".encode()).hexdigest()
-    date_obs = date_obs or f"2026-09-25T06:{n % 60:02d}:00Z"
+    content = f"frame-{n}".encode()
+    sha = hashlib.sha256(content).hexdigest()
+    # Increasing with n (so frames sort in creation order), whatever ran before.
+    date_obs = date_obs or (datetime(2026, 9, 25, 6, 0, tzinfo=timezone.utc) + timedelta(seconds=n)).strftime("%Y-%m-%dT%H:%M:%SZ")
     data_class = "raw_light" if image_type == "light" else "raw_calibration"
     logical = f"raw/{rig}/{night}/{image_type}_{n}.fits"
+    uri = f"/nas/{logical}"
+    if nas_root is not None:
+        path = Path(nas_root).joinpath(*logical.split("/"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        uri = str(path)
     with catalog.transaction() as tx:
-        tx.execute("INSERT INTO blobs(sha256, size_bytes, data_class, logical_path, origin_rig, created_at) VALUES (?, 1000, ?, ?, ?, ?)",
-                   (sha, data_class, logical, rig, date_obs))
+        tx.execute("INSERT INTO blobs(sha256, size_bytes, data_class, logical_path, origin_rig, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                   (sha, len(content) if nas_root is not None else 1000, data_class, logical, rig, date_obs))
         if nas:
             tx.execute("INSERT OR IGNORE INTO locations(name, kind, durable) VALUES ('nas', 'fs', 1)")
             tx.execute("INSERT INTO replicas(sha256, location, uri, state, verified_at) VALUES (?, 'nas', ?, 'present', ?)",
-                       (sha, f"/nas/{logical}", date_obs))
+                       (sha, uri, date_obs))
         light = image_type == "light"
         frame_id = tx.execute(
             "INSERT INTO frames(sha256, image_type, night, date_obs, rig, telescope, camera, filter, target, focal_length, exposure, gain, "
@@ -117,3 +128,30 @@ def add_master(catalog, kind, *, rig="esprit", night="2026-09-20", filter_=None,
             (kind, sha, json.dumps(list(sources)), filter_, focal_length, exposure, gain, offset, sensor_temp, binning, width, height,
              rotator_pos, rig, night, taken_at or f"{night}T12:00:00Z")).lastrowid
     return master_id, sha
+
+
+def fake_pixinsight(tmp_path, control: dict | None = None) -> dict:
+    """pixinsight config that runs tests/fake_pixinsight.py; ``control`` steers it."""
+    import json
+    import stat
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).with_name("fake_pixinsight.py")
+    if sys.platform == "win32":
+        exe = tmp_path / "fake_pixinsight.cmd"
+        exe.write_text(f'@"{sys.executable}" "{script}" %*\r\n')
+    else:
+        exe = tmp_path / "fake_pixinsight"
+        exe.write_text(f"#!/bin/sh\nexec '{sys.executable}' '{script}' \"$@\"\n")
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    control_file = tmp_path / "fake_pi_control.json"
+    control_file.write_text(json.dumps(control or {}))
+    return {"executable": str(exe), "runner": str(tmp_path / "altair_runner.js"), "timeout_minutes": 2,
+            "extra_args": ["--automation-mode", f"--fake-control={control_file}"]}
+
+
+def set_fake_control(tmp_path, control: dict) -> None:
+    import json
+
+    (tmp_path / "fake_pi_control.json").write_text(json.dumps(control))

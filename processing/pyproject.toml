@@ -41,6 +41,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "altair.catalog" = ["*.sql"]
+"altair" = ["pjsr/*.js", "pjsr/lib/*.js"]
 
 [tool.uv.sources]
 observatory-contracts = { path = "../contracts/python", editable = true }

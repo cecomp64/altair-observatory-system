@@ -128,6 +128,10 @@ class Replicator:
             blobs.set_replica(tx, row["sha256"], "s3", self.s3.uri(row["logical_path"]), kind="s3",
                               state="archived_cold" if cold else "present", method="s3_checksum_sha256",
                               storage_class=info.storage_class, version_id=info.version_id)
+            if row["data_class"] in ("night_master", "multi_night_master", "project_reference") and self.config.hub.enabled:
+                from altair.publish.products import reenqueue_for_blob
+
+                reenqueue_for_blob(tx, self.config, row["sha256"])   # now with its archive_uri
             frame = tx.execute("SELECT id FROM frames WHERE sha256 = ?", (row["sha256"],)).fetchone()
             if frame and self.config.hub.enabled:
                 nas = tx.execute("SELECT state FROM replicas WHERE sha256 = ? AND location = 'nas'", (row["sha256"],)).fetchone()

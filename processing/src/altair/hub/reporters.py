@@ -104,7 +104,8 @@ def enqueue_issue(tx: sqlite3.Connection, config: AltairConfig, issue_id: int) -
 def enqueue_job(tx: sqlite3.Connection, job_id: int) -> None:
     row = tx.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     scope = json.loads(row["scope_json"] or "{}")
-    body = {"kind": row["kind"], "status": row["status"], "target_id": scope.get("hub_target_id"), "night": scope.get("night"),
+    status = "skipped" if row["status"] == "superseded" else row["status"]   # the Hub has no 'superseded'
+    body = {"kind": row["kind"], "status": status, "target_id": scope.get("hub_target_id"), "night": scope.get("night"),
             "filter": scope.get("filter"), "started_at": row["started_at"], "finished_at": row["finished_at"], "error": row["error"]}
     outbox.enqueue(tx, "job", f"job:{job_id}", {"altair_id": job_id, "body": body})
 
