@@ -62,9 +62,9 @@ def test_a_night_through_altaird_then_a_catalog_rebuild(tmp_path):
     assert statuses == {"CALIB_MASTER": "succeeded", "PROJECT_REFERENCE": "succeeded", "NIGHT_STACK": "succeeded", "MERGE": "succeeded"}
     mn = catalog.one("SELECT * FROM multi_night_masters")
     assert mn and mn["n_nights"] == 1
-    status = json.loads((tmp_path / "state" / "ALTAIR_STATUS.json").read_text())
+    status = json.loads((tmp_path / "state" / "ALTAIR_STATUS.json").read_text(encoding="utf-8"))
     assert status["projects"][0]["multi_night"][0]["version"] == 1
-    assert "<h1>Altair" in (tmp_path / "state" / "ALTAIR_STATUS.html").read_text()
+    assert "<h1>Altair" in (tmp_path / "state" / "ALTAIR_STATUS.html").read_text(encoding="utf-8")
     assert any("night 2026-09-24 on esprit: success" in m.title for m in sent)
     assert not any(w.errors for w in daemon.workers)
 

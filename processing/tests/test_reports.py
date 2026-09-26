@@ -32,7 +32,7 @@ def test_the_night_report(tmp_path):
     rejected = []
     config, catalog = processed_night(tmp_path, control={"reject": rejected})
     nm = catalog.one("SELECT * FROM night_masters")
-    text = (tmp_path / "published" / "T34" / NIGHT / "report_Ha.md").read_text()
+    text = (tmp_path / "published" / "T34" / NIGHT / "report_Ha.md").read_text(encoding="utf-8")
     assert text.startswith(f"# T34 · Ha · night {NIGHT}")
     assert "Final night master on **esprit** (esprit100 / asi2600mm)" in text and "Merge status: **merged**" in text
     assert "| Frames used | 6 of 6 |" in text and "| Integration | 0.50 h |" in text and "| Overlap with the reference | 96% |" in text
@@ -44,19 +44,19 @@ def test_the_night_report(tmp_path):
     assert text.count("| used |") == 6 and "| light_" in text
     assert "## Timings" in text and "| PixInsight |" in text
     assert "## Open issues\n\nNone." in text
-    assert reports.report_path(config, "night_master", nm["id"]).read_text() == text
+    assert reports.report_path(config, "night_master", nm["id"]).read_text(encoding="utf-8") == text
 
 
 def test_the_merge_report_and_the_hub(tmp_path, fake_hub):
     config, catalog = processed_night(tmp_path, hub=True)
     m = catalog.one("SELECT * FROM multi_night_masters")
-    local = (tmp_path / "published" / "T34" / "multinight" / "Ha_v001_report.md").read_text()
+    local = (tmp_path / "published" / "T34" / "multinight" / "Ha_v001_report.md").read_text(encoding="utf-8")
     assert local.startswith("# T34 · Ha · multi-night master v1")
     assert "| Mode | master_merge |" in local and "| Night weighting | measured_psf_signal |" in local
     assert f"| {NIGHT} | 6 | 0.50 h |" in local and "100.0 %" in local and "## Excluded nights\n\nNone." in local
     assert "![Coverage: nights per pixel](Ha_v001_coverage.jpg)" in local
     assert (tmp_path / "published" / "T34" / "multinight" / "Ha_v001_coverage.jpg").exists()
-    cached = reports.report_path(config, "multi_night_master", m["id"]).read_text()
+    cached = reports.report_path(config, "multi_night_master", m["id"]).read_text(encoding="utf-8")
     assert "## Coverage" not in cached     # the Hub copy has no local image links
 
     make_sync(catalog, config, fake_hub).drainer.drain()

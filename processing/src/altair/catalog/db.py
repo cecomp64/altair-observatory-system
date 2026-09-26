@@ -58,7 +58,7 @@ class Catalog:
         self.conn.execute("PRAGMA foreign_keys = ON")
         if self.path != ":memory:":
             self.conn.execute("PRAGMA journal_mode = WAL")
-        self.conn.executescript(resources.files("altair.catalog").joinpath("schema.sql").read_text())
+        self.conn.executescript(resources.files("altair.catalog").joinpath("schema.sql").read_text(encoding="utf-8"))
         for table, column, declaration in ADDED_COLUMNS:
             columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
             if column not in columns:
