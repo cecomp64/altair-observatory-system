@@ -79,6 +79,16 @@ def main(argv: list[str]) -> int:
     elif job["kind"] == "MERGE" and job.get("phase") == "measure":
         result["measurements"] = [{"sha256": n["sha256"], "psf_signal_weight": float(n["frames"] or 1), "noise_sigma": 0.1, "scale": 1.0}
                                   for n in job["nights"]]
+    elif job["kind"] == "MERGE" and job["mode"] == "frame_reintegration":
+        frames = job["calibrated_frames"]
+        assert frames and all(f["night_sha256"] for f in frames) and "weights" not in job, "reintegration takes frames, not weights"
+        seed = ",".join(sorted(f["sha256"] for f in frames))
+        result["outputs"].append({"role": "master", "path": image(out_dir / "multi_night_master.fits", "reint:" + seed)})
+        result["outputs"].append({"role": "coverage", "path": image(out_dir / "coverage.fits", "cov:" + seed)})
+        weights: dict[str, float] = {}
+        for f in frames:
+            weights[f["night_sha256"]] = weights.get(f["night_sha256"], 0) + 0.02
+        result["metrics"] = {"nights": len(job["nights"]), "frames": len(frames), "night_weights": weights, "mode": "frame_reintegration"}
     elif job["kind"] == "MERGE":
         assert job.get("weights"), "integrate needs weights"
         seed = ",".join(f"{n['sha256']}={job['weights'][n['sha256']]}" for n in job["nights"])

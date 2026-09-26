@@ -20,7 +20,8 @@ function altairIntegrate(opts) {
    P.rangeLow = 0;
    P.generateRejectionMaps = !!opts.rejectionMaps;
    P.generateIntegratedImage = true;
-   P.generateDrizzleData = false;
+   // With drizzle, ImageIntegration writes its rejection data into the .xdrz files for DrizzleIntegration.
+   P.generateDrizzleData = !!opts.updateDrizzle;
    P.evaluateSNR = true;
    P.useCache = false;
    if (!P.executeGlobal())
@@ -31,6 +32,29 @@ function altairIntegrate(opts) {
       out.high = ImageWindow.windowById(P.highRejectionMapImageId);
    }
    return out;
+}
+
+// DrizzleIntegration of registered frames' .xdrz files (after ImageIntegration updated them)
+// at the project's drizzle scale (SPEC §9.2: one scale per project).
+function altairDrizzle(xdrzFiles, lnFiles, scale) {
+   var D = new DrizzleIntegration;
+   D.inputData = xdrzFiles.map(function (path, i) { return [true, path, (lnFiles || [])[i] || ""]; });
+   D.scale = scale;
+   D.dropShrink = 0.90;
+   D.kernelFunction = DrizzleIntegration.prototype.Kernel_Square;
+   D.enableRejection = true;
+   D.enableImageWeighting = true;
+   D.enableLocalNormalization = !!(lnFiles && lnFiles.length);
+   D.useROI = false;
+   if (!D.executeGlobal())
+      throw new Error("DrizzleIntegration failed");
+   var w = ImageWindow.windowById(D.integrationImageId);
+   if (!w || w.isNull)
+      throw new Error("DrizzleIntegration produced no image");
+   var weights = D.weightImageId ? ImageWindow.windowById(D.weightImageId) : null;
+   if (weights && !weights.isNull)
+      weights.forceClose();
+   return w;
 }
 
 function altairCloseAll(windows) {

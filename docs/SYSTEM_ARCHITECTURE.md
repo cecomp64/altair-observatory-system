@@ -738,18 +738,22 @@ for filled in, so re-planning a processed night adds no work.
 ```
 altair serve [--windowless] [--once]                 # altaird
 altair doctor                                        # this PC, then the Hub
-altair status [--write] | jobs [--status S]
-altair plan --night DATE [--rig R] | run [--max-jobs N]
+altair status [--night D] [--target ID] [--project ID] [--write] | jobs [--status S]
+altair plan --night DATE [--rig R]
+altair run [--night D] [--target ID] [--project ID] [--filter F] [--kind K] [--max-jobs N]
 altair rerun --job ID | --issue ID | --night DATE [--target ID] [--filter F]
 altair issues [--open] | issue show|waive|resolve|flats-plan ...
-altair calib list | import FILE --kind K --rig R [...]
+altair calib list | import FILE --kind K --rig R [...] | build --night DATE
+altair equipment log --rig R KIND [--filter F] [--at T] [--note N] | list
+altair project rereference --target ID [--from-night N] | set-mode --target ID MODE
+altair ingest PATH... --rig R
 altair night include|exclude --target ID --night DATE --filter F
 altair merge --target ID --filter F [--dry-run]
 altair publish --refresh
 altair rigs list | check;  altair collect status | now | close-night | exclude
 altair storage status | locate | fetch | approve | deny | scrub | cleanup | ledger | replicate --to nas
 altair storage backup status | run;  storage nas init | status;  storage s3 init | policy | check
-altair storage backup-catalog | restore-catalog | rebuild-catalog --from nas|s3|both
+altair storage backup-catalog | restore-catalog [--at T] | rebuild-catalog --from nas|s3|both;  storage s3 apply-lifecycle
 altair hub status | sync-now | pull-config | reconcile | outbox list|retry|drop
 altair frames unlinked | assign;  altair project list | show;  altair index DIR --rig R
 ```
@@ -948,7 +952,7 @@ stays as the fallback for older Target Scheduler versions.
 | 1 | Collector, NAS, ingest, S3 backup, cleanup with a ledger, catalog backups, `storage s3 init` | Done |
 | 2, 2b | Planner and calibration matching; staging, retrieval, restores and approvals; scrubbing | Done |
 | 3 | Executor and PJSR runner; night stacks, verifier, publisher, Hub data products with previews | Done (scripts unverified, see phase 0) |
-| 4, 5 | Calibration library (`calib list/import`); merger with gates, weights and versions | Done |
+| 4, 5 | Calibration library (`calib list/import/build`); merger with gates, weights and versions; `frame_reintegration` and drizzle | Done |
 | 6 | Issue and rerun loop: auto-resolution by new masters, waive, resolve with a flat, flats plan, notifications, status page | Done |
 | 7 | `altaird` (`altair serve`) with every worker, crash recovery, and a Task Scheduler install script | Done |
 | 8 | Disaster recovery: `rebuild-catalog` from sidecars and manifests, `replicate --to nas`, the runbook, and a drill in the tests | Done; the drill on real hardware is part of §9.1 |

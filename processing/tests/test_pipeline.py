@@ -249,3 +249,39 @@ def test_hub_reports_products_jobs_and_masters(tmp_path, fake_hub):
     assert set(night_product["files"]) == {"preview", "thumbnail"}
     assert len(fake_hub.masters) == 3
     assert {j["status"] for j in fake_hub.jobs.values()} == {"succeeded"}
+
+
+def test_frame_reintegration_merges_every_calibrated_sub(setup, tmp_path):
+    calls = tmp_path / "calls.jsonl"
+    config, catalog = setup({"calls": str(calls)})
+    catalog.close()
+    config = config.model_copy(update={"multi_night": config.multi_night.model_copy(update={"mode": "frame_reintegration"})})
+    catalog = Catalog(config.catalog_path)
+    night(catalog, config, NIGHT1)
+    Planner(catalog, config).plan_night("esprit", NIGHT1)
+    run(catalog, config)
+    night(catalog, config, NIGHT2, lights=8, calib=False, date="2026-09-27")
+    Planner(catalog, config).plan_night("esprit", NIGHT2)
+    run(catalog, config)
+    merges = [json.loads(line) for line in calls.read_text().splitlines() if json.loads(line)["kind"] == "MERGE"]
+    assert [m["phase"] for m in merges] == ["integrate", "integrate"]          # no measure phase
+    v2 = catalog.one("SELECT * FROM multi_night_masters WHERE version = 2")
+    inputs = json.loads(v2["inputs_json"])
+    assert [round(i["percent"]) for i in inputs] == [43, 57]                  # summed frame weights: 6 and 8 frames
+    plan = json.loads(catalog.one("SELECT plan_json FROM jobs WHERE kind = 'MERGE' ORDER BY id DESC")["plan_json"])
+    assert plan["mode"] == "frame_reintegration" and len(plan["calibrated_frames"]) == 14
+
+
+def test_frame_reintegration_needs_the_calibrated_subs(setup, monkeypatch):
+    from altair.planner import projects
+
+    config, catalog = setup()
+    config = config.model_copy(update={"multi_night": config.multi_night.model_copy(update={"mode": "frame_reintegration"})})
+    defaults = projects.default_settings
+    monkeypatch.setattr(projects, "default_settings", lambda cfg: {**defaults(cfg), "keep_calibrated_frames": False})
+    night(catalog, config, NIGHT1)
+    Planner(catalog, config).plan_night("esprit", NIGHT1)
+    run(catalog, config)
+    assert catalog.one("SELECT count(*) AS n FROM multi_night_masters")["n"] == 0
+    issue = catalog.one("SELECT * FROM issues WHERE kind = 'REINTEGRATION_INPUTS_MISSING'")
+    assert issue["status"] == "open" and NIGHT1 in issue["message"]

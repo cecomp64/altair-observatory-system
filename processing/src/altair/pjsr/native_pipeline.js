@@ -73,9 +73,16 @@ function altairNightStack(job, result) {
       rejection: used.length >= 8 ? ImageIntegration.prototype.WinsorizedSigmaClip : ImageIntegration.prototype.PercentileClip,
       rejectionNormalization: ImageIntegration.prototype.LocalRejectionNormalization,
       rangeClipLow: true,
-      rejectionMaps: true
+      rejectionMaps: true,
+      updateDrizzle: job.drizzle_scale > 1
    });
    var master = w.integration;
+   if (job.drizzle_scale > 1) {
+      // The drizzled image is the master; the plain integration only fed the rejection data.
+      master = altairDrizzle(used.map(function (u) { return u.drizzle; }), ln, job.drizzle_scale);
+      w.integration.forceClose();
+      w.integration = master;
+   }
    altairSetKeyword(master, "ALTREFV", job.reference_version, "registered to project reference version");
    altairSetKeyword(master, "FILTER", "'" + job.filter + "'", "");
    var out = altairSave(master, job.output_dir + "/night_master.xisf");
@@ -89,6 +96,6 @@ function altairNightStack(job, result) {
       frames: used.length, rejected: items.length - used.length, overlap_fraction: overlap,
       fwhm: altairMedian(frames.filter(function (f) { return f.used; }).map(function (f) { return f.fwhm; })),
       eccentricity: altairMedian(frames.filter(function (f) { return f.used; }).map(function (f) { return f.eccentricity; })),
-      engine: "native"
+      engine: "native", drizzle_scale: job.drizzle_scale
    };
 }

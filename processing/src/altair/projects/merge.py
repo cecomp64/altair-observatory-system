@@ -101,6 +101,20 @@ def plan_merge(catalog: Catalog, config: AltairConfig, project_id: int, filter_:
     if len(eligible) < max(config.multi_night.min_nights, 1):
         return None
     job = build(catalog, config, project, filter_, eligible, [g for g in gates if not g.eligible])
+    if job["plan"]["mode"] == "frame_reintegration":
+        without = [n["night"] for n in job["plan"]["nights"] if not n.get("calibrated")]
+        if without:
+            # Nights stacked without keep_calibrated_frames have no subs to reintegrate.
+            with catalog.transaction() as tx:
+                raise_issue(tx, config, kind="REINTEGRATION_INPUTS_MISSING", severity="blocking",
+                            fingerprint=f"REINTEGRATION_INPUTS_MISSING:{project_id}:{filter_}",
+                            message=f"{project_label(project)} {filter_}: frame reintegration needs the calibrated subs of every night, but "
+                                    f"{', '.join(without)} kept none (keep_calibrated_frames was off). Rerun those nights with it on, or "
+                                    "use master_merge.",
+                            scope={"project_id": project_id, "filter": filter_, "nights": without, "hub_target_id": project["hub_target_id"]})
+            return None
+        with catalog.transaction() as tx:
+            resolve_issue(tx, config, f"REINTEGRATION_INPUTS_MISSING:{project_id}:{filter_}", resolution="auto:inputs")
     done = catalog.one("SELECT status FROM jobs WHERE plan_hash = ?", (job["plan_hash"],))
     if done and done["status"] in ("succeeded", "queued", "staging", "waiting_data", "running"):
         return None
@@ -126,14 +140,17 @@ def build(catalog: Catalog, config: AltairConfig, project: sqlite3.Row, filter_:
         weight_sum = sum((json.loads(q["quality_json"] or "{}").get("psf_signal_weight") or 0)
                          for q in catalog.query(f"SELECT quality_json FROM frames WHERE sha256 IN ({','.join('?' * len(used))})", tuple(used))) \
             if used else 0
-        nights.append({"id": row["id"], "night": row["night"], "sha256": row["sha256"], "frames": row["n_frames"],
-                       "exposure_s": row["total_exposure_s"], "fwhm": m.get("fwhm"), "frame_weight_sum": weight_sum or None,
-                       "frame_sha256s": used})
+        night = {"id": row["id"], "night": row["night"], "sha256": row["sha256"], "frames": row["n_frames"],
+                 "exposure_s": row["total_exposure_s"], "fwhm": m.get("fwhm"), "frame_weight_sum": weight_sum or None,
+                 "frame_sha256s": used}
         input_paths[row["sha256"]] = _logical(catalog, row["sha256"])
         if mode == "frame_reintegration":
-            for sha in json.loads(row["calib_json"] or "{}").get("calibrated", []):
+            calibrated = json.loads(row["calib_json"] or "{}").get("calibrated", [])
+            night["calibrated"] = calibrated
+            for sha in calibrated:
                 frames.append(sha)
                 input_paths[sha] = _logical(catalog, sha)
+        nights.append(night)
     input_paths[project["reference_sha256"]] = _logical(catalog, project["reference_sha256"])
     rejection = mn.rejection if len(nights) >= 8 else "none"
     plan = {"kind": "MERGE", "project_id": project["id"], "project_path": project["path"], "rig": project["rig"], "filter": filter_,

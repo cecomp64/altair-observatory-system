@@ -62,9 +62,19 @@ Every input is given as `{sha256, path}`:
   - `project_id`, `filter`, `mode`, `weighting`, `normalization`, `rejection`,
     `min_coverage_nights`, `autocrop`, `reference`.
   - `nights[]`: `{night, sha256, frames, exposure_s, path}`.
-  - `calibrated_frames[]`: for `frame_reintegration`.
-  - For `integrate` only: `weights` (`{sha256: weight}`, computed by Altair from the
-    measure phase) and `normalization_reference`.
+  - `master_merge` runs `measure`, then `integrate` with `weights` (`{sha256: weight}`,
+    computed by Altair from the measure phase) and `normalization_reference`.
+  - `frame_reintegration` (SPEC §9.6) runs one `integrate` phase with
+    `calibrated_frames[]`: `{sha256, path, night_sha256}`, every calibrated sub of every
+    eligible night. The runner:
+    - registers them to `reference` again;
+    - measures them;
+    - normalizes them to the reference;
+    - integrates them with PSF signal weights and full-sample rejection;
+    - returns `metrics.night_weights` (`{night master sha256: summed frame weight}`),
+      from which Altair reports each night's contribution.
+  - With `drizzle_scale > 1`, night stacks and reintegrations are drizzled
+    (StarAlignment drizzle data → ImageIntegration updates it → DrizzleIntegration).
 
 ## result.json
 
@@ -123,6 +133,8 @@ need checking on the processing PC:
 - Whether an automation instance can run while an interactive PixInsight is open.
 - The `SubframeSelector.measurements` column layout (`lib/measure.js`).
 - The `ImageIntegration`, `StarAlignment` and `LocalNormalization` output properties.
+- `DrizzleIntegration` (`integrationImageId`, `weightImageId`, `enableLocalNormalization`)
+  and the `ImageIntegration.prototype.Rejection_ESD` constant.
 
 Headless WBPP driving (`engine: wbpp`) depends on WBPP internals. Until it is
 verified, `wbpp_driver.js` runs the native pipeline, which follows the same contract.

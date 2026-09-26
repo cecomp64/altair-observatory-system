@@ -343,6 +343,8 @@ class Executor:
                 "reference": {"sha256": refs.get("reference"), "path": paths.get(refs.get("reference"))},
                 "nights": [{**{k: n[k] for k in ("night", "sha256", "frames", "exposure_s")}, "path": paths[n["sha256"]]} for n in plan["nights"]],
                 "calibrated_frames": [{"sha256": s, "path": paths[s]} for s in plan.get("calibrated_frames", [])]}
+        if plan["mode"] == "frame_reintegration":
+            return self._run_reintegration(job, plan, base, paths, work)
         measured = self._run(job, base, work, "measure") if plan["weighting"] != "frame_weight_sum" else None
         try:
             weights = weights_mod.compute(plan["weighting"], plan["nights"], measured.measurements if measured else [])
@@ -352,6 +354,22 @@ class Executor:
         integrate = {**base, "weights": weights, "normalization_reference": weights_mod.normalization_reference(weights)}
         self._set(job["id"], plan_json=json.dumps(plan, sort_keys=True))
         return self._run(job, integrate, work, "integrate")
+
+    def _run_reintegration(self, job: sqlite3.Row, plan: dict, base: dict, paths: dict[str, str], work: Path) -> RunResult:
+        """SPEC §9.6: every calibrated sub of every eligible night, registered
+        again to the same reference, normalized and integrated in one pass;
+        ImageIntegration weighs the frames itself (PSF signal weight). The
+        nights' contributions are the sums of their frames' weights."""
+        of_night = {sha: n["sha256"] for n in plan["nights"] for sha in n.get("calibrated", [])}
+        doc = {**base, "calibrated_frames": [{"sha256": s, "path": paths[s], "night_sha256": of_night.get(s)}
+                                             for s in plan.get("calibrated_frames", [])]}
+        result = self._run(job, doc, work, "integrate")
+        weights = {k: float(v) for k, v in (result.metrics.get("night_weights") or {}).items() if v}
+        if set(weights) != {n["sha256"] for n in plan["nights"]}:
+            weights = {n["sha256"]: float(n.get("frames") or 1) for n in plan["nights"]}   # the runner didn't report them
+        plan["weights"] = weights
+        self._set(job["id"], plan_json=json.dumps(plan, sort_keys=True))
+        return result
 
     # ── outcome ──────────────────────────────────────────────────────────
     def _finish(self, job: sqlite3.Row, result: RunResult, work: Path) -> JobReport:
