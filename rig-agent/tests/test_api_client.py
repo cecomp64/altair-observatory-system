@@ -57,14 +57,3 @@ def test_update_progress_sends_expected_payload(api):
         "status": "in_progress",
     }
 
-
-@responses.activate
-def test_add_file_omits_none_values(api):
-    responses.post("https://example.test/api/v1/targets/5/files", json={"ok": True}, status=201)
-
-    api.add_file(5, "https://bucket/sub.fits", kind="sub")
-
-    import json
-
-    body = json.loads(responses.calls[0].request.body)
-    assert body == {"url": "https://bucket/sub.fits", "kind": "sub"}

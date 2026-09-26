@@ -9,5 +9,5 @@ from pydantic import BaseModel
 
 
 class TargetEventRequest(BaseModel):
-    event_type: Literal["progress", "file_added", "status_changed", "error", "frames_collected", "night_closed", "master_updated", "issue_opened", "issue_resolved", "session"]
+    event_type: Literal["progress", "status_changed", "error", "frames_collected", "night_closed", "master_updated", "issue_opened", "issue_resolved", "session"]
     payload: dict[str, Any] | None = None

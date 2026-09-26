@@ -3,7 +3,7 @@ module Processing
   # optical trains, every non-draft target with aliases and merged processing
   # settings, and equipment events. Its ETag lets Altair poll cheaply.
   class ConfigBuilder
-    API_REVISION = 1
+    API_REVISION = 2
     EQUIPMENT_EVENT_WINDOW = 400.days
 
     def initialize(node)

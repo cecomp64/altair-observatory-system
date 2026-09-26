@@ -6,7 +6,7 @@ database instead of NINA:
 1. robs roof-open: per-project Target Scheduler projects ("#P<id> ..."),
    targets named "#<id> ...", schedule_count; the Hub sees roof_open
 2. robs sync-progress: accepted counts reach the Hub's plans
-3. robs end-of-night (data_pipeline: altair): no uploads; session_end makes
+3. robs end-of-night: no uploads; session_end makes
    the Hub queue night_ready for the node serving the telescope
 
     cd rig-agent && uv run python ../tools/e2e/worker_hub_e2e.py --hub http://localhost:3055 --hub-dir ../hub --telescope backyard-16in
@@ -74,7 +74,7 @@ def main() -> int:
     config.write_text(yaml.safe_dump({
         "slug": args.telescope, "api_base_url": args.hub, "api_key": info["key"], "scheduler_db_path": str(db),
         "subs_dir": str(work / "subs"), "nina_profile_id": "11111111-1111-1111-1111-111111111111",
-        "data_pipeline": "altair", "timezone": info["tz"],
+        "timezone": info["tz"],
     }))
 
     print(robs("roof-open", "--config", str(config)))

@@ -120,7 +120,6 @@ Rails.application.routes.draw do
       resources :targets, only: [] do
         member do
           patch :progress
-          post :files
           post :events
         end
       end

@@ -50,7 +50,7 @@ def response(*targets):
 def write_config(tmp_path: Path, scheduler_db_path: Path, **extra) -> TelescopeConfig:
     lines = {"slug": "test-scope", "api_base_url": "https://example.test", "api_key": "k", "scheduler_db_path": str(scheduler_db_path),
              "subs_dir": str(tmp_path / "subs"), "nina_profile_id": "11111111-1111-1111-1111-111111111111",
-             "timezone": "America/Los_Angeles", "data_pipeline": "altair", **extra}
+             "timezone": "America/Los_Angeles", **extra}
     (tmp_path / "subs").mkdir(exist_ok=True)
     path = tmp_path / "t.yml"
     import yaml
@@ -70,7 +70,7 @@ def rows(db: Path, sql: str):
 
 @responses.activate
 def test_one_ts_project_per_hub_project_with_priority_min_altitude_and_schedule_count(tmp_path, scheduler_db_path):
-    config = write_config(tmp_path, scheduler_db_path, data_pipeline="altair")
+    config = write_config(tmp_path, scheduler_db_path)
     responses.get(f"{BASE}/telescopes/test-scope/active_targets",
                   json=response(target(34, 12, schedule=26), target(35, 12, name="M33"), target(40, 13, name="M42", min_alt=20)))
 
@@ -133,8 +133,8 @@ def test_cleanup_disables_ts_projects_left_without_active_targets(tmp_path, sche
 
 
 @responses.activate
-def test_altair_end_of_night_posts_session_end_and_uploads_nothing(tmp_path, scheduler_db_path):
-    config = write_config(tmp_path, scheduler_db_path, data_pipeline="altair")
+def test_end_of_night_posts_session_end_and_uploads_nothing(tmp_path, scheduler_db_path):
+    config = write_config(tmp_path, scheduler_db_path)
     responses.get(f"{BASE}/telescopes/test-scope/active_targets", json=response(target(34, 12)))
     hub = Hub.for_config(config)
     sync_targets_into_scheduler(config, hub)
@@ -143,9 +143,8 @@ def test_altair_end_of_night_posts_session_end_and_uploads_nothing(tmp_path, sch
     (config.subs_dir / "#34 M31").mkdir()
     (config.subs_dir / "#34 M31" / "L_0001.fits").write_bytes(b"data")
 
-    result = end_of_night(config, hub, publisher=object())  # a publisher that would explode if used
+    result = end_of_night(config, hub)
 
-    assert result["pipeline"] == "altair"
     assert progress.call_count == 1
     body = json.loads(session.calls[0].request.body)
     assert contract_errors("worker/session_event.request.json", body) == []
@@ -157,7 +156,7 @@ def test_altair_end_of_night_posts_session_end_and_uploads_nothing(tmp_path, sch
 def test_standalone_reads_targets_file_logs_progress_and_writes_the_altair_marker(tmp_path, scheduler_db_path):
     targets_file = tmp_path / "targets.json"
     targets_file.write_text(json.dumps(response(target(34, 12))))
-    config = write_config(tmp_path, scheduler_db_path, data_pipeline="altair", hub={"enabled": False}, targets_file=str(targets_file),
+    config = write_config(tmp_path, scheduler_db_path, hub={"enabled": False}, targets_file=str(targets_file),
                           api_base_url=None, api_key=None)
     hub = Hub.for_config(config)
     assert hub.api is None
@@ -181,12 +180,6 @@ def test_standalone_needs_a_targets_file(tmp_path, scheduler_db_path):
         write_config(tmp_path, scheduler_db_path, hub={"enabled": False})
 
 
-def test_altair_mode_needs_no_s3_bucket_but_legacy_does(tmp_path, scheduler_db_path):
-    assert write_config(tmp_path, scheduler_db_path, data_pipeline="altair").s3_bucket is None
-    with pytest.raises(ConfigError, match="s3_bucket"):
-        write_config(tmp_path, scheduler_db_path, data_pipeline="legacy")
-
-
 @responses.activate
 def test_session_and_heartbeat_requests_match_the_contract():
     api = ObservatoryApiClient("https://example.test", "k")
@@ -203,6 +196,6 @@ def test_session_and_heartbeat_requests_match_the_contract():
 def test_night_rolls_over_at_local_noon(tmp_path, scheduler_db_path):
     from datetime import datetime, timezone
 
-    hub = Hub(write_config(tmp_path, scheduler_db_path, data_pipeline="altair"), None)
+    hub = Hub(write_config(tmp_path, scheduler_db_path), None)
     assert hub.night_for(datetime(2026, 9, 25, 12, 41, tzinfo=timezone.utc)) == "2026-09-24"  # 05:41 PDT
     assert hub.night_for(datetime(2026, 9, 25, 20, 0, tzinfo=timezone.utc)) == "2026-09-25"  # 13:00 PDT

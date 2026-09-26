@@ -8,8 +8,9 @@ class TargetsController < ApplicationController
   def show
     authorize @target
     @exposure_plans = @target.exposure_plans
-    @files = @target.data_products.legacy.recent_first
-    @preview = @files.preview.first
+    @masters = @target.data_products.masters.current.recent_first
+                      .includes(preview_attachment: :blob, thumbnail_attachment: :blob)
+    @preview = @masters.find { |m| m.multi_night_master? && m.preview.attached? } || @masters.find { |m| m.preview.attached? }
     @events = @target.target_events.recent_first.limit(20)
   end
 

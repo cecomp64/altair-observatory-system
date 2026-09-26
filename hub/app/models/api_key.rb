@@ -2,11 +2,11 @@
 # (owned by a ProcessingNode), with the scopes it may use (§5.1).
 class ApiKey < ApplicationRecord
   SCOPES = %w[
-    targets:read progress:write events:write sessions:write files:write
+    targets:read progress:write events:write sessions:write
     frames:write products:write issues:write commands:read heartbeat:write
   ].freeze
   DEFAULT_SCOPES = {
-    "Telescope" => %w[targets:read progress:write events:write sessions:write files:write heartbeat:write],
+    "Telescope" => %w[targets:read progress:write events:write sessions:write heartbeat:write],
     "ProcessingNode" => %w[targets:read events:write frames:write products:write issues:write commands:read heartbeat:write]
   }.freeze
 

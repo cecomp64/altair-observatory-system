@@ -79,18 +79,6 @@ class ObservatoryApiClient:
             payload["status"] = status
         return self._request("PATCH", f"/api/v1/targets/{target_id}/progress", json=payload)
 
-    def add_file(
-        self,
-        target_id: int,
-        url: str,
-        kind: str = "sub",
-        filter: str | None = None,
-        captured_at: str | None = None,
-    ) -> dict[str, Any]:
-        payload = {"url": url, "kind": kind, "filter": filter, "captured_at": captured_at}
-        payload = {k: v for k, v in payload.items() if v is not None}
-        return self._request("POST", f"/api/v1/targets/{target_id}/files", json=payload)
-
     def add_event(self, target_id: int, event_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         body = {"event_type": event_type, "payload": payload or {}}
         return self._request("POST", f"/api/v1/targets/{target_id}/events", json=body)

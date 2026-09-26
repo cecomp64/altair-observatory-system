@@ -61,7 +61,7 @@ class Hub:
         if not self.api:
             return
         try:
-            self.api.heartbeat({"telescope": self.config.slug, "data_pipeline": self.config.data_pipeline, **status})
+            self.api.heartbeat({"telescope": self.config.slug, **status})
         except (ApiError, OSError) as exc:
             logger.debug("Heartbeat failed: %s", exc)
 

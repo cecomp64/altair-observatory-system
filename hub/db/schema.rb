@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_26_000010) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_27_000011) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -119,7 +119,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_000010) do
     t.bigint "superseded_by_id"
     t.bigint "target_id", null: false
     t.datetime "updated_at", null: false
-    t.string "url"
     t.integer "version"
     t.index ["optical_train_id"], name: "index_data_products_on_optical_train_id"
     t.index ["processing_node_id", "kind", "altair_id"], name: "index_data_products_on_node_kind_altair_id", unique: true, where: "(altair_id IS NOT NULL)"
@@ -409,7 +408,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_000010) do
     t.text "notes"
     t.bigint "optical_train_id"
     t.string "panel"
-    t.string "preview_image_url"
     t.integer "priority", default: 0, null: false
     t.jsonb "processing_settings", default: {}, null: false
     t.bigint "project_id", null: false

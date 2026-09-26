@@ -7,6 +7,17 @@ alongside v1 (SYSTEM_ARCHITECTURE.md §5). Clients report the revision they
 speak in heartbeats; checking it in `robs check-config` / `altair doctor` is still to do
 (SYSTEM_ARCHITECTURE.md §9.4).
 
+## api_revision 2
+
+Removes the legacy worker upload path. No client ever used it in production: the rig agent
+no longer uploads or stacks frames, because Altair owns all image data.
+
+- **Removed:** `POST /targets/:id/files` (scope `files:write`) and its schemas
+  `worker/target_file.request.json` / `worker/target_file.response.json`.
+- **Removed:** the `file_added` value of `target_event.request.json`'s `event_type`.
+- `POST /heartbeat` responses carry the Hub's `api_revision`; `robs check-config` and
+  `altair doctor` compare it with the client's.
+
 ## api_revision 1
 
 First published contract (Phase P0 of SYSTEM_ARCHITECTURE.md §9).

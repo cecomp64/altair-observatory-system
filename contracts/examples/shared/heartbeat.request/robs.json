@@ -1,7 +1,7 @@
 {
   "agent": "robs",
   "version": "0.2.0",
-  "api_revision": 1,
+  "api_revision": 2,
   "status": {
     "telescope": "backyard-16in",
     "last_sync_at": "2026-09-25T06:00:00Z"

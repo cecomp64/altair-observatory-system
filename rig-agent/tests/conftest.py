@@ -68,8 +68,6 @@ api_base_url: "https://example.test"
 api_key: "test-token"
 scheduler_db_path: "{scheduler_db_path}"
 subs_dir: "{subs_dir}"
-s3_bucket: "test-bucket"
-s3_prefix: "test-scope"
 nina_profile_id: "11111111-1111-1111-1111-111111111111"
 """
     )

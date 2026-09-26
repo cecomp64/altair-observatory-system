@@ -5,7 +5,7 @@ queue: members pick a telescope, submit imaging targets through a guided
 wizard, and track progress; admins manage telescopes and API keys; a
 companion worker (the [rig agent](../rig-agent/))
 uses the JSON API to sync targets into NINA's Target Scheduler plugin and
-report progress/files back.
+report progress and session events back.
 
 See [`docs/SYSTEM_ARCHITECTURE.md`](../docs/SYSTEM_ARCHITECTURE.md) for the design (this
 app as the central Hub for the [rig agent](../rig-agent/) and the

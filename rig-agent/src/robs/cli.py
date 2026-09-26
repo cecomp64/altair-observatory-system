@@ -65,16 +65,10 @@ def cleanup(config_path: str):
 @main.command("end-of-night")
 @click.option("--config", "config_path", required=True, type=click.Path(exists=True))
 def end_of_night(config_path: str):
-    """End of the NINA sequence: final progress sync and session end (Altair
-    pipeline), or S3 upload + optional stacking (legacy), then clean up."""
+    """End of the NINA sequence: final progress sync, session end, cleanup."""
     config, hub = _load(config_path)
     result = run_end_of_night(config, hub)
-    if result["pipeline"] == "altair":
-        click.echo(f"Reported {result['progress_reported']} target(s); {result['signal']}; cleaned up {result['cleaned_up']} for {config.slug}.")
-    else:
-        for published in result["published"]:
-            click.echo(f"  target {published['target_id']}: {published['sub_count']} sub(s) published")
-        click.echo(f"Published {len(result['published'])} target(s), cleaned up {result['cleaned_up']} completed project(s) for {config.slug}.")
+    click.echo(f"Reported {result['progress_reported']} target(s); {result['signal']}; cleaned up {result['cleaned_up']} for {config.slug}.")
     hub.heartbeat({"last_command": "end-of-night"})
 
 
@@ -109,7 +103,6 @@ def check_config(config_path: str):
         with open_scheduler_db(config.scheduler_db_path) as conn:
             check("Target Scheduler supports per-project settings", per_project_columns_available(conn),
                   "falls back to a single managed project otherwise")
-    check("data_pipeline", True, config.data_pipeline + ("" if config.altair_mode else " (deprecated: use altair)"))
     if config.hub_enabled:
         try:
             response = hub.api.active_targets_response(config.slug)

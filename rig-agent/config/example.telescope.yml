@@ -4,8 +4,7 @@
 
 slug: backyard-16in
 
-# The Rails app and a telescope-scoped API key (Admin -> Telescopes ->
-# API keys in the queueing system).
+# The Hub and a telescope API key (Hub: Admin -> Telescopes -> API keys).
 api_base_url: "https://observatory.example.org"
 api_key: "REPLACE_ME"
 
@@ -23,10 +22,6 @@ subs_dir: "D:/Observatory/Subs/backyard-16in"
 # IANA timezone of the site; must match the Hub telescope (robs check-config).
 timezone: "America/Los_Angeles"
 
-# altair: Altair collects, archives and processes frames; nothing below this
-# line is used. legacy (deprecated): the worker uploads subs and stacks.
-data_pipeline: altair
-
 # per_hub_project (default): one Target Scheduler project per Hub project.
 # single: every target in one "Remote Observatory Queue" project.
 ts_project_mode: per_hub_project
@@ -37,17 +32,3 @@ ts_project_mode: per_hub_project
 #   enabled: false
 # targets_file: "C:/Observatory/targets.json"
 # altair_marker_dir: "D:/Observatory/Subs/backyard-16in/_altair"
-
-# ── legacy pipeline only (deprecated) ────────────────────────────────────
-# Where to publish subs (and optional stacks/previews) at end of night.
-s3_bucket: "observatory-data"
-s3_prefix: "backyard-16in"
-aws_region: "us-west-2"
-
-# Optional: calibrate + stack each night's subs before publishing.
-stacking:
-  enabled: false
-  backend: siril            # siril | pixinsight
-  executable_path: "/usr/bin/siril-cli"
-  master_frames_dir: "D:/Observatory/Calibration/backyard-16in"
-  output_dir: "D:/Observatory/Stacks/backyard-16in"

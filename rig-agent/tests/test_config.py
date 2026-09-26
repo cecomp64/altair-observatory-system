@@ -11,8 +11,6 @@ def test_loads_a_valid_config(telescope_config_yaml):
     assert config.slug == "test-scope"
     assert config.api_base_url == "https://example.test"
     assert config.api_key == "test-token"
-    assert config.s3_bucket == "test-bucket"
-    assert config.stacking.enabled is False
 
 
 def test_missing_file_raises_config_error(tmp_path):
@@ -34,3 +32,12 @@ def test_env_override_takes_precedence(telescope_config_yaml, monkeypatch):
     config = TelescopeConfig.load(telescope_config_yaml)
 
     assert config.api_key == "from-env"
+
+
+def test_obsolete_legacy_settings_are_ignored(telescope_config_yaml, caplog):
+    telescope_config_yaml.write_text(telescope_config_yaml.read_text() + 'data_pipeline: legacy\ns3_bucket: "old"\n')
+
+    config = TelescopeConfig.load(telescope_config_yaml)
+
+    assert not hasattr(config, "s3_bucket")
+    assert "'data_pipeline' is no longer used" in caplog.text

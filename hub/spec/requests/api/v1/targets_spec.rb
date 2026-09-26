@@ -39,24 +39,4 @@ RSpec.describe "Api::V1::Targets", type: :request do
       expect(response).to have_http_status(:forbidden)
     end
   end
-
-  describe "POST /api/v1/targets/:id/files" do
-    it "registers a file and emits a file_added event" do
-      post "/api/v1/targets/#{target.id}/files",
-        params: { url: "https://bucket.s3.amazonaws.com/sub.fits", kind: "sub", filter: "Ha" }.to_json,
-        headers: auth_headers.merge("Content-Type" => "application/json")
-
-      expect(response).to have_http_status(:created)
-      expect(target.data_products.count).to eq(1)
-      expect(target.target_events.file_added.count).to eq(1)
-    end
-
-    it "updates the target's preview image when kind is preview" do
-      post "/api/v1/targets/#{target.id}/files",
-        params: { url: "https://bucket.s3.amazonaws.com/preview.jpg", kind: "preview" }.to_json,
-        headers: auth_headers.merge("Content-Type" => "application/json")
-
-      expect(target.reload.preview_image_url).to eq("https://bucket.s3.amazonaws.com/preview.jpg")
-    end
-  end
 end

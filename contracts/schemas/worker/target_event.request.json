@@ -8,7 +8,7 @@
   "properties": {
     "event_type": {
       "type": "string",
-      "enum": ["progress", "file_added", "status_changed", "error", "frames_collected", "night_closed", "master_updated", "issue_opened", "issue_resolved", "session"]
+      "enum": ["progress", "status_changed", "error", "frames_collected", "night_closed", "master_updated", "issue_opened", "issue_resolved", "session"]
     },
     "payload": { "type": "object" }
   }

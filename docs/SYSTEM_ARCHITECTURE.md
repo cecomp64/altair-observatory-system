@@ -1,7 +1,7 @@
 # Altair Observatory System: Architecture
 
 **Describes:** the `altair-observatory-system` repository as of 2026-09-25 (contract
-`api_revision` 1). Where the design and the code differ, the difference is listed as work
+`api_revision` 2). Where the design and the code differ, the difference is listed as work
 in §9.
 **Not yet deployed:** no component has run on real equipment. §9 lists what has to happen
 before the first real night.
@@ -47,9 +47,8 @@ means `rig-agent/src/robs/…`.
 5. **The NINA `OBJECT` header carries the Hub target id** (`#<id> <name>`). Altair links
    frames by that token first, then by name plus coordinates. It never processes a frame
    into a guessed project: frames it can't resolve wait for a person to assign them.
-6. **One data pipeline.** Altair is the only component meant to move, upload or stack
-   image data. The rig agent still contains a deprecated upload-and-stack path, which is
-   to be removed (§9.2).
+6. **One data pipeline.** Altair is the only component that moves, uploads or stacks
+   image data. The rig agent only schedules and reports.
 7. **One UI stack:** Hotwire (Turbo + Stimulus), Tailwind and Chart.js. Visibility maths
    runs server-side in Ruby.
 8. **Hub → Altair control is a command queue** that Altair polls. The web UI can drive
@@ -191,7 +190,7 @@ the Hub can be hosted anywhere.
 | **Processing project** (Altair) | One target on one rig: its reference frame and multi-night masters. | Altair `projects`, unique on (`hub_target_id`, `rig`) |
 | **Night** | The local noon-to-noon window in the **telescope's** timezone, named by the date it starts. | `YYYY-MM-DD` + optical train |
 | **Frame** | One captured file (light or calibration). | SHA-256 |
-| **Data product** | A result: night master, multi-night master version, project reference, provisional preview, or a legacy worker upload. | Hub `data_products.id`; Altair (node, kind, `altair_id`) |
+| **Data product** | A result: night master, multi-night master version, project reference, or provisional (no-flat) master. | Hub `data_products.id`; Altair (node, kind, `altair_id`) |
 | **Processing node** | One Altair installation, serving one or more telescopes. | `processing_nodes.name` |
 
 ### 3.5 A night, end to end
@@ -339,7 +338,7 @@ erDiagram
 | `object_aliases` | `astro_object_id`, `name`, `normalized_name` (trigram + btree), `catalog` |
 | `object_showcases` | `astro_object_id`, `source_type` (upload / product / survey), `data_product_id`, `survey_name`, `image` attachment |
 | `projects` | `user_id`, `name`, `description`, `status` (planning / active / paused / completed / archived), `priority`, `visibility` (private / club), `completion_basis` (acquired / integrated), `processing_settings` jsonb |
-| `targets` | `project_id`, `user_id` (= the project's owner), `telescope_id`, `optical_train_id`, `astro_object_id` (null for custom coordinates), `name`, `ra_deg`, `dec_deg`, `rotation_deg`, `panel`, `is_primary`, `min_altitude_deg`, `priority`, `status`, `processing_settings` jsonb, `schedule_count_basis`, `submitted_at`, `notes`, `preview_image_url` (legacy) |
+| `targets` | `project_id`, `user_id` (= the project's owner), `telescope_id`, `optical_train_id`, `astro_object_id` (null for custom coordinates), `name`, `ra_deg`, `dec_deg`, `rotation_deg`, `panel`, `is_primary`, `min_altitude_deg`, `priority`, `status`, `processing_settings` jsonb, `schedule_count_basis`, `submitted_at`, `notes` |
 | `exposure_plans` | `target_id`, `filter`, `exposure_seconds`, `desired_count`, counters `completed_count` (acquired), `collected_count`, `usable_count`, `integrated_count`, `integrated_seconds` (§4.3) |
 | `target_events` | `target_id`, `event_type`, `payload`. Drives notifications. |
 | `frames` | `sha256` (unique), `processing_node_id`, `altair_frame_id`, `telescope_id`, `optical_train_id`, `target_id`, `project_id`, `exposure_plan_id`, `assignment_source` (header_token / name / coords / manual / unlinked), `image_type`, `night`, `date_obs`, `object_header`, `filter`, `filter_known`, exposure / gain / offset / binning / readout / temperature, rotator, `ra_deg`, `dec_deg`, `rotation_deg`, size and FOV, `file_name`, `logical_path`, `status`, `status_reason`, `quality` jsonb, `storage` jsonb, `headers` jsonb, `origin` (collect / import / legacy_index), `fov_matched_at`. Indexed for the searches in §7.3, including a trigram index on `file_name`. |
@@ -347,7 +346,7 @@ erDiagram
 | `observing_nights` | `telescope_id`, `optical_train_id`, `night`, `state` (open / closing / closed), `closed_by`, roof and session-end times, `lights_count`, `calibration_count`, `light_seconds`, `manifest_sha256` |
 | `calibration_masters` | Projection: `processing_node_id`, `altair_id`, `optical_train_id`, `kind`, filter, exposure, gain, offset, binning, temperature, rotator, `night`, `n_frames`, `sha256`, `superseded` |
 | `equipment_events` | `optical_train_id`, `at`, `kind` (sensor_cleaned, filter_changed, …), `filter`, `note`, `created_by_id`, `altair_synced_at` |
-| `data_products` | Was `target_files`. `target_id`, `project_id`, `optical_train_id`, `processing_node_id`, `altair_id`, `kind` (`night_master`, `multi_night_master`, `project_reference`, `provisional_noflat`, `log`; legacy `sub` / `stacked` / `preview` with a `url`), `night`, `filter`, `version`, `sha256`, `size_bytes`, `archive_uri`, `nas_path`, `metrics` jsonb, `superseded_by_id`; `preview` and `thumbnail` attachments |
+| `data_products` | Was `target_files`. `target_id`, `project_id`, `optical_train_id`, `processing_node_id`, `altair_id`, `kind` (`night_master`, `multi_night_master`, `project_reference`, `provisional_noflat`), `night`, `filter`, `version`, `sha256`, `size_bytes`, `archive_uri`, `nas_path`, `metrics` jsonb, `superseded_by_id`; `preview` and `thumbnail` attachments |
 | `processing_nodes` | `name` (unique), `description`, `active`, `last_heartbeat_at`, `status` jsonb (versions, outbox depth, …) |
 | `processing_node_telescopes` | Which telescopes a node serves |
 | `processing_issues` | `processing_node_id`, `fingerprint` (unique per node), `altair_id`, `kind`, `severity` (blocking / warning / info), `status` (open / resolved / waived), `message`, `requirement`, `scope`, optional telescope / train / project / target / night / filter, `opened_at`, `resolved_at`, `resolution`, `last_notified_at` |
@@ -407,7 +406,7 @@ percentage (the mean across goal filters).
 
 ---
 
-## 5. Hub API (`/api/v1`, api_revision 1)
+## 5. Hub API (`/api/v1`, api_revision 2)
 
 The machine-readable contract is `contracts/schemas/`, with examples in
 `contracts/examples/`. Hub request specs validate every response and example request
@@ -426,7 +425,6 @@ generated `observatory-contracts` models.
 | `progress:write` | ✓ | | `PATCH /targets/:id/progress` |
 | `events:write` | ✓ | ✓ | `POST /targets/:id/events` |
 | `sessions:write` | ✓ | | Session events |
-| `files:write` | legacy | | `POST /targets/:id/files` |
 | `frames:write` | | ✓ | Frames, nights, calibration masters |
 | `products:write` | | ✓ | Data products and previews |
 | `issues:write` | | ✓ | Issues, jobs |
@@ -448,7 +446,6 @@ generated `observatory-contracts` models.
 | `POST /targets/:id/events` | A target event (notifications). |
 | `POST /telescopes/:slug/sessions` | `{event: roof_open \| roof_close \| session_end, at, night, target_ids}`. Updates `observing_nights` and emits `session` events. `session_end` queues `night_ready` for each optical train of the telescope on each node that serves it. |
 | `POST /heartbeat` | `{agent, version, api_revision, status}`. Both principals. The response carries the Hub's `api_revision`. |
-| `POST /targets/:id/files` | **Legacy.** Records a worker upload as a `data_products` row with a `url` (http(s) only). To be removed (§9.2). |
 
 ### 5.3 Processing endpoints (`/api/v1/processing`)
 
@@ -777,7 +774,7 @@ skipped.
 |---|---|
 | `robs roof-open` | Fetches `active_targets` and upserts Target Scheduler: one project per Hub project (`#P<id> <name>`, the project priority, the target's minimum altitude), targets named by `nina_name`, and `schedule_count` as the desired count. Moves targets out of the old single managed project and keeps their accepted counts. Posts `roof_open`. |
 | `robs sync-progress` | Reads accepted counts from Target Scheduler and reports them. |
-| `robs end-of-night` | A final progress sync, `session_end` (or the marker file when standalone), then cleanup. With `data_pipeline: legacy` it also uploads subs to S3 and optionally stacks them. |
+| `robs end-of-night` | A final progress sync, `session_end` (or the marker file when standalone), then cleanup. |
 | `robs session-end` | Only the session-end signal. |
 | `robs cleanup` | Disables Target Scheduler rows for targets that were completed or cancelled in the Hub, and projects left with no active targets. |
 | `robs check-config` | Folders and database present, per-project columns available, Hub reachable, timezone matches the Hub. |
@@ -790,8 +787,8 @@ can be overridden by `ROBS_<SLUG>_<FIELD>` (the API key normally comes this way)
   Scheduler lacks the per-project columns.
 - `hub.enabled` / `targets_file`: standalone mode (§3.6.3).
 - `timezone`: checked against the Hub telescope.
-- `data_pipeline`: `legacy` (the current default) or `altair`. Because nothing is deployed
-  yet, `legacy` is to be removed and `altair` becomes the only behaviour (§9.2).
+- The rig agent never uploads or stacks frames. The settings of the old upload-and-stack
+  pipeline (`data_pipeline`, `s3_*`, `stacking`) are ignored with a warning.
 
 The rig agent's `subs_dir` on the rig PC is the folder Altair collects from as the rig's
 `raw_root`, so both use the same NINA file pattern (SPEC §4.2).
@@ -831,8 +828,7 @@ Every feature of the desktop app is in the Hub or Altair:
 
 ### 8.5 `contracts/` and `tools/`
 
-- `contracts/schemas/worker/`: active targets, progress, target events, legacy target files,
-  session events. `processing/`: config, frame batch and patch, night and digest, calibration
+- `contracts/schemas/worker/`: active targets, progress, target events, session events. `processing/`: config, frame batch and patch, night and digest, calibration
   master, data product metadata, issue, job, command, commands, ack. `shared/`: common
   definitions, error, heartbeat.
 - `contracts/python/`: `observatory-contracts`, with pydantic models generated by
@@ -891,22 +887,13 @@ deployment is a fresh install:
    - Run `import:astrodb` on any existing astrophotography-database files and check the
      result.
 
-### 9.2 Remove legacy paths
+### 9.2 Legacy paths (done)
 
-These exist only for deployments that never happened. Removing a Hub endpoint is a contract
-change: record it in `contracts/CHANGELOG.md`.
-
-- **Rig agent:**
-  - Remove `data_pipeline` and its `legacy` mode, `stacking/`, `s3_publisher.py`, the S3
-    and stacking settings, and `tests/test_stacking.py`; `end-of-night` always behaves as
-    `altair`.
-  - Keep `ts_project_mode: single` as the fallback for older Target Scheduler versions.
-- **Hub:**
-  - Remove `POST /targets/:id/files`, the `files:write` scope, and the legacy data product
-    kinds `sub`, `stacked` and `preview`.
-  - Remove `targets.preview_image_url` and the pre-P1 replay spec and fixtures
-    (`spec/requests/api/legacy_worker_replay_spec.rb`, `spec/fixtures/worker_requests/`).
-- **Contracts:** remove the `target_file` schemas.
+Removed in api_revision 2, since no deployment ever used them: the rig agent's
+upload-and-stack pipeline (`data_pipeline: legacy`, `stacking/`, `s3_publisher.py`), the
+Hub's `POST /targets/:id/files` with the `files:write` scope, the legacy data product kinds,
+`targets.preview_image_url`, and the pre-P1 worker replay spec. `ts_project_mode: single`
+stays as the fallback for older Target Scheduler versions.
 
 ### 9.3 Altair processing pipeline (SPEC §15)
 
@@ -984,7 +971,7 @@ keeps working against a newer Hub.
   scopes, resource scoping, idempotent upserts, manual-assignment precedence, counters); a
   synthetic-night replay (`spec/requests/synthetic_night_spec.rb`: counters equal a
   from-scratch recompute, and replaying a batch N times gives the same state); the golden
-  visibility tests (§7.2); and a replay of the pre-P1 worker requests (to be removed, §9.2).
+  visibility tests (§7.2).
 - **Altair:** resolution, the outbox (coalescing, batching, back-off, parking), commands
   (idempotency), config and reconciliation, headers, index and previews. **Offline
   properties** (`tests/test_offline.py`): randomly failing the Hub during a simulated night
@@ -1012,7 +999,7 @@ keeps working against a newer Hub.
   visibility (the owner, admins, and club members for `club` projects). Admin only: nodes,
   infrastructure issues, fetch approvals, catalogue imports and equipment events.
 - **Input handling:** FITS headers are stored as jsonb and always rendered escaped. Preview
-  uploads must be JPEG and at most 10 MB. Legacy URLs must be http(s). Brakeman and
+  uploads must be JPEG and at most 10 MB. Brakeman and
   bundler-audit run in CI.
 
 ---

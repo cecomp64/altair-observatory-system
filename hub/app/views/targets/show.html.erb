@@ -27,7 +27,9 @@
   <div class="rounded-xl border border-slate-200 bg-white p-5 md:col-span-1">
     <h2 class="text-sm font-medium text-slate-500 mb-3">Preview</h2>
     <% if @preview %>
-      <%= image_tag @preview.url, class: "rounded-lg w-full object-cover aspect-square" %>
+      <%= link_to rails_blob_path(@preview.preview, disposition: "inline"), target: "_blank" do %>
+        <%= image_tag (@preview.thumbnail.attached? ? @preview.thumbnail : @preview.preview), class: "rounded-lg w-full object-cover aspect-square", alt: "#{@preview.filter} master" %>
+      <% end %>
     <% else %>
       <div class="rounded-lg bg-slate-100 aspect-square flex items-center justify-center text-slate-400 text-sm">
         No preview yet
@@ -63,22 +65,25 @@
 
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
   <div class="rounded-xl border border-slate-200 bg-white p-5">
-    <h2 class="text-sm font-medium text-slate-500 mb-3">Files</h2>
-    <% if @files.any? %>
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Masters</h2>
+    <% if @masters.any? %>
       <ul class="divide-y divide-slate-100 text-sm">
-        <% @files.each do |file| %>
+        <% @masters.each do |master| %>
           <li class="py-2 flex items-center justify-between">
             <span>
-              <span class="inline-block rounded bg-slate-100 px-2 py-0.5 text-xs font-medium mr-2"><%= file.kind.humanize %></span>
-              <%= file.filter if file.filter.present? %>
-              <% if file.captured_at %><span class="text-slate-400"><%= file.captured_at.strftime("%b %-d, %Y") %></span><% end %>
+              <span class="inline-block rounded bg-slate-100 px-2 py-0.5 text-xs font-medium mr-2"><%= master.kind.humanize %></span>
+              <%= master.filter if master.filter.present? %>
+              <% if master.version %><span class="text-slate-400">v<%= master.version %></span><% end %>
+              <% if master.night %><span class="text-slate-400"><%= master.night.strftime("%b %-d, %Y") %></span><% end %>
             </span>
-            <%= link_to "Download", file.url, class: "text-indigo-600 hover:underline", target: "_blank", rel: "noopener" %>
+            <% if master.preview.attached? %>
+              <%= link_to "Preview", rails_blob_path(master.preview, disposition: "inline"), class: "text-indigo-600 hover:underline", target: "_blank", rel: "noopener" %>
+            <% end %>
           </li>
         <% end %>
       </ul>
     <% else %>
-      <p class="text-sm text-slate-400">No files have been published yet.</p>
+      <p class="text-sm text-slate-400">No masters yet. Altair reports them as nights are processed.</p>
     <% end %>
   </div>
 

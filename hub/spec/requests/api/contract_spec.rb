@@ -37,16 +37,6 @@ RSpec.describe "API contract", type: :request do
     expect(response).to match_api_contract("worker/target_event.response.json")
   end
 
-  it "accepts a contract (legacy) file request and answers in the contract shape" do
-    body = { url: "https://bucket.s3.amazonaws.com/stack_Ha.fits", kind: "stacked", filter: "Ha" }
-    expect(body.deep_stringify_keys).to match_api_contract("worker/target_file.request.json")
-
-    post "/api/v1/targets/#{target.id}/files", params: body.to_json, headers: headers
-
-    expect(response).to have_http_status(:created)
-    expect(response).to match_api_contract("worker/target_file.response.json")
-  end
-
   it "answers auth failures with the contract error shape" do
     get "/api/v1/telescopes/#{telescope.slug}/active_targets", headers: { "Authorization" => "Bearer nope" }
 

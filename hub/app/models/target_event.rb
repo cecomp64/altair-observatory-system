@@ -1,8 +1,9 @@
 class TargetEvent < ApplicationRecord
   belongs_to :target
 
+  # 1 was file_added (legacy worker uploads, removed in api_revision 2).
   enum :event_type, {
-    progress: 0, file_added: 1, status_changed: 2, error: 3,
+    progress: 0, status_changed: 2, error: 3,
     frames_collected: 4, night_closed: 5, master_updated: 6, issue_opened: 7, issue_resolved: 8, session: 9
   }
 
@@ -14,8 +15,6 @@ class TargetEvent < ApplicationRecord
     case event_type
     when "progress"
       "Progress updated"
-    when "file_added"
-      "New file: #{payload['kind']}"
     when "status_changed"
       "Status changed to #{payload['status']}"
     when "error"

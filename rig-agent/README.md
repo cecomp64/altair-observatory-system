@@ -24,7 +24,7 @@ lives in the `altair-observatory-system` monorepo with its full history.
 |---|---|---|
 | `robs roof-open` | NINA sequencer "External Script" step on roof open | Fetches active targets from the Hub and upserts them into Target Scheduler: one Target Scheduler project per Hub project (`#P<id> <name>`, the project's priority, the target's minimum altitude), targets named `#<id> <name>`, and each plan's `schedule_count` as the desired count. Reports `roof_open`. |
 | `robs sync-progress` | Periodically through the night (Task Scheduler / cron) | Reads accepted-frame counts out of Target Scheduler and reports them |
-| `robs end-of-night` | End of the NINA sequence (the **only** end-of-sequence script needed) | `data_pipeline: altair`: a final progress sync, then `session_end` to the Hub, which tells Altair the night is over (`night_ready`). Uploads and stacks nothing. `legacy` (deprecated): uploads subs to S3 and optionally stacks. Then runs cleanup. |
+| `robs end-of-night` | End of the NINA sequence (the **only** end-of-sequence script needed) | A final progress sync, then `session_end` to the Hub, which tells Altair the night is over (`night_ready`), then cleanup. Uploads and stacks nothing: Altair collects, archives and processes the frames. |
 | `robs session-end` | For sequences that signal the end separately | Only the `session_end` report (or Altair's marker file when standalone) |
 | `robs cleanup` | Periodically, or as part of `end-of-night` | Disables targets the Hub no longer considers active, and Target Scheduler projects left with none |
 | `robs check-config` | After installing or changing the config | Hub reachable and key accepted, timezone matches the Hub telescope, folders, Target Scheduler per-project support |
@@ -32,16 +32,12 @@ lives in the `altair-observatory-system` monorepo with its full history.
 
 Every command sends a heartbeat, so the Hub's admin pages show the worker's health.
 
-### Data pipeline
+### Frames
 
-- `data_pipeline: altair` (use this): Altair collects the frames from
-  `subs_dir` over the network, archives them on the NAS and S3, and processes them. The
-  worker doesn't upload or stack; `s3_*` and `stacking` are ignored. `subs_dir` is the
-  folder Altair has as this rig's `raw_root`, so NINA must use the file pattern from
-  Altair's SPEC §4.2.
-- `data_pipeline: legacy` (still the default, deprecated): S3 upload and optional
-  Siril/PixInsight stacking from the rig PC. Nothing depends on it, and it is to be
-  removed (docs/SYSTEM_ARCHITECTURE.md §9.2).
+The rig agent never uploads or stacks frames: Altair collects them from `subs_dir` over
+the network, archives them on the NAS and S3, and processes them. `subs_dir` is the
+folder Altair has as this rig's `raw_root`, so NINA must use the file pattern from
+Altair's SPEC §4.2.
 
 ### Standalone (no Hub)
 
@@ -59,10 +55,9 @@ python3 -m venv .venv
 ```
 
 Copy `config/example.telescope.yml` to `config/<your-telescope-slug>.yml`
-per telescope and fill it in — the Rails API base URL + a telescope-scoped
-API key (create one at **Admin → Telescopes → API keys** in the Rails
-app), the local path to Target Scheduler's `schedulerdb.sqlite`, where
-NINA writes subs, your S3 bucket, and your NINA equipment profile GUID.
+per telescope and fill it in — the Hub API base URL + a telescope
+API key (create one at **Admin → Telescopes → API keys** in the Hub), the local path to Target Scheduler's `schedulerdb.sqlite`, where
+NINA writes subs, and your NINA equipment profile GUID.
 `api_key` can instead be supplied via
 `ROBS_<SLUG>_API_KEY` (and any other field via `ROBS_<SLUG>_<FIELD>`) so
 it never has to live in the YAML file.
@@ -82,47 +77,28 @@ a Target Scheduler schema mismatch before it silently no-ops — see
 plugin's schema is reconstructed from its public source and isn't
 something we can verify against a live install here).
 
-## Calibration + stacking
+## How Hub targets map to Target Scheduler
 
-Stacking is optional and off by default (`stacking.enabled: false`).
-Two backends are supported:
-
-* **Siril** (`stacking.backend: siril`) — generates and runs a Siril
-  `.ssf` script that calibrates against `master_frames_dir` (if
-  present) and stacks with sigma rejection. Requires `siril-cli` on
-  `PATH` or `stacking.executable_path`.
-* **PixInsight** (`stacking.backend: pixinsight`) — PixInsight has no
-  single built-in "stack these" console command, so this backend shells
-  out to a *site-provided* PJSR script (`stacking.pjsr_script_path`,
-  typically an exported WBPP process icon).
-
-Either way, the resulting stack and a JPEG preview (if produced) are
-uploaded to S3 and reported to Rails as `kind: stacked` / `kind:
-preview` files — the preview becomes the target's thumbnail in the UI.
-
-## How targets map to local files
-
-We don't extend Target Scheduler's own tables with a "Rails target id"
+We don't extend Target Scheduler's own tables with a "Hub target id"
 column — that schema isn't ours to modify safely across plugin
 upgrades. Instead:
 
-* Scheduler targets are named `#<rails_target_id> <name>` (see
-  `sync._scheduler_target_name`), and a local per-telescope SQLite side
-  database (`robs_state.sqlite`, written next to `schedulerdb.sqlite`)
-  maps Rails ids to Target Scheduler row ids — see `src/robs/state.py`.
-* `end_of_night.py` expects `subs_dir` to contain one subdirectory per
-  target, named with that same `#<id>` prefix — which is what NINA
-  produces if its sequencer's file path pattern includes the target
-  name. Point NINA's image file pattern at
-  `$$TARGETNAME$$/$$IMAGETYPE$$_...` and it falls out naturally.
+* Scheduler targets are named by the Hub's `nina_name`,
+  `#<hub_target_id> <name>`, and projects `#P<hub_project_id> <name>`.
+  NINA writes the target name into the `OBJECT` header, which is how
+  Altair links frames back to Hub targets.
+* A local per-telescope SQLite side database (`robs_state.sqlite`,
+  written next to `schedulerdb.sqlite`) maps Hub ids to Target
+  Scheduler row ids — see `src/robs/state.py`.
 
 ## Tests
 
 ```bash
-.venv/bin/pytest
+uv sync --extra dev
+uv run pytest
+uv run lint-imports
 ```
 
-Tests don't require a real NINA install, S3 bucket, or Siril/PixInsight
-binary — `tests/conftest.py` builds a throwaway SQLite database matching
-`scheduler_schema.py`, HTTP calls are mocked with `responses`, and S3/
-subprocess calls are mocked directly.
+Tests don't require a real NINA install: `tests/conftest.py` builds a
+throwaway SQLite database matching `scheduler_schema.py`, and HTTP calls
+are mocked with `responses` and checked against `contracts/schemas/`.

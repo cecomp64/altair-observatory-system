@@ -1,12 +1,11 @@
 [project]
 name = "remote-observatory-worker"
-version = "0.2.0"
-description = "Observatory-side worker: syncs targets into NINA Target Scheduler, reports progress, and publishes subs/stacks to S3."
+version = "0.3.0"
+description = "Rig agent: syncs Hub targets into NINA Target Scheduler and reports progress and session events."
 requires-python = ">=3.10"
 dependencies = [
   "observatory-contracts",
   "requests>=2.31",
-  "boto3>=1.34",
   "PyYAML>=6.0",
   "click>=8.1",
 ]

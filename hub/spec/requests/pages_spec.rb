@@ -21,6 +21,17 @@ RSpec.describe "Pages", type: :request do
     end
   end
 
+  it "shows a target's masters and uses the latest multi-night master as its preview" do
+    master = create(:data_product, target: target, kind: :multi_night_master, filter: "Ha", version: 3)
+    master.preview.attach(io: StringIO.new("\xFF\xD8\xFF\xE0jpeg".b), filename: "p.jpg", content_type: "image/jpeg")
+    sign_in member
+
+    get target_path(target)
+
+    expect(response.body).to include("Multi night master", "v3", "Ha master")
+    expect(response.body).not_to include("No preview yet")
+  end
+
   it "shows tonight's targets on the dashboard and project visibility" do
     sign_in member
     travel_to Time.zone.parse("2026-09-24 20:00 PDT") do
