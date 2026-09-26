@@ -189,6 +189,16 @@ class Planner:
 
     # ── planning a night ─────────────────────────────────────────────────
     def plan_night(self, rig: str, night: str, *, dry_run: bool = False) -> NightPlan:
+        from altair.logs import log_context
+
+        with log_context(rig=rig, night=night):
+            plan = self._plan_night(rig, night, dry_run=dry_run)
+            if not dry_run:
+                log.info("planned %s %s: %d job(s), %d issue(s)%s", rig, night, len(plan.jobs), len(plan.issues),
+                         f", skipped: {'; '.join(plan.skipped)}" if plan.skipped else "")
+            return plan
+
+    def _plan_night(self, rig: str, night: str, *, dry_run: bool = False) -> NightPlan:
         plan = NightPlan(rig, night)
         rig_cfg = self.config.rigs[rig]
         if self.catalog.one("SELECT 1 FROM issues WHERE fingerprint = ? AND status = 'open'", (f"HUB_CONFIG_MISMATCH:{rig}",)):
@@ -344,7 +354,8 @@ class Planner:
                 "reference_version": project["reference_version"], "drizzle_scale": int(opts.get("drizzle_scale") or 1),
                 "wbpp_profile": opts.get("wbpp_profile"), "keep_calibrated_frames": bool(opts.get("keep_calibrated_frames", True)),
                 "groups": [{"lights": sorted(f["sha256"] for f in g.frames), "rotator_pos": g.need["rotator_pos"], "exposure": g.need["exposure"],
-                            "dark": _ref(g.dark.master), "flat": _ref(g.flat.master) if isinstance(g.flat, Match) else None,
+                            "dark": _ref(g.dark.master), "dark_evidence": g.dark.evidence,
+                            "flat": _ref(g.flat.master) if isinstance(g.flat, Match) else None,
                             "flat_evidence": g.flat.evidence if isinstance(g.flat, Match) else None} for g in groups],
                 "input_paths": {f["sha256"]: f["logical_path"] for g in groups for f in g.frames},
             }

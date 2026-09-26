@@ -154,7 +154,8 @@ class FakeHub:
             parts = _multipart(request.content, content_type)
             metadata = json.loads(parts["metadata"])
             self.check("processing/data_product.metadata.json", metadata)
-            self.products[(m[1], int(m[2]))] = {"metadata": metadata, "files": sorted(k for k in parts if k != "metadata")}
+            self.products[(m[1], int(m[2]))] = {"metadata": metadata, "files": sorted(k for k in parts if k != "metadata"),
+                                                 "report": parts["report"].decode() if "report" in parts else None}
             return httpx.Response(200, json={"ok": True})
         if method == "GET" and path == "/processing/commands":
             pending = [c for c in self.commands if c.get("_state", "pending") == "pending"]

@@ -3,14 +3,11 @@ checks (SPEC §4.1, §10, §12.1)."""
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import sys
 from pathlib import Path
 
 import click
 
-from altair.cli_context import Ctx, check_line, pass_ctx
+from altair.cli_context import Ctx, pass_ctx
 
 
 @click.command("issues")
@@ -209,17 +206,11 @@ def ingest_cmd(ctx: Ctx, paths: tuple[Path, ...], rig: str) -> None:
 def serve(ctx: Ctx, windowless: bool, once: bool) -> None:
     """altaird: every worker in one process (SPEC §4.1)."""
     import logging
-    from logging.handlers import RotatingFileHandler
 
+    from altair import logs
     from altair.daemon import Daemon
 
-    handlers: list[logging.Handler]
-    if windowless:
-        ctx.config.paths.logs_dir.mkdir(parents=True, exist_ok=True)
-        handlers = [RotatingFileHandler(ctx.config.paths.logs_dir / "altaird.log", maxBytes=20 << 20, backupCount=10, encoding="utf-8")]
-    else:
-        handlers = [logging.StreamHandler()]
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", handlers=handlers)
+    logs.setup(ctx.config, windowless=windowless)
     client = None
     if ctx.config.hub.enabled:
         try:
@@ -234,44 +225,36 @@ def serve(ctx: Ctx, windowless: bool, once: bool) -> None:
     daemon.serve_forever()
 
 
-def local_checks(ctx: Ctx) -> bool:
-    """Checks on this PC (SPEC §4.1); warnings, except an unwritable state folder."""
-    from altair import winapi
-    from altair.executor.pixinsight import runner_path
+@click.command("logs")
+@click.option("--job", "job_id", type=int)
+@click.option("--night")
+@click.option("--rig")
+@click.option("--project", "project_id", type=int, help="Altair project id")
+@click.option("--worker")
+@click.option("--level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False))
+@click.option("--since", help="ISO 8601 UTC, e.g. 2026-09-26T06:00")
+@click.option("--grep", "text", help="Text in the message or traceback")
+@click.option("--follow", "-f", is_flag=True, help="Keep printing new entries")
+@click.option("--json", "as_json", is_flag=True, help="Print the raw JSON lines")
+@pass_ctx
+def logs_cmd(ctx: Ctx, follow: bool, as_json: bool, **filters) -> None:
+    """The daemon's structured log, filtered (SPEC §13). PixInsight's output is in logs/jobs/<job>.log."""
+    from altair import logs
 
-    cfg = ctx.config
-    ok = True
-
-    def warn(label: str, passed: bool, detail: str = "") -> None:
-        click.echo(f"[{'ok' if passed else 'warn'}] {label}{': ' + detail if detail else ''}")
-
-    state = Path(cfg.paths.state)
-    try:
-        state.mkdir(parents=True, exist_ok=True)
-        probe = state / ".doctor"
-        probe.write_text("ok")
-        probe.unlink()
-        check_line("state folder writable", True, str(state))
-    except OSError as exc:
-        ok = check_line("state folder writable", False, f"{state}: {exc}")
-    pi = Path(cfg.pixinsight.executable)
-    warn("PixInsight executable", pi.exists(), str(pi))
-    warn("PJSR runner", runner_path(cfg.pixinsight).exists(), str(runner_path(cfg.pixinsight)))
-    for name, path in (("work", cfg.paths.work_dir), ("cache", cfg.cache_dir)):
-        target = path if path.exists() else path.parent
+    if ctx.config.logging.format != "json":
+        raise click.ClickException(f"logging.format is text; read {logs.log_file(ctx.config)} directly")
+    show = (lambda e: click.echo(json.dumps(e, ensure_ascii=False))) if as_json else (lambda e: click.echo(logs.format_entry(e)))
+    for entry in logs.read(logs.files(ctx.config), **filters):
+        show(entry)
+    if follow:
+        current = logs.log_file(ctx.config)
+        if not current.exists():
+            raise click.ClickException(f"{current} doesn't exist yet (is altaird running?)")
         try:
-            free = shutil.disk_usage(target).free / 1024 ** 3
-            warn(f"{name} folder free space", free > 50, f"{path}: {free:.0f} GB free")
-        except OSError as exc:
-            warn(f"{name} folder", False, f"{path}: {exc}")
-    if sys.platform == "win32":
-        session = winapi.session_id()
-        warn("interactive session (not a service)", session not in (None, 0), f"session {session}")
-        warn("long paths enabled", bool(winapi.long_paths_enabled()), "HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\\LongPathsEnabled")
-    for channel in cfg.notifications.channels:
-        missing = [channel[k] for k in channel if k.endswith("_env") and channel[k] and not os.environ.get(channel[k])]
-        warn(f"notification channel {channel.get('type')}", not missing, f"missing env {', '.join(missing)}" if missing else "")
-    return ok
+            for entry in logs.follow(current, **filters):
+                show(entry)
+        except KeyboardInterrupt:
+            pass
 
 
-COMMANDS = [issues, issue, status, serve, equipment, ingest_cmd]
+COMMANDS = [issues, issue, status, serve, equipment, ingest_cmd, logs_cmd]

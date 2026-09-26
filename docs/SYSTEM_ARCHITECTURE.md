@@ -458,7 +458,7 @@ generated `observatory-contracts` models.
 | `PUT /nights/:optical_train/:night` | Night state, counts, `closed_by`, `manifest_sha256`. |
 | `GET /nights/:optical_train/:night/digest` | `{frame_count, sha256_xor, by_type}` for reconciliation. |
 | `PUT /calibration_masters/:altair_id` | Projection upsert. |
-| `PUT /data_products/:kind/:altair_id` | Multipart: `metadata` JSON plus optional `preview` and `thumbnail` JPEGs. Emits `master_updated` and updates counters. |
+| `PUT /data_products/:kind/:altair_id` | Multipart: `metadata` JSON plus optional `preview` and `thumbnail` JPEGs, and (api_revision 3) an optional Markdown `report`. Emits `master_updated` and updates counters. |
 | `PUT /issues/:fingerprint` | Issue upsert. Transitions emit `issue_opened` / `issue_resolved` (routing in §7.4). |
 | `PUT /jobs/:altair_id` | Job summary upsert. |
 | `GET /commands` | Pending commands (marked delivered). |
@@ -593,7 +593,8 @@ settings change that forces a re-reference (such as `drizzle_scale`) asks for a 
 | `/projects`, `/projects/:id` | Project cards. Project page: per-filter progress, tonight's visibility, targets and plans, integration over time, latest multi-night masters, nights (include/exclude), open issues, and processing controls (settings, rerun, re-reference, mode). |
 | `/projects/new` | The wizard: objects → telescope (each candidate shows tonight's altitude and best season with its horizon) → exposures (filters from the optical train) → review. `/targets/new` redirects here. |
 | `/frames` | File search: object or alias, cone search, project, target, telescope, optical train, filter, image type, night range, exposure, gain, binning, status, unassigned only. Stats by filter. |
-| `/data_products/:id/download` | Redirects to a 10-minute presigned S3 link for a master in Altair's archive (§12), when the archive reader is configured. Offered on target and project pages. |
+| `/data_products/:id/download` | Redirects to a 10-minute presigned S3 link for a master in Altair's archive (§12), when the archive reader is configured. Offered on target and project pages. The master file itself is never stored in the Hub. |
+| `/data_products/:id/report` | Altair's night or merge report, rendered: GitHub-flavoured Markdown via kramdown, sanitized (no raw HTML, scripts, images or non-http links). The Markdown is kept in Active Storage beside the preview, not in the database. Linked from target and project pages. |
 | `/frames/:id`, `/frames/unassigned` | Frame detail (headers, FOV objects, storage, links). The inbox of unresolved lights grouped by night and `OBJECT`, with a suggested target, and bulk assignment. |
 | `/issues`, `/issues/:id` | Processing issues: waive, and approve or deny fetches (admins). |
 | `/telescopes/:slug/optical_trains/:key` | Optics, filters and aliases, equipment events, calibration library, and a flats shopping list built from open `FLAT_MISSING` issues. |
@@ -737,8 +738,9 @@ for filled in, so re-planning a processed night adds no work.
 
 ```
 altair serve [--windowless] [--once]                 # altaird
-altair doctor                                        # this PC, then the Hub
 altair status [--night D] [--target ID] [--project ID] [--write] | jobs [--status S]
+altair logs [--job N] [--night D] [--rig R] [--level L] [--since T] [--grep TEXT] [--follow] [--json]
+altair doctor [--json]
 altair plan --night DATE [--rig R]
 altair run [--night D] [--target ID] [--project ID] [--filter F] [--kind K] [--max-jobs N]
 altair rerun --job ID | --issue ID | --night DATE [--target ID] [--filter F]
@@ -781,6 +783,10 @@ src/altair/
   notify/            toast, Pushover, ntfy, email; the notifier
   status_page.py     ALTAIR_STATUS.html / .json
   daemon.py          altaird: every worker on its own thread
+  doctor.py          `altair doctor`: this PC, NAS, S3, rigs and headers, through an injectable probe
+  reports.py         night and merge reports (Markdown), published and sent to the Hub
+  logs.py            JSON logs with per-worker context; `altair logs`
+  http_status.py     the optional local status endpoint; metrics.py (Prometheus); markdown.py
   hub/
     client.py        httpx client: auth, ETag, multipart, typed errors
     config_sync.py   /config → hub_cache → HubConfig (targets, aliases, trains, filters)

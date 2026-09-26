@@ -31,7 +31,8 @@ SPEC v0.8 phases 1–8 and the Hub integration (§5.1, §17), as the Python pack
 | Processing (§6.5, §6.6) | `executor` (PixInsight runner, queue, retries, crash recovery), `pjsr/` (the PixInsight scripts), `publish` (checks, blobs, sidecars, viewing copies, Hub data products), `calibration` |
 | Multi-night (§9) | `projects.merge` (gates, MERGE planning), `projects.weights` |
 | Issues and alerts (§10) | `issues`, `issue_actions` (waive, resolve with a flat, flats plan), `notify` (toast, Pushover, ntfy, email), `status_page` |
-| Daemon (§4.1) | `daemon` (`altair serve`; every worker on its own thread) |
+| Daemon (§4.1) | `daemon` (`altair serve`; every worker on its own thread), `doctor` (setup checks) |
+| Observability (§12.2, §13) | `reports` (night and merge reports), `logs` (JSON logs, `altair logs`), `http_status` and `metrics` (local endpoint, Prometheus) |
 | Hub (§17) | `hub.resolver`, `outbox`, `commands`, `config_sync`, `sync`, `reconcile`, `previews`; `index` (`altair index`) |
 
 ```bash
@@ -45,6 +46,8 @@ uv run altair --config altair.yaml serve          # altaird in the foreground
 - [`docs/pixinsight-cli.md`](docs/pixinsight-cli.md): the job.json/result.json contract
   with PixInsight.
 - [`docs/dr-runbook.md`](docs/dr-runbook.md): disaster recovery.
+- [`docs/status-endpoint.md`](docs/status-endpoint.md): reports, JSON logs, the local
+  status endpoint, Prometheus metrics and Home Assistant.
 - [`deploy/windows/`](deploy/windows/): the rig setup and the Task Scheduler install.
 
 ## Not verified yet

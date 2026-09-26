@@ -38,6 +38,7 @@ from altair.executor.contract import ContractError, RunResult, read_result, writ
 from altair.hub.reporters import enqueue_job
 from altair.planner.plan import plan_hash, resolve_plan
 from altair.issues import raise_issue, resolve_issue
+from altair.logs import log_context
 from altair.projects import weights as weights_mod
 from altair.publish.publisher import Publisher, VerifyError
 from altair.storage.stager import Stager, remove_work_dir
@@ -200,8 +201,16 @@ class Executor:
         return reports
 
     def execute(self, job: sqlite3.Row) -> JobReport:
+        with log_context(job_id=job["id"], kind=job["kind"], rig=job["rig"], night=job["night"], filter=job["filter"],
+                         project_id=job["project_id"]):
+            report = self._execute(job)
+            log.info("job %s %s: %s%s", job["id"], job["kind"], report.status, f" ({report.detail})" if report.detail else "")
+            return report
+
+    def _execute(self, job: sqlite3.Row) -> JobReport:
         job_id = job["id"]
         plan = json.loads(job["plan_json"])
+        staging_started = time.monotonic()
         self._set(job_id, status="staging", started_at=job["started_at"] or now_iso())
         try:
             refs = self.resolve_refs(plan)
@@ -223,12 +232,14 @@ class Executor:
         names = {sha: Path(p).name for sha, p in plan.get("input_paths", {}).items()}
         paths = self.stager.handoff(work, staged.paths, names)
         self._set(job_id, status="running", waiting_reason=None, attempts=(job["attempts"] or 0) + 1, log_path=str(self.log_path(job_id)))
+        run_started = time.monotonic()
         try:
             if job["kind"] == "MERGE":
                 result = self._run_merge(job, plan, refs, paths, work)
             else:
                 result = self._run(job, self.job_document(job, plan, refs, paths, work), work)
-            return self._finish(job, result, work)
+            return self._finish(job, result, work, timings={"staging_s": round(run_started - staging_started, 1),
+                                                            "run_s": round(time.monotonic() - run_started, 1)})
         except JobFailure as exc:
             return self._fail(job, str(exc), retry=exc.retry)
         except VerifyError as exc:
@@ -372,12 +383,12 @@ class Executor:
         return result
 
     # ── outcome ──────────────────────────────────────────────────────────
-    def _finish(self, job: sqlite3.Row, result: RunResult, work: Path) -> JobReport:
+    def _finish(self, job: sqlite3.Row, result: RunResult, work: Path, timings: dict | None = None) -> JobReport:
         with self.catalog.transaction() as tx:
             tx.execute("INSERT OR REPLACE INTO publish_intents(job_id, work_dir, created_at) VALUES (?, ?, ?)", (job["id"], str(work), now_iso()))
         job = self.catalog.one("SELECT * FROM jobs WHERE id = ?", (job["id"],))
         registered = self.publisher.publish(job, result, work)
-        stored = {"registered": registered, "metrics": result.metrics, "software": result.software}
+        stored = {"registered": registered, "metrics": result.metrics, "software": result.software, "timings": timings or {}}
         with self.catalog.transaction() as tx:
             tx.execute("UPDATE jobs SET status = 'succeeded', finished_at = ?, error = NULL, waiting_reason = NULL, result_json = ? WHERE id = ?",
                        (now_iso(), json.dumps(stored, default=str), job["id"]))
@@ -387,6 +398,12 @@ class Executor:
                 enqueue_job(tx, job["id"])
         if not self.keep_work_dirs:
             remove_work_dir(work)
+        try:
+            from altair import reports
+
+            reports.for_job(self.catalog, self.config, job["id"])
+        except Exception:  # noqa: BLE001 - a report never fails a job
+            log.exception("report for job %s failed", job["id"])
         return JobReport(job["id"], job["kind"], "succeeded")
 
     def _fail(self, job: sqlite3.Row, error: str, *, retry: bool) -> JobReport:

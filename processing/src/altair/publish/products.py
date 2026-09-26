@@ -98,8 +98,12 @@ def enqueue(tx: sqlite3.Connection, config: AltairConfig, kind: str, altair_id: 
     archive, nas = _archive(tx, row["sha256"])
     meta.update({"sha256": row["sha256"], "size_bytes": _size(tx, row["sha256"]), "archive_uri": archive, "nas_path": nas,
                  "metrics": _metrics(metrics)})
+    from altair.reports import report_path
+
     preview, thumb = preview_paths(config, kind, altair_id)
-    enqueue_data_product(tx, kind, altair_id, meta, str(preview) if preview.exists() else None, str(thumb) if thumb.exists() else None)
+    report = report_path(config, kind, altair_id)
+    enqueue_data_product(tx, kind, altair_id, meta, str(preview) if preview.exists() else None, str(thumb) if thumb.exists() else None,
+                         report=str(report) if report.exists() else None)
     return True
 
 

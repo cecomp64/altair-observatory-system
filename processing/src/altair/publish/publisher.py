@@ -296,7 +296,7 @@ class Publisher:
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (plan["project_id"], plan["night"], plan["filter"], sha, json.dumps(used), plan["stack_kind"], plan["reference_version"],
                  len(used), len(all_lights) - len(used), metrics["total_exposure_s"],
-                 json.dumps({"groups": [{k: g.get(k) for k in ("dark", "flat", "flat_evidence", "rotator_pos", "exposure")} for g in plan["groups"]],
+                 json.dumps({"groups": [{k: g.get(k) for k in ("dark", "dark_evidence", "flat", "flat_evidence", "rotator_pos", "exposure")} for g in plan["groups"]],
                              "calibrated": calibrated, "sidecar": side_sha, "drizzle_scale": plan.get("drizzle_scale", 1)}),
                  int(final), json.dumps(metrics), "pending" if final else "provisional", job["id"], nas_uri, size))
             row = tx.execute("SELECT * FROM night_masters WHERE project_id = ? AND night = ? AND filter = ? AND kind = ? AND reference_version = ? "

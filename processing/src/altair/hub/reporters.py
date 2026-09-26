@@ -123,7 +123,8 @@ def enqueue_calibration_master(tx: sqlite3.Connection, config: AltairConfig, mas
 
 
 def enqueue_data_product(tx: sqlite3.Connection, kind: str, altair_id: int, metadata: dict[str, Any],
-                         preview: str | None = None, thumbnail: str | None = None) -> None:
-    """kind: night_master / multi_night_master / project_reference / provisional_noflat."""
+                         preview: str | None = None, thumbnail: str | None = None, report: str | None = None) -> None:
+    """kind: night_master / multi_night_master / project_reference / provisional_noflat.
+    ``report`` is the product's Markdown report (api_revision 3; older Hubs ignore the part)."""
     outbox.enqueue(tx, "data_product", f"{kind}:{altair_id}", {"kind": kind, "altair_id": altair_id, "metadata": metadata},
-                   attachments={"preview": preview, "thumbnail": thumbnail})
+                   attachments={"preview": preview, "thumbnail": thumbnail, "report": report})

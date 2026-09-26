@@ -43,7 +43,7 @@ def test_processing_commands(tmp_path):
     out = run("night", "exclude", "--target", "34", "--night", "2026-09-24", "--filter", "Ha")
     assert "night_exclude" in out.output
     assert "blocked - excluded by the user" in run("merge", "--target", "34", "--filter", "Ha").output
-    assert "viewing copies written" in run("publish", "--refresh").output
+    assert "viewing copies and 2 reports written" in run("publish", "--refresh").output
     assert "job 1 queued" in run("rerun", "--job", "1").output
 
 

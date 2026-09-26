@@ -13,6 +13,7 @@ its own thread so a slow S3 restore or upload never blocks processing.
 | catalog backup | daily at ``catalog_backup_local`` (default 11:00) |
 | scrub | when due (``storage.verify.scrub_interval_days``) |
 | housekeeping (cache eviction, NAS backfill, old work dirs and logs, missing manifests) | hourly |
+| status endpoint (`http.enabled`, SPEC §12.2) and the metrics file (`http.metrics_file`) | always / 60 s |
 
 A worker's exception is logged and the worker carries on at its next tick.
 Task Scheduler restarts the whole process if it dies (§4.1).
@@ -45,8 +46,11 @@ class Worker:
     thread: threading.Thread | None = field(default=None, repr=False)
 
     def tick(self) -> None:
+        from altair.logs import log_context
+
         try:
-            self.fn()
+            with log_context(worker=self.name):
+                self.fn()
         except Exception as exc:  # noqa: BLE001 - a worker never takes the daemon down
             self.errors += 1
             self.last_error = f"{type(exc).__name__}: {exc}"
@@ -67,6 +71,8 @@ class Daemon:
         self.catalog_backup_local = catalog_backup_local
         self.stop_event = threading.Event()
         self.pi_lock = threading.Lock()     # one PixInsight job at a time
+        self.started_at: float | None = None
+        self.http = None
         self.workers = self._workers()
 
     # ── what runs ────────────────────────────────────────────────────────
@@ -115,6 +121,11 @@ class Daemon:
         if cfg.storage.nas:
             workers.append(Worker("catalog_backup", 60, self.daily("catalog_backup", self.catalog_backup_local, self.backup_catalog)))
         workers.append(Worker("scrub", 3600, self.scrub))
+        if cfg.http.metrics_file:
+            from altair import metrics
+
+            workers.append(Worker("metrics_file", 60, lambda: metrics.write_file(
+                cfg.http.metrics_file, metrics.collect(self.catalog, cfg, lambda: self.workers))))
         workers.append(Worker("housekeeping", 3600, lambda: (stager.evict(), publisher.backfill_nas(), self.executor.cleanup(),
                                                              self.manifests())))
         return workers
@@ -191,7 +202,24 @@ class Daemon:
             worker.tick()
         return {w.name: w.last_error for w in self.workers}
 
+    def health(self) -> dict:
+        """Every worker has run within 3× its interval (plus a minute's grace after start-up)."""
+        now = time.time()
+        workers, ok = {}, True
+        for w in self.workers:
+            limit = 3 * w.interval_s + 60
+            fresh = (w.last_run_at or self.started_at or now) >= now - limit
+            ok &= fresh
+            workers[w.name] = {"ok": fresh, "last_run_at": w.last_run_at, "runs": w.runs, "errors": w.errors, "last_error": w.last_error}
+        return {"ok": ok, "workers": workers, "jobs_pending": self.executor.pending()}
+
     def start(self) -> None:
+        self.started_at = time.time()
+        if self.config.http.enabled:
+            from altair.http_status import StatusServer
+
+            self.http = StatusServer(self.catalog, self.config, health=self.health, workers=lambda: self.workers)
+            self.http.start()
         recovered = self.executor.recover()
         if recovered:
             log.info("recovered jobs %s after a restart", recovered)
@@ -207,6 +235,8 @@ class Daemon:
 
     def stop(self, timeout: float = 30) -> None:
         self.stop_event.set()
+        if self.http is not None:
+            self.http.stop()
         for worker in self.workers:
             if worker.thread:
                 worker.thread.join(timeout)

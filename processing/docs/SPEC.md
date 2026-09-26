@@ -2035,9 +2035,10 @@ matches: every target of that Hub project, on every rig.
 
 ### 12.2 Optional HTTP status endpoint
 
-A read-only FastAPI endpoint on `127.0.0.1` (`/status`, `/issues`, `/projects/<id>`), for
+A read-only endpoint on `127.0.0.1` (`/status`, `/issues`, `/projects/<id>`), for
 Home Assistant or dashboards. With a Hub (v0.8) it is superseded by the Hub's UI and API,
-and kept only as an option for Home Assistant.
+and kept only as an option for Home Assistant. (Implemented with the standard library
+rather than FastAPI; see `docs/status-endpoint.md`.)
 
 ---
 

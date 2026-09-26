@@ -96,6 +96,12 @@ class RigCollector:
 
     # ── the poll ─────────────────────────────────────────────────────────
     def poll(self, *, nas_state: nas_health.Health | None = None) -> PollReport:
+        from altair.logs import log_context
+
+        with log_context(rig=self.rig):
+            return self._poll(nas_state=nas_state)
+
+    def _poll(self, *, nas_state: nas_health.Health | None = None) -> PollReport:
         now = self.clock()
         report = PollReport(self.rig)
         if not self.source.reachable():

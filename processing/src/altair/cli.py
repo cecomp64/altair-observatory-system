@@ -274,51 +274,55 @@ def _nas_root(config: AltairConfig) -> str | None:
 
 # ── doctor ───────────────────────────────────────────────────────────────
 @main.command()
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable results")
 @pass_ctx
-def doctor(ctx: Ctx) -> None:
-    """This PC (state, PixInsight, disks, session) and the Hub (SPEC §4.1, §5.1): reachability, key scopes, node,
-    optical trains, timezone, filters."""
+def doctor(ctx: Ctx, as_json: bool) -> None:
+    """Check this PC, the NAS, S3, the rigs and their NINA headers, and the Hub (SPEC §4.1, §5.1, §7).
+    Exits 1 on any FAIL; warnings don't change the exit code."""
     from observatory_contracts import check_hub_revision
 
+    from altair import doctor as doc
     from altair.hub.client import HubError
     from altair.hub.sync import mismatches
 
-    ok = True
+    checker = doc.Doctor(ctx.catalog, ctx.config, s3=ctx.s3(required=False))
+    checker.run()
 
-    def check(label: str, passed: bool, detail: str = "") -> None:
-        nonlocal ok
-        ok &= passed
-        click.echo(f"[{'ok' if passed else 'FAIL'}] {label}{': ' + detail if detail else ''}")
+    def hub_check(label: str, passed: bool, detail: str = "") -> None:
+        checker.add("Hub", label, "ok" if passed else "fail", detail)
 
-    from altair.cli_ops import local_checks
-
-    ok = local_checks(ctx)
     if not ctx.config.hub.enabled:
-        click.echo("hub.enabled is false: standalone mode, no Hub checks.")
-        sys.exit(0 if ok else 1)
-    try:
-        sync = ctx.sync()
-        hub_config = sync.pull_config()
-        check("Hub reachable, key accepted", True, ctx.config.hub.base_url)
-        check("node name matches", hub_config.raw["node"]["name"] == ctx.config.hub.node, hub_config.raw["node"]["name"])
-        check("Hub API revision compatible", *check_hub_revision(hub_config.api_revision))
-        for scope_check in ("commands", "heartbeat"):
-            try:
-                sync.commands.ack_unacked() if scope_check == "commands" else sync.heartbeat()
-                check(f"key allows {scope_check}", True)
-            except HubError as exc:
-                check(f"key allows {scope_check}", False, str(exc))
-        for name, rig in ctx.config.rigs.items():
-            if not rig.hub:
-                continue
-            problems = mismatches(ctx.config, name, hub_config)
-            check(f"rig {name} matches {rig.hub.telescope}/{rig.hub.optical_train}", not problems, "; ".join(problems))
-            seen = {r["filter"] for r in ctx.catalog.query("SELECT DISTINCT filter FROM frames WHERE rig = ? AND filter IS NOT NULL ORDER BY night DESC LIMIT 50", (name,))}
-            unknown = sorted(f for f in seen if not hub_config.canonical_filter(rig.hub.telescope, rig.hub.optical_train, f))
-            check(f"rig {name} filters known to the Hub", not unknown, ", ".join(unknown))
-    except HubError as exc:
-        check("Hub reachable", False, str(exc))
-    sys.exit(0 if ok else 1)
+        checker.add("Hub", "hub.enabled is false: standalone mode, no Hub checks", "skip")
+    else:
+        try:
+            sync = ctx.sync()
+            hub_config = sync.pull_config()
+            hub_check("Hub reachable, key accepted", True, ctx.config.hub.base_url)
+            hub_check("node name matches", hub_config.raw["node"]["name"] == ctx.config.hub.node, hub_config.raw["node"]["name"])
+            hub_check("Hub API revision compatible", *check_hub_revision(hub_config.api_revision))
+            for scope_check in ("commands", "heartbeat"):
+                try:
+                    sync.commands.ack_unacked() if scope_check == "commands" else sync.heartbeat()
+                    hub_check(f"key allows {scope_check}", True)
+                except HubError as exc:
+                    hub_check(f"key allows {scope_check}", False, str(exc))
+            for name, rig in ctx.config.rigs.items():
+                if not rig.hub:
+                    continue
+                problems = mismatches(ctx.config, name, hub_config)
+                hub_check(f"rig {name} matches {rig.hub.telescope}/{rig.hub.optical_train}", not problems, "; ".join(problems))
+                seen = {r["filter"] for r in ctx.catalog.query("SELECT DISTINCT filter FROM frames WHERE rig = ? AND filter IS NOT NULL ORDER BY night DESC LIMIT 50", (name,))}
+                unknown = sorted(f for f in seen if not hub_config.canonical_filter(rig.hub.telescope, rig.hub.optical_train, f))
+                hub_check(f"rig {name} filters known to the Hub", not unknown, ", ".join(unknown))
+        except HubError as exc:
+            hub_check("Hub reachable", False, str(exc))
+    if as_json:
+        click.echo(doc.as_json(checker.results))
+    else:
+        doc.print_report(checker.results, click.echo)
+        counts = {k: sum(c.status == k for c in checker.results) for k in ("fail", "warn")}
+        click.echo(f"\n{counts['fail']} failure(s), {counts['warn']} warning(s)")
+    sys.exit(1 if any(c.status == "fail" for c in checker.results) else 0)
 
 
 @main.command("serve-hub")

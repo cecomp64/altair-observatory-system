@@ -246,7 +246,7 @@ def test_hub_reports_products_jobs_and_masters(tmp_path, fake_hub):
     night_product = next(v for (k, _), v in fake_hub.products.items() if k == "night_master")
     assert night_product["metadata"]["archive_uri"] is None and night_product["metadata"]["target_id"] == 34
     assert night_product["metadata"]["metrics"]["frames"] == 6 and len(night_product["metadata"]["metrics"]["frame_sha256s"]) == 6
-    assert set(night_product["files"]) == {"preview", "thumbnail"}
+    assert set(night_product["files"]) == {"preview", "thumbnail", "report"}
     assert len(fake_hub.masters) == 3
     assert {j["status"] for j in fake_hub.jobs.values()} == {"succeeded"}
 

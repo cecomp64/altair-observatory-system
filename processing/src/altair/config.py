@@ -304,6 +304,7 @@ class PixInsight(Loose):
     max_concurrent_jobs: int = 1
     max_attempts: int = 3
     tested_versions: list[str] = Field(default_factory=lambda: ["1.9.3"])
+    processing_window_local: str = "05:00-14:00"   # when jobs usually run (after nights close); doctor checks Windows Update active hours cover it
     night_stack_engine: Literal["wbpp", "native"] = "native"   # "wbpp" once WBPP driving is verified (phase 0)
 
 
@@ -362,6 +363,21 @@ class Issues(Loose):
     page: str | None = None
     remind_every_days: float = 3
     auto_rerun_on_resolution: bool = True
+
+
+class Logging(Loose):
+    format: Literal["json", "text"] = "json"      # state/logs/altaird.jsonl (json) or altaird.log (text)
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    retention_days: int = 30
+
+
+class Http(Loose):
+    """The optional local status endpoint (SPEC §12.2) and Prometheus metrics."""
+    enabled: bool = False
+    bind: str = "127.0.0.1"
+    port: int = 8765
+    token_env: str | None = None                 # required when bind isn't a loopback address
+    metrics_file: str | None = None              # also write metrics here (node_exporter textfile collector)
 
 
 class Notifications(Loose):
@@ -431,6 +447,8 @@ class AltairConfig(Loose):
     multi_night: MultiNight = Field(default_factory=MultiNight)
     issues: Issues = Field(default_factory=Issues)
     notifications: Notifications = Field(default_factory=Notifications)
+    logging: Logging = Field(default_factory=Logging)
+    http: Http = Field(default_factory=Http)
     hub: Hub = Field(default_factory=Hub)
 
     @field_validator("header_mapping")

@@ -105,3 +105,19 @@ def test_a_night_through_altaird_then_a_catalog_rebuild(tmp_path):
     report = Stager(catalog, config).replicate_to_nas(["calibration_master", "project_reference", "night_master", "multi_night_master"])
     assert report["written"] == len(plan["planned"]) and report["no_source"] == 0
     assert (nas_root / catalog.one("SELECT b.logical_path FROM blobs b JOIN multi_night_masters m USING (sha256)")["logical_path"]).exists()
+
+
+def test_the_daemon_serves_its_health_and_metrics(tmp_path):
+    import httpx
+
+    config = pipeline_config(tmp_path, http={"enabled": True, "port": 0}, pixinsight=fake_pixinsight(tmp_path))
+    catalog = Catalog(config.catalog_path)
+    daemon = Daemon(catalog, config)
+    daemon.start()
+    try:
+        client = httpx.Client(base_url=f"http://127.0.0.1:{daemon.http.port}")
+        health = client.get("/healthz")
+        assert health.status_code == 200 and health.json()["ok"] and "processing" in health.json()["workers"]
+        assert 'altair_worker_runs_total{worker="processing"}' in client.get("/metrics").text
+    finally:
+        daemon.stop(timeout=10)

@@ -260,14 +260,17 @@ def merge(ctx: Ctx, target_id: int, filter_: str, dry_run: bool) -> None:
 
 
 @click.command("publish")
-@click.option("--refresh", is_flag=True, required=True, help="Re-create the viewing copies under paths.published")
+@click.option("--refresh", is_flag=True, required=True, help="Re-create the viewing copies and reports under paths.published")
 @pass_ctx
 def publish(ctx: Ctx, refresh: bool) -> None:
     """Re-create the published viewing copies from the canonical masters."""
     from altair.publish.publisher import Publisher
 
+    from altair import reports
+
     publisher = Publisher(ctx.catalog, ctx.config)
-    click.echo(f"{publisher.refresh()} viewing copies written; {publisher.backfill_nas()} output(s) written to the NAS")
+    click.echo(f"{publisher.refresh()} viewing copies and {reports.refresh_all(ctx.catalog, ctx.config)} reports written; "
+               f"{publisher.backfill_nas()} output(s) written to the NAS")
 
 
 COMMANDS = [plan, run, jobs, rerun, calib, night, merge, publish]

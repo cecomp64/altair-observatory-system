@@ -101,7 +101,8 @@ class HubClient:
                 if path and Path(path).is_file():
                     handle = open(path, "rb")  # noqa: SIM115 - closed below
                     handles.append(handle)
-                    files[name] = (Path(path).name, handle, "image/jpeg")
+                    content_type = "text/markdown; charset=utf-8" if Path(path).suffix.lower() == ".md" else "image/jpeg"
+                    files[name] = (Path(path).name, handle, content_type)
             self._request("PUT", f"/processing/data_products/{kind}/{altair_id}", files=files)
         finally:
             for handle in handles:
