@@ -1,7 +1,9 @@
 # A result reported by Altair: a night master, multi-night master version,
 # project reference or provisional (no-flat) master. Was TargetFile.
 class DataProduct < ApplicationRecord
-  ALTAIR_KINDS = %w[night_master multi_night_master project_reference provisional_noflat].freeze
+  MASTER_KINDS = %w[night_master multi_night_master project_reference provisional_noflat].freeze
+  # masters_bundle (api_revision 4): a target's zip of its latest multi-night masters.
+  ALTAIR_KINDS = (MASTER_KINDS + %w[masters_bundle]).freeze
 
   belongs_to :target
   belongs_to :project, optional: true
@@ -16,7 +18,7 @@ class DataProduct < ApplicationRecord
 
   # 0–3 were the legacy worker uploads (removed in api_revision 2).
   enum :kind, {
-    night_master: 4, multi_night_master: 5, project_reference: 6, provisional_noflat: 7
+    night_master: 4, multi_night_master: 5, project_reference: 6, provisional_noflat: 7, masters_bundle: 8
   }
 
   before_validation { self.project_id ||= target&.project_id }
@@ -28,6 +30,11 @@ class DataProduct < ApplicationRecord
   end
 
   scope :recent_first, -> { order(captured_at: :desc, created_at: :desc) }
-  scope :masters, -> { where(kind: ALTAIR_KINDS) }
+  scope :masters, -> { where(kind: MASTER_KINDS) }
   scope :current, -> { where(superseded_by_id: nil) }
+
+  # The night's calibrated subs, one zip in the archive (night masters only).
+  def calibrated_bundle_uri
+    calibrated_bundle&.dig("archive_uri")
+  end
 end

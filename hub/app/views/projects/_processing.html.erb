@@ -17,6 +17,12 @@
 <% if @multi_masters.any? %>
   <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
     <h2 class="text-sm font-medium text-slate-500 mb-3">Latest multi-night masters</h2>
+    <% @masters_zips.each do |target_id, zips| %>
+      <% zips.each do |zip| %>
+        <p class="text-xs text-slate-500 mb-1"><%= targets_by_id[target_id]&.name %></p>
+        <%= render "data_products/masters_zip", zip: zip %>
+      <% end %>
+    <% end %>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <% @multi_masters.each_value do |product| %>
         <div>
@@ -65,6 +71,7 @@
                 <% if n[:master] %>
                   <%= n[:master].kind.humanize %>
                   <% if n[:master].report.attached? %>· <%= link_to "Report", report_data_product_path(n[:master]), class: "text-indigo-600 hover:underline" %><% end %>
+                  <% if n[:master].calibrated_bundle.present? && archive.downloadable?(n[:master], :calibrated) %>· <%= render "data_products/calibrated_zip", master: n[:master] %><% end %>
                 <% else %>—<% end %>
               </td>
               <td class="py-1.5 text-xs"><%= n[:in_merge] ? n[:weight].to_f.round(2) : "not merged" %></td>

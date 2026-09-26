@@ -46,6 +46,7 @@ class ProjectsController < ApplicationController
                  .pluck(:target_id, :night, :filter, Arel.sql("count(*)"), Arel.sql("coalesce(sum(exposure_s), 0)"),
                         Arel.sql("avg((quality->>'fwhm')::float)"), Arel.sql("avg((quality->>'eccentricity')::float)"))
     products = @project.data_products.masters.current.includes(preview_attachment: :blob, thumbnail_attachment: :blob)
+    @masters_zips = @project.data_products.masters_bundle.current.order(:id).group_by(&:target_id)
     @multi_masters = products.select(&:multi_night_master?).group_by { |p| [ p.target_id, p.filter ] }
                              .transform_values { |list| list.max_by { |p| [ p.version.to_i, p.id ] } }
     night_masters = products.select { |p| p.night_master? || p.provisional_noflat? }.index_by { |p| [ p.target_id, p.night, p.filter ] }

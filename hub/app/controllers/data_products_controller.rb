@@ -1,5 +1,6 @@
-# GET /data_products/:id/download: redirects to a short-lived presigned link
-# for a master in Altair's S3 archive (§12). Raw frames are never offered.
+# GET /data_products/:id/download[?part=calibrated]: redirects to a short-lived
+# presigned link in Altair's S3 archive (§12): the master (or a target's masters
+# zip), or a night's calibrated-subs zip. Raw frames are never offered.
 # GET /data_products/:id/report: Altair's Markdown report, rendered.
 class DataProductsController < ApplicationController
   def report
@@ -13,7 +14,8 @@ class DataProductsController < ApplicationController
   def download
     product = DataProduct.find(params[:id])
     authorize product
-    redirect_to Archive::Presigner.default.url_for(product), allow_other_host: true
+    part = params[:part] == "calibrated" ? :calibrated : :master
+    redirect_to Archive::Presigner.default.url_for(product, part), allow_other_host: true
   rescue Archive::Presigner::NotDownloadable => e
     redirect_back fallback_location: target_path(product.target), alert: "Download unavailable: #{e.message}."
   end

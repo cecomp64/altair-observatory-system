@@ -1,0 +1,13 @@
+<%# A target's masters zip (api_revision 4): the latest multi-night master per filter, with reports. %>
+<div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm">
+  <span>
+    <span class="font-medium">All masters</span>
+    <span class="text-slate-500">· <%= Array(zip.metrics["contents"]).map { |c| "#{c['filter']} v#{c['version']}" }.join(", ") %>
+      · <%= number_to_human_size(zip.size_bytes) %> zip</span>
+  </span>
+  <% if archive.downloadable?(zip) %>
+    <%= link_to "Download zip", download_data_product_path(zip), class: "text-indigo-600 hover:underline", data: { turbo: false } %>
+  <% elsif archive.enabled? %>
+    <span class="text-xs text-slate-400">waiting for the upload to the archive</span>
+  <% end %>
+</div>

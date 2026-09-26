@@ -27,6 +27,41 @@ RSpec.describe "Master downloads", type: :request do
     expect(response.location).to start_with("https://astro-archive.s3.us-west-2.amazonaws.com/altair/projects/T1/multinight/Ha_v1.xisf?")
   end
 
+  it "offers a target's masters zip and a night's calibrated-subs zip as presigned links" do
+    zip = create(:data_product, target: target, kind: :masters_bundle, filter: "all", version: 2, size_bytes: 905_000_000,
+                                archive_uri: "s3://astro-archive/altair/projects/T1/bundles/masters.zip",
+                                metrics: { "contents" => [ { "filter" => "Ha", "version" => 3, "name" => "T1_Ha_v003.xisf" } ] })
+    night = create(:data_product, target: target, kind: :night_master, filter: "Ha", night: Date.new(2026, 9, 24),
+                                  archive_uri: "s3://astro-archive/altair/projects/T1/nights/2026-09-24/Ha/night_master_1.xisf",
+                                  calibrated_bundle: { "sha256" => "a" * 64, "size_bytes" => 9_663_676_416, "frames" => 96,
+                                                       "archive_uri" => "s3://astro-archive/altair/projects/T1/nights/2026-09-24/Ha/calibrated_1.zip" })
+    sign_in owner
+
+    get target_path(target)
+    expect(response.body).to include("All masters", "Ha v3", "863 MB zip", download_data_product_path(zip))
+    expect(response.body).to include("Calibrated subs (96, 9 GB zip)", download_data_product_path(night, part: "calibrated"))
+
+    get download_data_product_path(zip)
+    expect(response.location).to start_with("https://astro-archive.s3.us-west-2.amazonaws.com/altair/projects/T1/bundles/masters.zip?")
+    get download_data_product_path(night, part: "calibrated")
+    expect(response.location).to start_with("https://astro-archive.s3.us-west-2.amazonaws.com/altair/projects/T1/nights/2026-09-24/Ha/calibrated_1.zip?")
+    expect(CGI.unescape(response.location)).to include('filename="calibrated_1.zip"')
+
+    master   # the project page lists the zip with the latest multi-night masters
+    get project_path(project)
+    expect(response.body).to include(download_data_product_path(zip))
+  end
+
+  it "has no calibrated link before the zip is archived" do
+    night = create(:data_product, target: target, kind: :night_master, filter: "Ha", night: Date.new(2026, 9, 24),
+                                  calibrated_bundle: { "sha256" => "a" * 64, "size_bytes" => 1, "frames" => 3, "archive_uri" => nil })
+    sign_in owner
+    get target_path(target)
+    expect(response.body).not_to include(download_data_product_path(night, part: "calibrated"))
+    get download_data_product_path(night, part: "calibrated")
+    expect(response.location).not_to include("amazonaws")
+  end
+
   it "refuses members who can't see the project" do
     sign_in create(:user)
     get download_data_product_path(master)

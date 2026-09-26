@@ -33,7 +33,9 @@ module Api
             target: target, project: target.project, optical_train: target.effective_optical_train,
             night: meta["night"], version: meta["version"], filter: meta["filter"], sha256: meta["sha256"],
             size_bytes: meta["size_bytes"], archive_uri: meta["archive_uri"], nas_path: meta["nas_path"],
-            metrics: meta["metrics"] || {}, captured_at: meta["night"] && Date.parse(meta["night"].to_s).in_time_zone
+            metrics: (meta["metrics"] || {}).merge(meta["contents"] ? { "contents" => meta["contents"] } : {}),
+            calibrated_bundle: meta["calibrated_bundle"].is_a?(Hash) ? meta["calibrated_bundle"].slice("sha256", "size_bytes", "archive_uri", "frames") : nil,
+            captured_at: meta["night"] && Date.parse(meta["night"].to_s).in_time_zone
           )
           DataProduct.transaction do
             product.save!
@@ -43,6 +45,8 @@ module Api
             end
             supersede(product, meta["supersedes_altair_id"])
           end
+          return render(json: { ok: true, id: product.id }) if product.masters_bundle?   # a download, not a new master
+
           target.target_events.create!(event_type: :master_updated, payload: { kind: kind, filter: product.filter, night: product.night&.iso8601,
                                                                                version: product.version, frames: product.metrics["frames"] })
           ProgressRecomputeJob.debounce([ target.id ])

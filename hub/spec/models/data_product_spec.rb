@@ -4,7 +4,7 @@ RSpec.describe DataProduct, type: :model do
   it { is_expected.to belong_to(:target) }
   it do
     is_expected.to define_enum_for(:kind).with_values(
-      night_master: 4, multi_night_master: 5, project_reference: 6, provisional_noflat: 7
+      night_master: 4, multi_night_master: 5, project_reference: 6, provisional_noflat: 7, masters_bundle: 8
     )
   end
 

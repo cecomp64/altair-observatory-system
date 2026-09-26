@@ -6,7 +6,7 @@ The rig agent (``robs``) and the processing core (``altair``) build and parse Hu
 payloads with them, so all three components share one definition of the API.
 """
 
-API_REVISION = 3
+API_REVISION = 4
 """The newest ``api_revision`` these models describe (see contracts/CHANGELOG.md)."""
 
 

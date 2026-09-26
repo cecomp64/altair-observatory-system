@@ -27,6 +27,25 @@ class Metrics(BaseModel):
     ] = None
 
 
+class CalibratedBundle(BaseModel):
+    sha256: Annotated[
+        str,
+        Field(
+            description="Lower-case hex SHA-256 of a file's bytes. The natural key of a frame everywhere.",
+            pattern="^[0-9a-f]{64}$",
+        ),
+    ]
+    size_bytes: Annotated[int, Field(ge=0)]
+    archive_uri: Annotated[str | None, Field(pattern="^s3://")]
+    frames: Annotated[int, Field(ge=0)]
+
+
+class Content(BaseModel):
+    filter: str
+    version: int
+    name: str
+
+
 class DataProductMetadata(BaseModel):
     target_id: int
     night: Annotated[
@@ -49,3 +68,15 @@ class DataProductMetadata(BaseModel):
     nas_path: str | None = None
     metrics: Metrics | None = None
     supersedes_altair_id: int | None = None
+    calibrated_bundle: Annotated[
+        CalibratedBundle | None,
+        Field(
+            description="api_revision 4, night masters only: the night's calibrated subs as one zip in the archive (the only S3 copy of them). archive_uri is null until it is uploaded."
+        ),
+    ] = None
+    contents: Annotated[
+        list[Content] | None,
+        Field(
+            description="api_revision 4, masters_bundle only: the masters in the zip."
+        ),
+    ] = None

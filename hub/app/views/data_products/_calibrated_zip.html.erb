@@ -1,0 +1,5 @@
+<%# A night's calibrated subs, one zip in the archive (api_revision 4). %>
+<% if master.calibrated_bundle.present? && archive.downloadable?(master, :calibrated) %>
+  <%= link_to "Calibrated subs (#{master.calibrated_bundle['frames']}, #{number_to_human_size(master.calibrated_bundle['size_bytes'])} zip)",
+        download_data_product_path(master, part: "calibrated"), class: "text-indigo-600 hover:underline", data: { turbo: false } %>
+<% end %>

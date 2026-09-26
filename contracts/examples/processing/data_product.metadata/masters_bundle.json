@@ -1,0 +1,31 @@
+{
+  "target_id": 34,
+  "night": null,
+  "version": 7,
+  "filter": "all",
+  "sha256": "1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2e",
+  "size_bytes": 905000000,
+  "archive_uri": "s3://observatory-archive/projects/esprit100_2600mm/T34_m31/bundles/masters.zip",
+  "nas_path": null,
+  "metrics": {
+    "total_exposure_s": 249300
+  },
+  "contents": [
+    {
+      "filter": "Ha",
+      "version": 3,
+      "name": "T34_Ha_v003.xisf"
+    },
+    {
+      "filter": "OIII",
+      "version": 2,
+      "name": "T34_OIII_v002.xisf"
+    },
+    {
+      "filter": "SII",
+      "version": 2,
+      "name": "T34_SII_v002.xisf"
+    }
+  ],
+  "supersedes_altair_id": null
+}

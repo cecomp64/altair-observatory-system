@@ -1,7 +1,7 @@
 # Altair Observatory System: Architecture
 
-**Describes:** the `altair-observatory-system` repository as of 2026-09-25 (contract
-`api_revision` 2). Where the design and the code differ, the difference is listed as work
+**Describes:** the `altair-observatory-system` repository as of 2026-09-26 (contract
+`api_revision` 4). Where the design and the code differ, the difference is listed as work
 in §9.
 **Not yet deployed:** no component has run on real equipment. §9 lists what has to happen
 before the first real night.
@@ -175,8 +175,8 @@ the Hub can be hosted anywhere.
 | Calibration masters, night and multi-night masters, jobs | Altair | Hub `calibration_masters`, `data_products`, `processing_jobs` |
 | Processing issue state | Altair (it detects and auto-resolves them) | Hub `processing_issues` |
 | Waive, include/exclude, rerun and re-reference decisions; equipment events | Hub | Altair, via commands |
-| Preview JPEGs | Hub Active Storage | — |
-| Bulk image data | NAS and S3 (Altair) | — |
+| Preview JPEGs, rendered reports | Hub Active Storage | — |
+| Bulk image data | NAS and S3 (Altair). S3 holds calibrated subs as one zip per night stack and each target's masters as one zip | Hub links only (presigned) |
 
 ### 3.4 Key concepts and identifiers
 
@@ -407,7 +407,7 @@ percentage (the mean across goal filters).
 
 ---
 
-## 5. Hub API (`/api/v1`, api_revision 2)
+## 5. Hub API (`/api/v1`, api_revision 4)
 
 The machine-readable contract is `contracts/schemas/`, with examples in
 `contracts/examples/`. Hub request specs validate every response and example request
@@ -458,7 +458,7 @@ generated `observatory-contracts` models.
 | `PUT /nights/:optical_train/:night` | Night state, counts, `closed_by`, `manifest_sha256`. |
 | `GET /nights/:optical_train/:night/digest` | `{frame_count, sha256_xor, by_type}` for reconciliation. |
 | `PUT /calibration_masters/:altair_id` | Projection upsert. |
-| `PUT /data_products/:kind/:altair_id` | Multipart: `metadata` JSON plus optional `preview` and `thumbnail` JPEGs, and (api_revision 3) an optional Markdown `report`. Emits `master_updated` and updates counters. |
+| `PUT /data_products/:kind/:altair_id` | Multipart: `metadata` JSON plus optional `preview` and `thumbnail` JPEGs, and (api_revision 3) an optional Markdown `report`. Emits `master_updated` and updates counters. api_revision 4 adds the `masters_bundle` kind (the target's masters zip; no event) and a night master's `calibrated_bundle` (its subs zip). |
 | `PUT /issues/:fingerprint` | Issue upsert. Transitions emit `issue_opened` / `issue_resolved` (routing in §7.4). |
 | `PUT /jobs/:altair_id` | Job summary upsert. |
 | `GET /commands` | Pending commands (marked delivered). |
@@ -593,7 +593,7 @@ settings change that forces a re-reference (such as `drizzle_scale`) asks for a 
 | `/projects`, `/projects/:id` | Project cards. Project page: per-filter progress, tonight's visibility, targets and plans, integration over time, latest multi-night masters, nights (include/exclude), open issues, and processing controls (settings, rerun, re-reference, mode). |
 | `/projects/new` | The wizard: objects → telescope (each candidate shows tonight's altitude and best season with its horizon) → exposures (filters from the optical train) → review. `/targets/new` redirects here. |
 | `/frames` | File search: object or alias, cone search, project, target, telescope, optical train, filter, image type, night range, exposure, gain, binning, status, unassigned only. Stats by filter. |
-| `/data_products/:id/download` | Redirects to a 10-minute presigned S3 link for a master in Altair's archive (§12), when the archive reader is configured. Offered on target and project pages. The master file itself is never stored in the Hub. |
+| `/data_products/:id/download` | Redirects to a 10-minute presigned S3 link in Altair's archive (§12), when the archive reader is configured: a master, the target's **masters zip** (`masters_bundle`: the latest multi-night master of each filter with its report), or with `?part=calibrated` a night's **calibrated subs zip**. Offered on target and project pages once the file is in S3. No image data is ever stored in the Hub. |
 | `/data_products/:id/report` | Altair's night or merge report, rendered: GitHub-flavoured Markdown via kramdown, sanitized (no raw HTML, scripts, images or non-http links). The Markdown is kept in Active Storage beside the preview, not in the database. Linked from target and project pages. |
 | `/frames/:id`, `/frames/unassigned` | Frame detail (headers, FOV objects, storage, links). The inbox of unresolved lights grouped by night and `OBJECT`, with a suggested target, and bulk assignment. |
 | `/issues`, `/issues/:id` | Processing issues: waive, and approve or deny fetches (admins). |
@@ -724,7 +724,7 @@ SQLite in WAL mode. It has the SPEC §6.3 tables (`blobs`, `locations`, `replica
 
 | Group | Tables |
 |---|---|
-| Storage | `fetch_requests`, `cleanup_ledger`, `rig_files`, `spool_files` |
+| Storage | `fetch_requests`, `cleanup_ledger`, `rig_files`, `spool_files`, `bundle_members` (where each calibrated sub sits in its night's zip), `masters_bundles` (each project's current masters zip) |
 | Processing | `reference_frames`, `night_decisions`, `publish_intents` |
 | Planner input and alerts | `plan_requests`, `notifications_sent` |
 | Hub | `hub_outbox`, `hub_commands` (executed command ids), `hub_cache` (the last good config), `hub_state` |
@@ -969,7 +969,8 @@ pipeline.
 
 ### 9.4 Hub gaps against the design (done)
 
-- Presigned master downloads (`Archive::Presigner`, `/data_products/:id/download`).
+- Presigned master downloads (`Archive::Presigner`, `/data_products/:id/download`), plus the
+  masters zip per target and the calibrated subs zip per night (api_revision 4).
 - Live updates for issues, targets and master galleries.
 - API revision checks in `robs check-config` and `altair doctor`.
 - Browser system specs for the project wizard and frame search (they found that the

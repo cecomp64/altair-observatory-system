@@ -7,6 +7,21 @@ alongside v1 (SYSTEM_ARCHITECTURE.md §5). Clients report the revision they
 speak in heartbeats; checking it in `robs check-config` / `altair doctor` is still to do
 (SYSTEM_ARCHITECTURE.md §9.4).
 
+## api_revision 4
+
+Zipped downloads, so the archive holds fewer, larger objects:
+- Night masters' `data_product` metadata may carry `calibrated_bundle`: the night's
+  calibrated subs as one zip in the archive, which is now their only S3 copy
+  (`sha256`, `size_bytes`, `archive_uri`, `frames`).
+- A new product kind in the URL, `masters_bundle`: a target's zip of its latest
+  multi-night masters and their reports.
+  - `altair_id` is the processing project, `filter` is `"all"`, and `version` is the
+    build number.
+  - `contents` lists the masters in the zip.
+  - The zip is rewritten under one versioned key after every merge.
+- The Hub offers both as presigned downloads. Older Hubs reject the unknown kind, so
+  Altair parks those items, and they ignore `calibrated_bundle`.
+
 ## api_revision 3
 
 - `PUT /processing/data_products/:kind/:altair_id` accepts an optional `report` multipart

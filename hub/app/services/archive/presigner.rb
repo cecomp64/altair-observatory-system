@@ -42,17 +42,24 @@ module Archive
       [ @access_key_id, @secret_access_key, @region, @bucket ].all?(&:present?)
     end
 
-    def downloadable?(product)
-      enabled? && product.archive_uri.present? && key_for(product.archive_uri).present?
+    # part: :master (the product's own file) or :calibrated (a night's calibrated-subs zip).
+    def downloadable?(product, part = :master)
+      uri = uri_for(product, part)
+      enabled? && uri.present? && key_for(uri).present?
     end
 
     # A presigned GET for the product's archive object, served as an attachment.
-    def url_for(product)
+    def url_for(product, part = :master)
       raise NotDownloadable, "archive downloads are not configured" unless enabled?
 
-      key = key_for(product.archive_uri.to_s) or raise NotDownloadable, "#{product.archive_uri} is not a downloadable master"
+      uri = uri_for(product, part)
+      key = key_for(uri.to_s) or raise NotDownloadable, "#{uri.presence || 'it'} is not downloadable (not archived yet?)"
       signer.presigned_url(:get_object, bucket: bucket, key: key, expires_in: EXPIRES_IN.to_i,
                                         response_content_disposition: %(attachment; filename="#{File.basename(key)}"))
+    end
+
+    def uri_for(product, part)
+      part.to_s == "calibrated" ? product.calibrated_bundle_uri : product.archive_uri
     end
 
     # The object key when the URI names this bucket and a downloadable tree.

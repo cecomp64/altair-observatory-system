@@ -15,5 +15,11 @@
     "eccentricity": 0.41,
     "snr": 61.2
   },
-  "supersedes_altair_id": null
+  "supersedes_altair_id": null,
+  "calibrated_bundle": {
+    "sha256": "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+    "size_bytes": 9663676416,
+    "archive_uri": "s3://observatory-archive/projects/esprit100_2600mm/T34_m31/nights/2026-09-24/Ha/calibrated_9a8b7c6d.zip",
+    "frames": 96
+  }
 }

@@ -213,6 +213,28 @@ RSpec.describe "Processing API", type: :request do
       expect(response).to have_http_status(:unprocessable_content)
     end
 
+    it "stores a night's calibrated-subs zip and a target's masters zip (api_revision 4)" do
+      bundle = { sha256: sha(60), size_bytes: 9_663_676_416, archive_uri: "s3://b/projects/T1/nights/2026-09-24/Ha/calibrated_1.zip", frames: 96 }
+      meta = { target_id: target.id, night: "2026-09-24", filter: "Ha", sha256: sha(61), size_bytes: 1, archive_uri: nil, calibrated_bundle: bundle }
+      expect(meta.deep_stringify_keys).to match_api_contract("processing/data_product.metadata.json")
+      put "/api/v1/processing/data_products/night_master/7", params: { metadata: meta.to_json }, headers: { "Authorization" => "Bearer #{node_key.plaintext_token}" }
+      expect(response).to have_http_status(:ok)
+      expect(DataProduct.night_master.find_by!(altair_id: 7).calibrated_bundle).to include("frames" => 96, "archive_uri" => bundle[:archive_uri])
+
+      zip = { target_id: target.id, night: nil, version: 2, filter: "all", sha256: sha(62), size_bytes: 905_000_000,
+              archive_uri: "s3://b/projects/T1/bundles/masters.zip", metrics: { total_exposure_s: 3600 },
+              contents: [ { filter: "Ha", version: 3, name: "T1_Ha_v003.xisf" } ] }
+      expect(zip.deep_stringify_keys).to match_api_contract("processing/data_product.metadata.json")
+      expect {
+        put "/api/v1/processing/data_products/masters_bundle/#{project.id}", params: { metadata: zip.to_json },
+                                                                               headers: { "Authorization" => "Bearer #{node_key.plaintext_token}" }
+      }.not_to change { target.target_events.master_updated.count }
+      expect(response).to have_http_status(:ok)
+      product = DataProduct.masters_bundle.sole
+      expect(product.metrics["contents"]).to eq([ { "filter" => "Ha", "version" => 3, "name" => "T1_Ha_v003.xisf" } ])
+      expect(DataProduct.masters).not_to include(product)
+    end
+
     it "rejects a non-JPEG preview and an unknown kind" do
       svg = Rack::Test::UploadedFile.new(StringIO.new("<svg/>"), "image/svg+xml", original_filename: "p.svg")
       put_product(3, { target_id: target.id, filter: "Ha", sha256: sha(52), size_bytes: 1, archive_uri: nil }, preview: svg)
