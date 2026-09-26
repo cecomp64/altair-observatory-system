@@ -254,6 +254,23 @@ class S3Location:
         self.client.complete_multipart_upload(Bucket=self.bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts},
                                               IfNoneMatch="*")
 
+    def rewrite(self, source: str | Path, logical_path: str, sha256: str, data_class: str) -> ObjectInfo:
+        """Scrub repair only (SPEC §7.8): re-upload a corrupt object under the
+        same key from a verified copy. Versioning keeps the bad version for
+        inspection. The content written always matches the catalog's SHA-256."""
+        from altair.hashing import sha256_file
+
+        if sha256_file(source) != sha256:
+            raise IntegrityMismatch(f"{source} is not a good copy of {logical_path}")
+        with open(source, "rb") as body:
+            self.client.put_object(Bucket=self.bucket, Key=self.key(logical_path), Body=body, ChecksumAlgorithm="SHA256",
+                                   ChecksumSHA256=base64.b64encode(bytes.fromhex(sha256)).decode(), Metadata={"altair-sha256": sha256},
+                                   StorageClass=self.cfg.class_storage(data_class), Tagging=f"altair-class={data_class}")
+        info = self.head(logical_path)
+        if info is None or info.sha256 != sha256:
+            raise IntegrityMismatch(f"rewrite of {logical_path} didn't verify")
+        return info
+
     # ── reads ────────────────────────────────────────────────────────────
     def head(self, logical_path: str) -> ObjectInfo | None:
         from botocore.exceptions import ClientError

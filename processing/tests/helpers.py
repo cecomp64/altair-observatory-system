@@ -63,3 +63,57 @@ def pipeline_config(tmp_path, *, hub: bool = False, s3: dict | None = None, **ov
     for key, value in overrides.items():
         data[key] = {**data.get(key, {}), **value} if isinstance(value, dict) else value
     return AltairConfig.model_validate(data)
+
+
+_counter = iter(range(1, 10**9))
+
+
+def add_frame(catalog, image_type="light", *, rig="esprit", night="2026-09-24", date_obs=None, target="#34 M31", hub_target_id=34,
+              filter_="Ha", exposure=300.0, gain=100, offset=50, binning="1x1", sensor_temp=-10.0, rotator_pos=31250.0,
+              focal_length=550.0, width=6248, height=4176, status="valid", telescope="esprit100", camera="asi2600mm", nas=True, **extra):
+    """A frame row with its blob and a NAS replica, straight into the catalog
+    (planning never reads image data)."""
+    import hashlib
+    import json
+
+    n = next(_counter)
+    sha = hashlib.sha256(f"frame-{n}".encode()).hexdigest()
+    date_obs = date_obs or f"2026-09-25T06:{n % 60:02d}:00Z"
+    data_class = "raw_light" if image_type == "light" else "raw_calibration"
+    logical = f"raw/{rig}/{night}/{image_type}_{n}.fits"
+    with catalog.transaction() as tx:
+        tx.execute("INSERT INTO blobs(sha256, size_bytes, data_class, logical_path, origin_rig, created_at) VALUES (?, 1000, ?, ?, ?, ?)",
+                   (sha, data_class, logical, rig, date_obs))
+        if nas:
+            tx.execute("INSERT OR IGNORE INTO locations(name, kind, durable) VALUES ('nas', 'fs', 1)")
+            tx.execute("INSERT INTO replicas(sha256, location, uri, state, verified_at) VALUES (?, 'nas', ?, 'present', ?)",
+                       (sha, f"/nas/{logical}", date_obs))
+        light = image_type == "light"
+        frame_id = tx.execute(
+            "INSERT INTO frames(sha256, image_type, night, date_obs, rig, telescope, camera, filter, target, focal_length, exposure, gain, "
+            "offset, sensor_temp, binning, width, height, rotator_pos, rotator_units, status, file_name, hub_target_id, assignment_source, "
+            "raw_headers_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'steps', ?, ?, ?, ?, ?)",
+            (sha, image_type, night, date_obs, rig, telescope, camera, filter_ if image_type in ("light", "flat") else None,
+             target if light else None, focal_length, exposure, gain, offset, sensor_temp, binning, width, height,
+             rotator_pos if image_type in ("light", "flat") else None, status, f"{image_type}_{n}.fits",
+             hub_target_id if light else None, "header_token" if light and hub_target_id else None, json.dumps(extra))).lastrowid
+    return frame_id, sha
+
+
+def add_master(catalog, kind, *, rig="esprit", night="2026-09-20", filter_=None, exposure=300.0, sensor_temp=-10.0, rotator_pos=None,
+               focal_length=550.0, taken_at=None, gain=100, offset=50, binning="1x1", width=6248, height=4176, sources=()):
+    import hashlib
+    import json
+
+    n = next(_counter)
+    sha = hashlib.sha256(f"master-{n}".encode()).hexdigest()
+    with catalog.transaction() as tx:
+        tx.execute("INSERT INTO blobs(sha256, size_bytes, data_class, logical_path, origin_rig, created_at) VALUES (?, 1000, 'calibration_master', ?, ?, ?)",
+                   (sha, f"calibration/masters/{kind.lower()}/{rig}/{night}/m_{n}.xisf", rig, f"{night}T12:00:00Z"))
+        master_id = tx.execute(
+            "INSERT INTO calibration_masters(kind, sha256, source_frames_json, camera, telescope, filter, focal_length, exposure, gain, offset, "
+            "sensor_temp, binning, width, height, rotator_pos, rotator_units, rig, night, n_frames, taken_at) "
+            "VALUES (?, ?, ?, 'asi2600mm', 'esprit100', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'steps', ?, ?, 20, ?)",
+            (kind, sha, json.dumps(list(sources)), filter_, focal_length, exposure, gain, offset, sensor_temp, binning, width, height,
+             rotator_pos, rig, night, taken_at or f"{night}T12:00:00Z")).lastrowid
+    return master_id, sha

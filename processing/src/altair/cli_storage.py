@@ -310,4 +310,89 @@ def restore_catalog(ctx: Ctx, latest: bool, name: str | None, source: str) -> No
     click.echo(f"catalog restored to {path}; the previous one is kept beside it")
 
 
+@storage.command("approve")
+@click.argument("fingerprint")
+@pass_ctx
+def storage_approve(ctx: Ctx, fingerprint: str) -> None:
+    """Approve a large S3 download or restore (FETCH_/RESTORE_APPROVAL_NEEDED)."""
+    _decide(ctx, fingerprint, "approved")
+
+
+@storage.command("deny")
+@click.argument("fingerprint")
+@pass_ctx
+def storage_deny(ctx: Ctx, fingerprint: str) -> None:
+    """Deny it: the job is cancelled."""
+    _decide(ctx, fingerprint, "denied")
+
+
+def _decide(ctx: Ctx, fingerprint: str, decision: str) -> None:
+    from altair.issues import resolve_issue
+
+    issue = ctx.catalog.one("SELECT * FROM issues WHERE fingerprint = ? OR id = ?", (fingerprint, fingerprint))
+    if issue is None or issue["kind"] not in ("FETCH_APPROVAL_NEEDED", "RESTORE_APPROVAL_NEEDED"):
+        raise click.ClickException(f"no fetch or restore approval issue {fingerprint}")
+    ctx.catalog.set_state(f"fetch_decision:{issue['fingerprint']}", decision)
+    job_id = json.loads(issue["scope_json"]).get("job_id")
+    with ctx.catalog.transaction() as tx:
+        resolve_issue(tx, ctx.config, issue["fingerprint"], status="resolved" if decision == "approved" else "waived",
+                      resolution=f"manual:{decision}")
+        if job_id:
+            tx.execute("UPDATE jobs SET status = ?, waiting_reason = NULL WHERE id = ? AND status = 'waiting_data'",
+                       ("queued" if decision == "approved" else "skipped", job_id))
+    click.echo(f"{issue['fingerprint']}: {decision}")
+
+
+@storage.command("scrub")
+@click.option("--location", type=click.Choice(["nas", "s3"]))
+@click.option("--sample", "sample", type=float, help="Percent of replicas to verify")
+@pass_ctx
+def storage_scrub(ctx: Ctx, location: str | None, sample: float | None) -> None:
+    """Re-verify a random sample of NAS and S3 copies and repair bad ones."""
+    from altair.storage.scrub import Scrubber
+
+    report = Scrubber(ctx.catalog, ctx.config, s3=ctx.s3(required=False)).run(location=location, sample_percent=sample)
+    if report.skipped:
+        click.echo(f"NAS skipped: {report.skipped}")
+    click.echo(f"checked {report.checked}, missing {len(report.missing)}, corrupt {len(report.corrupt)}, healed {len(report.healed)}")
+
+
+@storage.command("fetch")
+@click.option("--night")
+@click.option("--rig")
+@click.option("--target", type=int, help="Hub target id")
+@click.option("--dry-run", is_flag=True)
+@pass_ctx
+def storage_fetch(ctx: Ctx, night: str | None, rig: str | None, target: int | None, dry_run: bool) -> None:
+    """Pre-stage frames into the cache (and back onto the NAS when their NAS
+    copy was lost): sizes, sources and restores first with --dry-run."""
+    from altair.storage.stager import Stager
+
+    clauses, args = ["1 = 1"], []
+    for column, value in (("night", night), ("rig", rig), ("hub_target_id", target)):
+        if value is not None:
+            clauses.append(f"f.{column} = ?")
+            args.append(value)
+    rows = ctx.catalog.query(f"SELECT f.sha256, b.size_bytes, b.logical_path, b.data_class FROM frames f JOIN blobs b USING (sha256) "
+                             f"WHERE {' AND '.join(clauses)}", tuple(args))
+    stager = Stager(ctx.catalog, ctx.config, s3=ctx.s3(required=False))
+    by_source: dict[str, list] = {}
+    for r in rows:
+        local = stager._local(r["sha256"], r, blobs_replicas(ctx, r["sha256"]), True)
+        source = "local" if local else (stager._source(r["sha256"], r, True, True) or ("unavailable", {}))[0]
+        by_source.setdefault(source, []).append(r)
+    for source, items in sorted(by_source.items()):
+        click.echo(f"{source:<12} {len(items):>6} frame(s) {human_bytes(sum(i['size_bytes'] for i in items))}")
+    if dry_run:
+        return
+    result = stager.stage(0, [r["sha256"] for r in rows], allow_s3_fallback=True)
+    click.echo("staged" if result.ready else f"waiting: {result.waiting_reason}")
+
+
+def blobs_replicas(ctx: Ctx, sha: str):
+    from altair.storage import blobs
+
+    return blobs.replicas(ctx.catalog.conn, sha)
+
+
 COMMANDS = [rigs, collect, storage]

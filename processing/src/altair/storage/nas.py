@@ -121,7 +121,9 @@ def _probe(catalog: Catalog, config: AltairConfig, nas: FsLocation, sample_seed:
     if rows:
         sample = random.Random(sample_seed).sample(rows, min(len(rows), cfg.health_check.sample_size))
         missing = sum(1 for r in sample if not Path(r["uri"]).exists())
-        if missing >= min(MIN_MISSING, len(sample)) and 100.0 * missing / len(sample) > cfg.health_check.max_missing_sample_percent:
+        # An empty or wrong mount fails the identity check above; this catches a
+        # partly broken one. A few stray files are NAS_FILE_MISSING (healed).
+        if missing >= MIN_MISSING and 100.0 * missing / len(sample) > cfg.health_check.max_missing_sample_percent:
             return Health(True, False, nas.free_percent(), f"{missing} of {len(sample)} sampled files are missing")
     free = nas.free_percent()
     if free is not None and free < cfg.min_free_percent:

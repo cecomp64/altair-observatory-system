@@ -123,7 +123,9 @@ CREATE TABLE IF NOT EXISTS calibration_masters (
   rotator_pos REAL, rotator_units TEXT, rig TEXT,
   night TEXT, n_frames INTEGER,
   superseded_by INTEGER REFERENCES calibration_masters(id),
-  quality_json TEXT
+  quality_json TEXT,
+  taken_at TEXT,                   -- median DATE-OBS of its subs: equipment events split validity here (§8.3)
+  job_id INTEGER, imported INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS equipment_events (
@@ -139,7 +141,17 @@ CREATE TABLE IF NOT EXISTS projects (
   pixel_scale_arcsec REAL, drizzle_scale INTEGER NOT NULL DEFAULT 1,
   rig TEXT, hub_target_id INTEGER, hub_project_id INTEGER, settings_json TEXT,
   multi_night_mode TEXT NOT NULL DEFAULT 'master_merge',
+  path TEXT,                       -- logical path root, fixed at creation (§6.6: renames never move archives)
+  created_at TEXT,
   UNIQUE(target, telescope, camera)
+);
+
+-- Manual merge decisions (§10.4 `altair night include|exclude`).
+CREATE TABLE IF NOT EXISTS night_decisions (
+  project_id INTEGER NOT NULL, night TEXT NOT NULL, filter TEXT NOT NULL,
+  decision TEXT NOT NULL,          -- include / exclude
+  source TEXT, decided_at TEXT,
+  PRIMARY KEY (project_id, night, filter)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS projects_hub ON projects(hub_target_id, rig) WHERE hub_target_id IS NOT NULL;
 
@@ -168,10 +180,19 @@ CREATE TABLE IF NOT EXISTS multi_night_masters (
 
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL, scope_json TEXT NOT NULL, plan_json TEXT NOT NULL, plan_hash TEXT UNIQUE NOT NULL,
-  depends_on_json TEXT, status TEXT NOT NULL, attempts INTEGER DEFAULT 0,
-  started_at TEXT, finished_at TEXT, log_path TEXT, error TEXT
+  kind TEXT NOT NULL,              -- CALIB_MASTER / PROJECT_REFERENCE / NIGHT_STACK / MERGE
+  scope_json TEXT NOT NULL, plan_json TEXT NOT NULL, plan_hash TEXT UNIQUE NOT NULL,
+  depends_on_json TEXT,            -- job ids that must succeed first
+  status TEXT NOT NULL,            -- queued / staging / waiting_data / running / succeeded / failed / skipped / blocked / superseded
+  attempts INTEGER DEFAULT 0,
+  started_at TEXT, finished_at TEXT, log_path TEXT, error TEXT,
+  project_id INTEGER, night TEXT, filter TEXT, rig TEXT,
+  not_before TEXT,                 -- retry back-off
+  waiting_reason TEXT,             -- why a job waits for data (§7.7)
+  result_json TEXT,                -- the executor's result.json, outputs registered
+  created_at TEXT
 );
+CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
 
 CREATE TABLE IF NOT EXISTS issues (
   id INTEGER PRIMARY KEY,

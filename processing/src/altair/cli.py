@@ -274,9 +274,9 @@ def serve_hub(ctx: Ctx, interval: float) -> None:
     ctx.sync().run_forever(interval)
 
 
-from altair import cli_storage  # noqa: E402 - command families live in their own modules
+from altair import cli_processing, cli_storage  # noqa: E402 - command families live in their own modules
 
-for command in cli_storage.COMMANDS:
+for command in cli_storage.COMMANDS + cli_processing.COMMANDS:
     main.add_command(command)
 
 
