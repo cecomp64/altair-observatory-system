@@ -45,7 +45,7 @@ class ContractError(Exception):
 
 def write_job(path: Path, job: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"schema": SCHEMA, **job}, indent=1, sort_keys=True, default=str), encoding="utf-8")
+    path.write_text(json.dumps({"schema": SCHEMA, **job}, indent=1, sort_keys=True, default=str), encoding="utf-8", newline="\n")
     return path
 
 

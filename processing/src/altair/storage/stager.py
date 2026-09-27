@@ -400,7 +400,7 @@ class Stager:
                     shutil.copyfile(path, target)
             out[sha] = str(target)
         if links:
-            (inputs / LINKS_FILE).write_text(json.dumps(links), encoding="utf-8")
+            (inputs / LINKS_FILE).write_text(json.dumps(links), encoding="utf-8", newline="\n")
         return out
 
 

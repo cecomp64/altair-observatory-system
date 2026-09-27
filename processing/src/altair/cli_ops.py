@@ -97,7 +97,7 @@ def issue_flats_plan(ctx: Ctx, fmt: str, output: str | None) -> None:
 
     text = flats_plan(ctx.catalog, fmt=fmt)
     if output:
-        Path(output).write_text(text, encoding="utf-8")
+        Path(output).write_text(text, encoding="utf-8", newline="\n")
         click.echo(f"written to {output}")
     else:
         click.echo(text, nl=False)
