@@ -120,6 +120,6 @@ def write(catalog: Catalog, config: AltairConfig) -> tuple[Path, Path]:
     html_path.parent.mkdir(parents=True, exist_ok=True)
     for path, text in ((json_path, json.dumps(status, indent=1, default=str)), (html_path, render_html(status))):
         partial = path.with_name(path.name + ".partial")
-        partial.write_text(text, encoding="utf-8")
+        partial.write_text(text, encoding="utf-8", newline="\n")
         os.replace(partial, path)
     return html_path, json_path

@@ -130,7 +130,7 @@ class Publisher:
     def write_sidecar(self, work_dir: Path, name: str, logical: str, body: dict, rig: str | None, *, to_nas: bool = True) -> str:
         work_dir.mkdir(parents=True, exist_ok=True)
         path = work_dir / name
-        path.write_text(json.dumps({"schema": 1, **body}, indent=1, sort_keys=True, default=str), encoding="utf-8")
+        path.write_text(json.dumps({"schema": 1, **body}, indent=1, sort_keys=True, default=str), encoding="utf-8", newline="\n")
         sha, _, _ = self.store(path, lambda s: logical, "metadata", rig=rig, to_nas=to_nas)
         return sha
 
@@ -299,7 +299,7 @@ class Publisher:
                    "frames": result.frames, "metrics": metrics, "calibrated_frames": calibrated, "software": result.software,
                    "job_id": job["id"], "plan_hash": job["plan_hash"]}
         sidecar_path = work_dir / f"{prefix}_{_sha8(sha)}.json"
-        sidecar_path.write_text(json.dumps(sidecar, indent=1, sort_keys=True, default=str), encoding="utf-8")
+        sidecar_path.write_text(json.dumps(sidecar, indent=1, sort_keys=True, default=str), encoding="utf-8", newline="\n")
         side_sha, _, _ = self.store(sidecar_path, lambda s: f"{base}/{prefix}_{_sha8(sha)}.json", "metadata", rig=plan["rig"], to_nas=final)
 
         nas_uri = (blobs.replicas(self.catalog.conn, sha).get("nas") or {"uri": None})["uri"]
@@ -401,7 +401,7 @@ class Publisher:
                    "excluded": plan.get("excluded", []), "outputs": extra, "metrics": result.metrics,
                    "reference": plan.get("reference"), "software": result.software}
         sidecar_path = work_dir / f"v{version:03d}.json"
-        sidecar_path.write_text(json.dumps(sidecar, indent=1, sort_keys=True, default=str), encoding="utf-8")
+        sidecar_path.write_text(json.dumps(sidecar, indent=1, sort_keys=True, default=str), encoding="utf-8", newline="\n")
         self.store(sidecar_path, lambda s: f"{base}/v{version:03d}_{_sha8(sha)}.json", "metadata", rig=plan["rig"])
         nas_uri = (blobs.replicas(self.catalog.conn, sha).get("nas") or {"uri": None})["uri"]
         with self.catalog.transaction() as tx:

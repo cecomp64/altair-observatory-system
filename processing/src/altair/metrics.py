@@ -89,5 +89,5 @@ def write_file(path: str | Path, text: str) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(path.name + ".partial")
-    partial.write_text(text, encoding="utf-8")
+    partial.write_text(text, encoding="utf-8", newline="\n")
     os.replace(partial, path)

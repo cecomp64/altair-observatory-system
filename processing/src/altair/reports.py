@@ -218,7 +218,7 @@ def merge_markdown(catalog: Catalog, config: AltairConfig, mnm_id: int, *, cover
 def _write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(path.name + ".partial")
-    partial.write_text(text, encoding="utf-8")
+    partial.write_text(text, encoding="utf-8", newline="\n")
     partial.replace(path)
     return path
 

@@ -50,11 +50,11 @@ def init(catalog: Catalog, config: AltairConfig, *, adopt: bool = False) -> dict
             raise NasError(f"{nas.root} is already initialised ({identity['id']}); use --adopt to use it with this catalog")
     else:
         identity = {"id": str(uuid.uuid4()), "created_at": now_iso(), "location": "nas"}
-        ident_file.write_text(json.dumps(identity, indent=1), encoding="utf-8")
+        ident_file.write_text(json.dumps(identity, indent=1), encoding="utf-8", newline="\n")
     for folder in TREE:
         (nas.root / folder).mkdir(parents=True, exist_ok=True)
     probe = nas.root / ".altair-write-probe"
-    probe.write_text("ok", encoding="utf-8")
+    probe.write_text("ok", encoding="utf-8", newline="\n")
     probe.unlink()
     catalog.set_state(STATE_KEY, identity)
     with catalog.transaction() as tx:
