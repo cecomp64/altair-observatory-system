@@ -1,0 +1,38 @@
+{
+  "name": "Hub",
+  "dockerComposeFile": "compose.yaml",
+  "service": "hub",
+  "workspaceFolder": "/workspaces/altair-observatory-system/hub",
+
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22.22.2",
+      "installYarnUsingApt": false
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "remoteUser": "vscode",
+  // The node feature enables Corepack, which owns the yarn shims; pin yarn through it.
+  "remoteEnv": { "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0" },
+
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": { "label": "Hub" }
+  },
+
+  "postCreateCommand": "sudo chown -R vscode /usr/local/bundle /home/vscode/.claude && corepack install -g yarn@1.22.22 && npm install -g bun && bin/setup --skip-server && RAILS_ENV=test bin/rails db:prepare",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "Shopify.ruby-lsp",
+        "bradlc.vscode-tailwindcss",
+        "redhat.vscode-yaml"
+      ]
+    }
+  }
+}
