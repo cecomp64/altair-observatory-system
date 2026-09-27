@@ -7,9 +7,15 @@ RSpec.describe "Members' custom catalogue objects", type: :request do
   let!(:mine) { create(:astro_object, :custom, created_by: owner, primary_name: "Backyard Blob") }
   let!(:catalogue) { create(:astro_object, primary_name: "Andromeda Galaxy") }
 
-  it "creates custom objects private by default, visible only to the creator and admins" do
+  it "makes a member's custom target a private object, visible only to them and admins" do
+    telescope = create(:telescope)
+    train = create(:optical_train, telescope: telescope)
     sign_in owner
-    post objects_path, params: { astro_object: { primary_name: "Garden Nebula", ra: "05h 35m 17s", dec: "−05° 23′ 28″" } }
+    post project_wizard_add_object_path, params: { name: "Garden Nebula", ra: "05h 35m 17s", dec: "−05° 23′ 28″" }
+    patch new_project_path
+    patch project_wizard_telescope_path, params: { optical_train_id: train.id }
+    post project_wizard_add_exposure_plan_path, params: { filter: "L", exposure_seconds: 300, desired_count: 10 }
+    post project_wizard_create_path, params: { name: "Garden" }
     created = AstroObject.find_by!(primary_name: "Garden Nebula")
     expect(created).to have_attributes(source: "custom", shared: false, created_by: owner)
     expect(created.ra_deg.to_f).to be_within(0.001).of(83.8208)

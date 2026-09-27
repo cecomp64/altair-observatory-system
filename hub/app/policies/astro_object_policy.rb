@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
-# The catalogue is shared: everyone can browse it and add objects. Custom
-# objects are private to their creator (and admins) until the creator shares
-# them. Only admins edit or delete; admins or the creator manage showcases.
+# The catalogue is shared: everyone can browse it; only admins add, edit or
+# delete objects. A member's own objects come only from a project's custom
+# target (ProjectWizardController), and stay private to them (and admins)
+# until they share them. Admins or the creator manage showcases.
 class AstroObjectPolicy < ApplicationPolicy
   def index? = true
   def show? = record.visible_to?(user)
-  def create? = true
+  def create? = user.admin?
   def update? = user.admin?
   def destroy? = user.admin?
 

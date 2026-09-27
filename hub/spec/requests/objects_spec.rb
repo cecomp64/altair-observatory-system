@@ -34,16 +34,27 @@ RSpec.describe "Objects", type: :request do
     expect(response.body).to include("Clear in darkness", "Best viewing from", "Start a project")
   end
 
-  it "adds a custom object with aliases" do
+  it "only lets admins add objects to the catalogue" do
+    get objects_path
+    expect(response.body).not_to include("Add an object")
+    expect { post objects_path, params: { astro_object: { primary_name: "My Field", ra: "10:00:00", dec: "+20:00:00" } } }
+      .not_to change(AstroObject, :count)
+    get new_object_path
+    expect(response).to redirect_to(root_path)
+  end
+
+  it "adds a custom object with aliases (admins only)" do
+    user.update!(role: :admin)
     post objects_path, params: { astro_object: { primary_name: "My Field", ra: "10:00:00", dec: "+20:00:00", aliases: "Field A, FA-1" } }
     object = AstroObject.find_by!(primary_name: "My Field")
     expect(response).to redirect_to(object_path(object))
-    expect(object).to have_attributes(source: "custom", created_by: user)
+    expect(object).to have_attributes(source: "custom", created_by: user, shared: false)
     expect(object.ra_deg.to_f).to eq(150.0)
     expect(object.alias_names).to include("Field A", "FA-1")
   end
 
   it "rejects a custom object without valid coordinates" do
+    user.update!(role: :admin)
     post objects_path, params: { astro_object: { primary_name: "Nowhere", ra: "x", dec: "y" } }
     expect(response).to have_http_status(:unprocessable_content)
   end

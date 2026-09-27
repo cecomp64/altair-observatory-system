@@ -143,12 +143,15 @@ class ProjectWizardController < ApplicationController
       priority: params[:priority].to_i,
       status: :active
     )
-    objects.each_with_index do |object, index|
-      target = build_target(project, train, object, primary: index.zero?)
-      plans.each { |plan| target.exposure_plans.build(plan.slice("filter", "exposure_seconds", "desired_count")) }
+    saved = save_with_custom_objects do
+      objects.each_with_index do |object, index|
+        target = build_target(project, train, object, primary: index.zero?)
+        plans.each { |plan| target.exposure_plans.build(plan.slice("filter", "exposure_seconds", "desired_count")) }
+      end
+      project.save
     end
 
-    if project.save
+    if saved
       clear_state
       redirect_to project, notice: "Project submitted! We'll email/Discord you as it makes progress."
     else
@@ -162,19 +165,22 @@ class ProjectWizardController < ApplicationController
   def build_target(project, train, object, primary:)
     project.targets.build(
       user: project.user, telescope: train.telescope, optical_train: train,
-      astro_object_id: object["astro_object_id"], name: object["name"],
+      astro_object_id: object["astro_object_id"] || custom_object_for(object, project.user).id, name: object["name"],
       ra_deg: object["ra_deg"], dec_deg: object["dec_deg"], panel: object["panel"],
       is_primary: primary, priority: project.priority, status: :submitted, submitted_at: Time.current
     )
   end
 
   def add_to_existing_project(project, train, objects, plans)
-    targets = objects.map do |object|
-      target = build_target(project, train, object, primary: project.targets.none?(&:persisted?) && object == objects.first)
-      plans.each { |plan| target.exposure_plans.build(plan.slice("filter", "exposure_seconds", "desired_count")) }
-      target
+    targets = []
+    saved = save_with_custom_objects do
+      targets = objects.map do |object|
+        target = build_target(project, train, object, primary: project.targets.none?(&:persisted?) && object == objects.first)
+        plans.each { |plan| target.exposure_plans.build(plan.slice("filter", "exposure_seconds", "desired_count")) }
+        target
+      end
+      targets.all?(&:save)
     end
-    saved = Target.transaction { targets.all?(&:save) || raise(ActiveRecord::Rollback) }
     unless saved
       errors = targets.flat_map { |t| t.errors.full_messages + t.exposure_plans.flat_map { |p| p.errors.full_messages } }
       return redirect_to(project_wizard_review_path, alert: errors.uniq.to_sentence)
@@ -219,8 +225,11 @@ class ProjectWizardController < ApplicationController
     end
 
     if params[:resolve].present?
-      object, outcome = Catalogue::NameResolver.new.resolve(params[:resolve], created_by: current_user)
-      return object_entry(object) if object&.coordinates?
+      # Only an admin's lookup is stored in the catalogue; a member's becomes
+      # their own object when the project is created.
+      object, outcome = Catalogue::NameResolver.new.resolve(params[:resolve], created_by: current_user, persist: current_user.admin?)
+      return object_entry(object) if object&.persisted? && object.coordinates?
+      return looked_up_entry(object) if object&.coordinates?
 
       @object_error = {
         not_configured: "“#{params[:resolve]}” isn't in the catalogue, and online lookup isn't configured. Enter coordinates below.",
@@ -242,6 +251,37 @@ class ProjectWizardController < ApplicationController
     end
 
     { "name" => name, "ra_deg" => ra.round(5), "dec_deg" => dec.round(5), "panel" => params[:panel].to_s.strip.presence }
+  end
+
+  # A custom target (coordinates, or a name a member looked up) becomes the
+  # owner's own private catalogue object, reused if they already have one of
+  # that name within an arcminute.
+  def custom_object_for(entry, owner)
+    names = [ entry["name"], *entry["aliases"] ].compact.uniq
+    normalized = names.filter_map { |n| Catalogue::AliasNormalizer.normalize(n) }
+    existing = AstroObject.where(source: "custom", created_by: owner).joins(:aliases)
+                          .where(object_aliases: { normalized_name: normalized }).distinct.find do |o|
+      o.coordinates? && Astro::Coordinates.separation(entry["ra_deg"].to_f, entry["dec_deg"].to_f, o.ra_deg.to_f, o.dec_deg.to_f) <= 1.0 / 60
+    end
+    existing || AstroObject.create!(primary_name: entry["name"], ra_deg: entry["ra_deg"], dec_deg: entry["dec_deg"],
+                                    object_type: entry["object_type"], source: "custom", source_ref: entry["looked_up"],
+                                    created_by: owner).tap { |o| names.each { |n| o.add_alias(n) } }
+  end
+
+  # Custom objects are created as targets are built; roll them back with the
+  # project if it doesn't save.
+  def save_with_custom_objects
+    saved = false
+    ActiveRecord::Base.transaction do
+      saved = yield
+      raise ActiveRecord::Rollback unless saved
+    end
+    saved
+  end
+
+  def looked_up_entry(object)
+    { "name" => object.primary_name, "ra_deg" => object.ra_deg.to_f, "dec_deg" => object.dec_deg.to_f,
+      "object_type" => object.object_type, "aliases" => object.pending_aliases, "looked_up" => "telescopius" }
   end
 
   def object_entry(object)

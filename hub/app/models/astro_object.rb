@@ -15,6 +15,9 @@ class AstroObject < ApplicationRecord
 
   after_create :add_primary_alias
 
+  # Names found by a lookup that wasn't stored (see Catalogue::NameResolver).
+  attr_accessor :pending_aliases
+
   # Custom objects are private to their creator (and admins) unless shared.
   scope :visible_to, lambda { |user|
     next all if user&.admin?

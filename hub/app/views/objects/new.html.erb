@@ -33,8 +33,8 @@
       </div>
       <div><label class="<%= label %>">Other names <span class="text-slate-400 font-normal">(comma-separated)</span></label><input type="text" name="astro_object[aliases]" class="<%= field %>"></div>
       <label class="flex items-center gap-2 text-sm text-slate-600">
-        <%= check_box_tag "astro_object[shared]", "1", params.dig(:astro_object, :shared) == "1", class: "h-4 w-4 rounded border-slate-300" %>
-        Share with every member (otherwise only you, and admins, can see it)
+        <%= check_box_tag "astro_object[shared]", "1", params[:astro_object].nil? || params.dig(:astro_object, :shared) == "1", class: "h-4 w-4 rounded border-slate-300" %>
+        Share with every member (otherwise only admins can see it)
       </label>
       <%= f.submit "Add object", class: "rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white cursor-pointer" %>
     <% end %>

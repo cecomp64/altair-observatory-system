@@ -6,7 +6,9 @@
     <h1 class="text-2xl font-semibold">Catalogue</h1>
     <p class="text-slate-500 text-sm">OpenNGC, LDN, LBN and objects members have added. Search any name or alias.</p>
   </div>
-  <%= link_to "Add an object", new_object_path, class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
+  <% if policy(AstroObject).create? %>
+    <%= link_to "Add an object", new_object_path, class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
+  <% end %>
 </div>
 
 <%= form_with url: objects_path, method: :get, class: "rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end", data: { turbo_frame: "_top" } do %>

@@ -15,7 +15,7 @@ RSpec.describe "Pages", type: :request do
     sign_in member
     [ root_path, projects_path, projects_path(scope: "club"), project_path(project), edit_project_path(project),
       targets_path, target_path(target), telescopes_path, telescope_path(telescope), new_project_path,
-      objects_path, new_object_path ].each do |path|
+      objects_path ].each do |path|
       get path
       expect(response).to have_http_status(:ok), "#{path} → #{response.status}"
     end
@@ -46,7 +46,7 @@ RSpec.describe "Pages", type: :request do
     sign_in admin
     [ admin_root_path, admin_telescopes_path, admin_telescope_path(telescope), edit_admin_telescope_path(telescope),
       new_admin_telescope_optical_train_path(telescope), edit_admin_telescope_optical_train_path(telescope, train),
-      admin_catalogue_path ].each do |path|
+      admin_catalogue_path, new_object_path ].each do |path|
       get path
       expect(response).to have_http_status(:ok), "#{path} → #{response.status}"
     end

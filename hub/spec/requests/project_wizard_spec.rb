@@ -42,7 +42,9 @@ RSpec.describe "ProjectWizard", type: :request do
     first, second = project.targets.order(:id)
     expect(first).to have_attributes(astro_object: m31, name: "Andromeda Galaxy", optical_train: train, is_primary: true)
     expect(first).to be_submitted
-    expect(second).to have_attributes(astro_object: nil, panel: "B", is_primary: false)
+    expect(second).to have_attributes(panel: "B", is_primary: false)
+    # A custom target becomes the member's own private object.
+    expect(second.astro_object).to have_attributes(primary_name: "Panel B", source: "custom", created_by: user, shared: false)
     expect(second.ra_deg.to_f).to be_within(0.001).of(11.25)
     # The filter was entered as an alias and stored as the train's canonical name.
     expect(first.exposure_plans.sole).to have_attributes(filter: "Ha", exposure_seconds: 300, desired_count: 20)
@@ -69,8 +71,40 @@ RSpec.describe "ProjectWizard", type: :request do
 
     post project_wizard_add_object_path, params: { resolve: "Pacman Nebula" }
 
+    # A member's lookup adds nothing to the catalogue...
     expect(flash[:notice]).to eq("Added Pacman Nebula.")
-    expect(AstroObject.find_by_alias("NGC281")).to have_attributes(source: "telescopius", created_by: user)
+    expect(AstroObject.find_by_alias("NGC281")).to be_nil
+
+    # ...until the project is created: then it is their own private object,
+    # reused by their next project.
+    choose_train_and_plan
+    post project_wizard_create_path, params: { name: "Pacman" }
+    object = AstroObject.find_by_alias("NGC281")
+    expect(object).to have_attributes(primary_name: "Pacman Nebula", source: "custom", source_ref: "telescopius", created_by: user, shared: false)
+    expect(Project.last.targets.sole.astro_object).to eq(object)
+
+    post project_wizard_add_object_path, params: { name: "Pacman Nebula", ra: "00h 52m 48s", dec: "+56° 36′ 00″" }
+    choose_train_and_plan
+    expect { post project_wizard_create_path, params: { name: "Pacman again" } }.not_to change(AstroObject, :count)
+    expect(Project.last.targets.sole.astro_object).to eq(object)
+  end
+
+  it "stores an admin's lookup in the shared catalogue" do
+    sign_in create(:user, :admin)
+    client = instance_double(Catalogue::TelescopiusClient)
+    allow(Catalogue::TelescopiusClient).to receive_messages(configured?: true, new: client)
+    allow(client).to receive(:search).and_return(
+      Catalogue::TelescopiusClient::Result.new(name: "Pacman Nebula", ra_deg: 13.2, dec_deg: 56.6, aliases: [ "NGC 281" ])
+    )
+    post project_wizard_add_object_path, params: { resolve: "Pacman Nebula" }
+    expect(AstroObject.find_by_alias("NGC281")).to have_attributes(source: "telescopius")
+  end
+
+  it "keeps the custom objects out of the catalogue if the project doesn't save" do
+    post project_wizard_add_object_path, params: { name: "Lost Field", ra: "10:00:00", dec: "+20:00:00" }
+    choose_train_and_plan
+    allow_any_instance_of(Project).to receive(:save).and_return(false) # rubocop:disable RSpec/AnyInstance
+    expect { post project_wizard_create_path, params: { name: "Nope" } }.not_to change(AstroObject, :count)
   end
 
   it "refuses to continue past objects with nothing chosen" do

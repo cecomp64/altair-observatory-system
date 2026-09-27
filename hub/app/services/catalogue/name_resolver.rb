@@ -8,8 +8,10 @@ module Catalogue
     end
 
     # Returns [astro_object, :local | :telescopius] or [nil, reason]. Other
-    # members' private custom objects are never matched.
-    def resolve(name, created_by: nil)
+    # members' private custom objects are never matched. With persist: false
+    # a Telescopius answer comes back unsaved (with pending_aliases), so a
+    # member's lookup adds nothing to the catalogue.
+    def resolve(name, created_by: nil, persist: true)
       name = name.to_s.strip
       return [ nil, :blank ] if name.blank?
 
@@ -29,13 +31,22 @@ module Catalogue
         return [ nil, :not_found ]
       end
 
-      [ store(result, name, created_by), :telescopius ]
+      [ persist ? store(result, name, created_by) : unsaved(result, name), :telescopius ]
     rescue StandardError => e
       Rails.logger.warn("[catalogue] Telescopius lookup for #{name.inspect} failed: #{e.message}")
       [ nil, :error ]
     end
 
     private
+
+    def unsaved(result, query)
+      existing = ([ result.name ] + result.aliases).lazy.map { |n| @visible.find_by_alias(n) }.find(&:itself)
+      return existing if existing
+
+      AstroObject.new(primary_name: result.name, ra_deg: result.ra_deg.round(5), dec_deg: result.dec_deg.round(5),
+                      object_type: result.object_type, magnitude: result.magnitude, constellation: result.constellation)
+                 .tap { |o| o.pending_aliases = ([ query ] + result.aliases).uniq }
+    end
 
     def store(result, query, created_by)
       # Another name for an object we already have: merge instead of duplicating.
