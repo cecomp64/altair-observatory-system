@@ -56,6 +56,15 @@ RSpec.describe Imports::AstroDb do
     expect(m31.showcase.image).to be_attached
   end
 
+  it "shares objects an admin imports, and keeps a member's import private to them" do
+    described_class.new(path, user: create(:user, :admin)).run
+    expect(AstroObject.where(source: "custom").pluck(:shared)).to all(be(true))
+
+    AstroObject.where(source: "custom").destroy_all
+    described_class.new(path, user: user).run
+    expect(AstroObject.where(source: "custom").pluck(:shared, :created_by_id)).to all(eq([ false, user.id ]))
+  end
+
   it "keeps projects in planning with their goals when no telescope is given" do
     described_class.new(path, user: user).run
     project = user.projects.sole

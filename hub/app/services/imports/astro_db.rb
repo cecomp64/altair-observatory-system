@@ -74,7 +74,8 @@ module Imports
           object = AstroObject.create!(
             primary_name: row["primary_name"], ra_deg: ra.round(5), dec_deg: dec.round(5), object_type: row["object_type"],
             magnitude: row["magnitude"], size_major_arcmin: row["size_major"], size_minor_arcmin: row["size_minor"],
-            constellation: row["constellation"], source: "custom", source_ref: "astrodb:#{row['id']}", created_by: @user
+            constellation: row["constellation"], source: "custom", source_ref: "astrodb:#{row['id']}", created_by: @user,
+            shared: @user.admin? # an admin's import is for every member; a member's stays theirs until shared
           )
           @report.objects_created += 1
         end
