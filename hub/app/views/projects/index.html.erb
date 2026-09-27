@@ -8,7 +8,7 @@
       <%= link_to "Shared with the club", projects_path(scope: "club"), class: @scope == "club" ? "font-medium text-slate-900" : "text-slate-500 hover:text-slate-700" %>
     </div>
   </div>
-  <%= link_to "New project", new_project_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
+  <%= link_to "New project", new_project_path(new: 1), class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
 </div>
 
 <% if @projects.any? %>
@@ -37,5 +37,5 @@
   </div>
 <% else %>
   <p class="text-slate-400 mt-6"><%= @scope == "club" ? "Nobody has shared a project with the club yet." : "You don't have any projects yet." %>
-    <%= link_to "Start one.", new_project_path, class: "text-indigo-600 underline" if @scope == "mine" %></p>
+    <%= link_to "Start one.", new_project_path(new: 1), class: "text-indigo-600 underline" if @scope == "mine" %></p>
 <% end %>

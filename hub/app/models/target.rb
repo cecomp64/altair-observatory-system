@@ -25,6 +25,8 @@ class Target < ApplicationRecord
 
   # Statuses the worker should schedule in NINA Target Scheduler.
   SCHEDULABLE_STATUSES = %w[submitted active in_progress].freeze
+  # Project statuses that stop all of the project's targets being scheduled.
+  HALTING_PROJECT_STATUSES = %w[paused completed archived].freeze
 
   # Targets created without a project (the legacy single-target paths) get
   # one of their own, like the migration backfill does for existing rows.
@@ -39,12 +41,76 @@ class Target < ApplicationRecord
   validate :user_owns_project
   validate :optical_train_belongs_to_telescope
 
-  scope :schedulable, -> { where(status: SCHEDULABLE_STATUSES) }
+  # What the rig agent gets: a schedulable status, not paused, in a project
+  # that isn't paused, completed or archived. Dropping out of this list is what
+  # makes the rig agent disable the target in Target Scheduler (and coming
+  # back re-enables it, keeping its accepted counts).
+  scope :schedulable, -> {
+    where(status: SCHEDULABLE_STATUSES, paused_at: nil)
+      .where.not(project_id: Project.where(status: HALTING_PROJECT_STATUSES).select(:id))
+  }
   scope :for_telescope, ->(telescope) { where(telescope: telescope) }
   scope :not_draft, -> { where.not(status: :draft) }
 
   def submit!
     update!(status: :submitted, submitted_at: Time.current)
+  end
+
+  def paused?
+    paused_at.present?
+  end
+
+  def open?
+    SCHEDULABLE_STATUSES.include?(status)
+  end
+
+  # Why the target is or isn't on the telescope's list, for the UI.
+  def scheduling_state
+    return status unless open?
+    return "paused" if paused?
+    return "project_#{project.status}" if HALTING_PROJECT_STATUSES.include?(project.status)
+
+    "scheduled"
+  end
+
+  def schedulable?
+    scheduling_state == "scheduled"
+  end
+
+  def pause!(by: nil)
+    return false unless open? && !paused?
+
+    update!(paused_at: Time.current)
+    record_status_change("paused", by)
+  end
+
+  def resume!(by: nil)
+    return false unless paused?
+
+    update!(paused_at: nil)
+    record_status_change("resumed", by)
+  end
+
+  # Completed or cancelled back to active. A completed target also needs more
+  # frames first (see #settle_status!), or it would complete again at once.
+  def reopen!(by: nil)
+    return false unless completed? || cancelled?
+    return false if completed? && fully_captured?
+
+    update!(status: :active, paused_at: nil)
+    record_status_change("active", by)
+  end
+
+  # After exposure plans change: more frames wanted reopens a completed
+  # target; everything captured completes an open one.
+  def settle_status!(by: nil)
+    reload
+    if completed? && !fully_captured?
+      reopen!(by: by)
+    elsif open? && fully_captured?
+      update!(status: :completed)
+      record_status_change("completed", by)
+    end
   end
 
   # NINA / Target Scheduler target name (§4.4). NINA writes it into OBJECT,
@@ -91,6 +157,12 @@ class Target < ApplicationRecord
   end
 
   private
+
+  def record_status_change(status, by)
+    target_events.create!(event_type: :status_changed, payload: { status: status, by: by&.display_name }.compact)
+    project.broadcast_refresh_later
+    true
+  end
 
   def ensure_project
     return if project.present? || user.blank?

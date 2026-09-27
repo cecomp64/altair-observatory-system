@@ -1,0 +1,23 @@
+<% content_for :title, "Observatory" %>
+<%= turbo_stream_from :observatory %>
+
+<div data-controller="auto-refresh" data-auto-refresh-interval-value="300">
+  <div class="mb-6">
+    <h1 class="text-2xl font-semibold">Observatory</h1>
+    <% imaging = @statuses.count { |s| s.state == "imaging" } %>
+    <p class="text-slate-500 text-sm">
+      <%= imaging.zero? ? "No telescope is imaging right now." : "#{pluralize(imaging, 'telescope')} imaging now." %>
+      Updates as the telescopes report in.
+    </p>
+  </div>
+
+  <% if @statuses.empty? %>
+    <p class="text-slate-400">No telescopes yet.</p>
+  <% end %>
+
+  <div class="space-y-6">
+    <% @statuses.each do |status| %>
+      <%= render "observatory/telescope", status: status %>
+    <% end %>
+  </div>
+</div>

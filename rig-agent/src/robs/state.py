@@ -105,6 +105,10 @@ def exposure_plan_links_for_target(conn: sqlite3.Connection, rails_target_id: in
     ).fetchall()
 
 
+def remove_exposure_plan_link(conn: sqlite3.Connection, rails_exposure_plan_id: int) -> None:
+    conn.execute("DELETE FROM exposure_plan_links WHERE rails_exposure_plan_id = ?", (rails_exposure_plan_id,))
+
+
 def all_target_links(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute("SELECT * FROM target_links").fetchall()
 

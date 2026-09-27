@@ -1,0 +1,13 @@
+<%# Whether the telescope is imaging this target, and if not, why. %>
+<% state = target.scheduling_state %>
+<% label, css = {
+     "scheduled" => [ "Scheduled", "bg-indigo-100 text-indigo-700" ],
+     "paused" => [ "Paused", "bg-amber-100 text-amber-800" ],
+     "project_paused" => [ "Project paused", "bg-amber-100 text-amber-800" ],
+     "project_completed" => [ "Project completed", "bg-slate-100 text-slate-600" ],
+     "project_archived" => [ "Project archived", "bg-slate-100 text-slate-600" ],
+     "completed" => [ "Completed", "bg-emerald-100 text-emerald-700" ],
+     "cancelled" => [ "Cancelled", "bg-rose-100 text-rose-700" ],
+     "draft" => [ "Draft", "bg-slate-100 text-slate-600" ]
+   }.fetch(state, [ state.humanize, "bg-slate-100 text-slate-600" ]) %>
+<span class="rounded-full px-3 py-1 text-xs font-medium <%= css %>" title="<%= target.status.humanize %>"><%= label %></span>

@@ -16,7 +16,7 @@ class TargetEvent < ApplicationRecord
     when "progress"
       "Progress updated"
     when "status_changed"
-      "Status changed to #{payload['status']}"
+      "#{payload['status'].to_s.humanize}#{" by #{payload['by']}" if payload['by'].present?}"
     when "error"
       "Error: #{payload['message']}"
     when "frames_collected"

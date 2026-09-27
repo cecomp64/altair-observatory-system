@@ -50,7 +50,8 @@ module Admin
       params.require(:telescope).permit(
         :name, :slug, :latitude, :longitude, :elevation_m,
         :active, :self_serve_submit, :description, :horizon_file,
-        :timezone, :min_altitude_deg, :default_optical_train_id
+        :timezone, :min_altitude_deg, :default_optical_train_id,
+        :operating_status, :status_note
       )
     end
   end

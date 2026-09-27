@@ -31,6 +31,11 @@ class ExposurePlan < ApplicationRecord
     desired_count + [ completed_count - usable_count, 0 ].max
   end
 
+  # Only a plan nothing was captured for can go: counted frames stay linked.
+  def removable?
+    completed_count.zero? && collected_count.zero? && !frames.exists?
+  end
+
   def total_exposure_seconds
     exposure_seconds * desired_count
   end

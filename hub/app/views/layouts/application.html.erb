@@ -32,13 +32,14 @@
             <%= link_to "Remote Observatory", root_path, class: "font-semibold tracking-tight" %>
             <div class="hidden sm:flex items-center gap-4 text-sm text-slate-300">
               <%= link_to "Dashboard", root_path, class: "hover:text-white" %>
+              <%= link_to "Observatory", observatory_path, class: "hover:text-white" %>
               <%= link_to "Catalogue", objects_path, class: "hover:text-white" %>
               <%= link_to "Telescopes", telescopes_path, class: "hover:text-white" %>
               <%= link_to "Projects", projects_path, class: "hover:text-white" %>
               <%= link_to "Targets", targets_path, class: "hover:text-white" %>
               <%= link_to "Files", frames_path, class: "hover:text-white" %>
               <%= link_to "Issues", issues_path, class: "hover:text-white" %>
-              <%= link_to "New Project", new_project_path, class: "hover:text-white" %>
+              <%= link_to "New Project", new_project_path(new: 1), class: "hover:text-white" %>
               <% if current_user.admin? %>
                 <%= link_to "Admin", admin_root_path, class: "hover:text-white" %>
               <% end %>

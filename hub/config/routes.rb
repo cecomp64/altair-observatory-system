@@ -33,7 +33,12 @@ Rails.application.routes.draw do
   # The single-target wizard became the project wizard.
   get "targets/new", to: redirect("/projects/new"), as: :new_target
 
-  resources :projects, only: [ :index, :show, :edit, :update ]
+  resources :projects, only: [ :index, :show, :edit, :update ] do
+    member do
+      post :pause
+      post :resume
+    end
+  end
   scope "projects/:project_id/targets/:target_id", controller: "project_processing", as: "project_target" do
     post :night
     post :rerun
@@ -69,8 +74,14 @@ Rails.application.routes.draw do
   resources :targets, only: [ :index, :show ] do
     member do
       post :cancel
+      post :pause
+      post :resume
+      post :reopen
     end
+    resource :plans, only: [ :edit, :update ], controller: "target_plans"
   end
+
+  get "observatory", to: "observatory#index", as: :observatory
 
   namespace :admin do
     root to: "dashboard#index"

@@ -21,6 +21,11 @@ class TargetPolicy < ApplicationPolicy
     owner? || user.admin?
   end
 
+  # Pause, resume, reopen, and change the exposure plans.
+  def manage?
+    owner? || user.admin?
+  end
+
   class Scope < Scope
     def resolve
       user.admin? ? scope.all : scope.where(user: user)

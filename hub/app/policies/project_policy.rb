@@ -14,6 +14,11 @@ class ProjectPolicy < ApplicationPolicy
     owner? || user.admin?
   end
 
+  # Pause or resume the whole project, and add targets to it.
+  def manage?
+    update?
+  end
+
   class Scope < Scope
     def resolve
       return scope.all if user.admin?

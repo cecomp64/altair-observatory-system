@@ -88,6 +88,15 @@ def sync_targets_into_scheduler(config: TelescopeConfig, api: ObservatoryApiClie
                     )
                     state.link_exposure_plan(state_conn, plan["id"], target["id"], scheduler_plan_id, plan["filter"])
 
+                # Plans removed in the Hub stop being imaged.
+                current = {plan["id"] for plan in target["exposure_plans"]}
+                for plan_link in state.exposure_plan_links_for_target(state_conn, target["id"]):
+                    if plan_link["rails_exposure_plan_id"] not in current:
+                        scheduler_db.retire_exposure_plan(sched_conn, plan_link["scheduler_exposure_plan_id"])
+                        state.remove_exposure_plan_link(state_conn, plan_link["rails_exposure_plan_id"])
+                        logger.info("Retired exposure plan %d of target %d (removed in the Hub)",
+                                    plan_link["rails_exposure_plan_id"], target["id"])
+
         if per_project:
             _retire_single_project(sched_conn, config)
 

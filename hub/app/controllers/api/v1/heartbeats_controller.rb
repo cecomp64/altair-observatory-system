@@ -11,6 +11,7 @@ module Api
           current_processing_node.update!(last_heartbeat_at: Time.current, status: status)
         else
           current_telescope.update_columns(worker_last_heartbeat_at: Time.current, worker_status: status)
+          ObservatoryStatus.broadcast
         end
         render json: { ok: true, api_revision: ::Processing::ConfigBuilder::API_REVISION }
       end

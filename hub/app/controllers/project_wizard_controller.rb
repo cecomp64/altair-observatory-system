@@ -8,11 +8,13 @@
 #   4. review    - project name and priority, then submit
 #
 # In-progress answers live in the session (`session[:project_wizard]`) until
-# `create` persists a Project with one Target per object.
+# `create` persists a Project with one Target per object. Started from a
+# project (`?project_id=`), the same steps add targets to that project.
 class ProjectWizardController < ApplicationController
   MAX_OBJECTS = 12
 
   before_action :load_state
+  before_action :load_existing_project
 
   # Step 1 ------------------------------------------------------------------
 
@@ -133,6 +135,8 @@ class ProjectWizardController < ApplicationController
     return redirect_to(new_project_path, alert: "Add at least one object to image.") if objects.empty?
     return redirect_to(project_wizard_exposures_path, alert: "Add at least one exposure plan.") if plans.empty?
 
+    return add_to_existing_project(@project, train, objects, plans) if @project
+
     project = current_user.projects.new(
       name: params[:name].to_s.strip.presence || default_project_name,
       description: params[:description].to_s.strip.presence,
@@ -140,12 +144,7 @@ class ProjectWizardController < ApplicationController
       status: :active
     )
     objects.each_with_index do |object, index|
-      target = project.targets.build(
-        user: current_user, telescope: train.telescope, optical_train: train,
-        astro_object_id: object["astro_object_id"], name: object["name"],
-        ra_deg: object["ra_deg"], dec_deg: object["dec_deg"], panel: object["panel"],
-        is_primary: index.zero?, priority: project.priority, status: :submitted, submitted_at: Time.current
-      )
+      target = build_target(project, train, object, primary: index.zero?)
       plans.each { |plan| target.exposure_plans.build(plan.slice("filter", "exposure_seconds", "desired_count")) }
     end
 
@@ -159,6 +158,54 @@ class ProjectWizardController < ApplicationController
   end
 
   private
+
+  def build_target(project, train, object, primary:)
+    project.targets.build(
+      user: project.user, telescope: train.telescope, optical_train: train,
+      astro_object_id: object["astro_object_id"], name: object["name"],
+      ra_deg: object["ra_deg"], dec_deg: object["dec_deg"], panel: object["panel"],
+      is_primary: primary, priority: project.priority, status: :submitted, submitted_at: Time.current
+    )
+  end
+
+  def add_to_existing_project(project, train, objects, plans)
+    targets = objects.map do |object|
+      target = build_target(project, train, object, primary: project.targets.none?(&:persisted?) && object == objects.first)
+      plans.each { |plan| target.exposure_plans.build(plan.slice("filter", "exposure_seconds", "desired_count")) }
+      target
+    end
+    saved = Target.transaction { targets.all?(&:save) || raise(ActiveRecord::Rollback) }
+    unless saved
+      errors = targets.flat_map { |t| t.errors.full_messages + t.exposure_plans.flat_map { |p| p.errors.full_messages } }
+      return redirect_to(project_wizard_review_path, alert: errors.uniq.to_sentence)
+    end
+
+    clear_state
+    note = project.paused? ? " The project is paused, so they wait until you resume it." : ""
+    redirect_to project, notice: "Added #{helpers.pluralize(targets.size, 'target')} to #{project.name}.#{note}"
+  end
+
+  # ?project_id= starts (or continues) adding targets to that project;
+  # ?new=1 goes back to making a new project.
+  def load_existing_project
+    if params[:new].present?
+      @state.delete("project_id")
+      save_state
+    elsif params[:project_id].present? && params[:project_id].to_s != @state["project_id"].to_s
+      project = Project.find(params[:project_id])
+      authorize project, :manage?
+      @state.replace("project_id" => project.id)
+      save_state
+    end
+    return if @state["project_id"].blank?
+
+    @project = Project.find_by(id: @state["project_id"])
+    if @project.nil? || !policy(@project).manage?
+      @project = nil
+      @state.delete("project_id")
+      save_state
+    end
+  end
 
   # A catalogue object by id, a name to resolve (local, then Telescopius), or
   # custom coordinates.

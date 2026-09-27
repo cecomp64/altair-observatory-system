@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_27_000012) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_27_000013) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -409,6 +409,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_27_000012) do
     t.text "notes"
     t.bigint "optical_train_id"
     t.string "panel"
+    t.datetime "paused_at"
     t.integer "priority", default: 0, null: false
     t.jsonb "processing_settings", default: {}, null: false
     t.bigint "project_id", null: false
@@ -438,8 +439,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_27_000012) do
     t.decimal "longitude", precision: 8, scale: 5, null: false
     t.decimal "min_altitude_deg", precision: 5, scale: 2, default: "30.0", null: false
     t.string "name", null: false
+    t.string "operating_status", default: "operational", null: false
     t.boolean "self_serve_submit", default: false, null: false
     t.string "slug", null: false
+    t.datetime "status_changed_at"
+    t.text "status_note"
     t.string "timezone", null: false
     t.datetime "updated_at", null: false
     t.datetime "worker_last_heartbeat_at"

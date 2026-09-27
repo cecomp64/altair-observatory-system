@@ -1,0 +1,94 @@
+<% telescope = status.telescope %>
+<% zone = telescope.time_zone %>
+<% hm = ->(time) { time&.in_time_zone(zone)&.strftime("%H:%M") } %>
+<% label, css, blurb = {
+     "imaging" => [ "Imaging", "bg-emerald-100 text-emerald-800", "Roof open since #{hm.(status.opened_at)}." ],
+     "finished" => [ "Done for the night", "bg-indigo-100 text-indigo-700",
+                     "Opened #{hm.(status.opened_at)}#{", closed #{hm.(status.closed_at)}" if status.closed_at}." ],
+     "waiting" => [ "Waiting for dark", "bg-slate-100 text-slate-700",
+                    status.darkness ? "Astronomical darkness from #{hm.(status.darkness.begin)}." : "No astronomical darkness tonight." ],
+     "closed" => [ "Closed", "bg-amber-100 text-amber-800", "It's dark and the roof hasn't opened tonight." ],
+     "day" => [ "Didn't open", "bg-slate-100 text-slate-600", "The roof didn't open last night." ],
+     "maintenance" => [ "Maintenance", "bg-rose-100 text-rose-700", "Not imaging until maintenance is finished." ],
+     "offline" => [ "Offline", "bg-rose-100 text-rose-700", "Not imaging." ]
+   }.fetch(status.state) %>
+
+<section id="<%= dom_id(telescope, :observatory) %>" class="rounded-xl border border-slate-200 bg-white p-5">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h2 class="text-lg font-semibold"><%= link_to telescope.name, telescope_path(telescope), class: "hover:text-indigo-600" %></h2>
+      <p class="text-sm text-slate-500"><%= blurb %></p>
+      <% if telescope.status_note.present? %>
+        <p class="text-sm text-slate-700 mt-1"><%= telescope.status_note %>
+          <% if telescope.status_changed_at %><span class="text-xs text-slate-400">(<%= time_ago_in_words(telescope.status_changed_at) %> ago)</span><% end %></p>
+      <% end %>
+    </div>
+    <span class="rounded-full px-3 py-1 text-sm font-medium <%= css %>"><%= label %></span>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 text-sm">
+    <div class="rounded-lg bg-slate-50 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Tonight (<%= status.date.strftime("%b %-d") %>)</p>
+      <p>
+        <% if (dark = status.darkness) %>Dark <%= hm.(dark.begin) %>–<%= hm.(dark.end) %><% else %>No astronomical darkness<% end %>
+        · Moon <%= status.moon_percent %>% lit
+      </p>
+      <p class="mt-1"><span class="font-medium"><%= status.light_count %></span> lights · <%= status.light_hours %> h</p>
+    </div>
+
+    <div class="rounded-lg bg-slate-50 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Now</p>
+      <% if (current = status.current_target) %>
+        <p><%= status.visible?(current) ? link_to(current.name, target_path(current), class: "font-medium hover:text-indigo-600") : "A member's target" %></p>
+        <p class="text-xs text-slate-500">Last frame <%= hm.(status.last_frame.date_obs) %><%= " · #{status.last_frame.filter}" if status.last_frame.filter %></p>
+      <% elsif status.last_frame %>
+        <p class="text-slate-500">Last frame <%= hm.(status.last_frame.date_obs) %></p>
+      <% else %>
+        <p class="text-slate-400">No frames tonight.</p>
+      <% end %>
+      <p class="text-xs text-slate-500 mt-1"><%= pluralize(status.queue_size, "target") %> from <%= pluralize(status.queue_members, "member") %> on the list</p>
+    </div>
+
+    <div class="rounded-lg bg-slate-50 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Systems</p>
+      <p>Rig: <%= status.rig_heartbeat_at ? "last heard #{time_ago_in_words(status.rig_heartbeat_at)} ago" : "never heard from" %>
+        <% if status.rig_last_command %><span class="text-xs text-slate-400">(<%= status.rig_last_command %>)</span><% end %></p>
+      <% status.processing_nodes.each do |node| %>
+        <p>Processing: <%= node.name %>
+          <span class="<%= node.healthy? ? "text-emerald-700" : "text-amber-700" %>"><%= node.healthy? ? "OK" : "stale" %></span></p>
+      <% end %>
+    </div>
+  </div>
+
+  <% if status.targets_tonight.any? %>
+    <ul class="mt-4 divide-y divide-slate-100 text-sm">
+      <% status.targets_tonight.each do |target, lights, hours| %>
+        <li class="py-1.5 flex justify-between">
+          <span><%= status.visible?(target) ? link_to(target.name, target_path(target), class: "hover:text-indigo-600") : "A member's target" %></span>
+          <span class="text-slate-500"><%= lights %> lights · <%= hours %> h</span>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <div class="mt-4">
+    <p class="text-xs uppercase tracking-wide text-slate-400 mb-2">Last <%= ObservatoryStatus::RECENT_NIGHTS %> nights</p>
+    <% max = [ status.recent_nights.map(&:light_hours).max.to_f, 1.0 ].max %>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-slate-100">
+        <% status.recent_nights.each do |night| %>
+          <tr>
+            <td class="py-1 w-24 text-slate-600"><%= night.date.strftime("%a %b %-d") %></td>
+            <td class="py-1 w-40 text-slate-500">
+              <% if night.opened_at %><%= hm.(night.opened_at) %>–<%= hm.(night.closed_at) || "?" %><% else %><span class="text-slate-400">closed</span><% end %>
+            </td>
+            <td class="py-1">
+              <div class="h-2 rounded bg-slate-100"><div class="h-2 rounded bg-indigo-500" style="width: <%= (night.light_hours / max * 100).round %>%"></div></div>
+            </td>
+            <td class="py-1 w-36 text-right text-slate-500"><%= night.lights %> lights · <%= night.light_hours %> h</td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</section>

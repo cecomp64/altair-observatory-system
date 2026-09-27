@@ -9,6 +9,7 @@
 
   <%= form_with url: project_wizard_review_path, method: :post do %>
     <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+      <% unless @project %>
       <div class="grid grid-cols-3 gap-4">
         <div class="col-span-2">
           <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Project name</label>
@@ -19,6 +20,7 @@
           <input type="number" name="priority" value="0" class="<%= input %>">
         </div>
       </div>
+      <% end %>
       <div>
         <p class="text-xs uppercase tracking-wide text-slate-400">Telescope</p>
         <p class="font-medium"><%= @optical_train.telescope.name %> <span class="text-slate-500 font-normal">· <%= @optical_train.name %></span></p>
@@ -45,15 +47,17 @@
           <% end %>
         </ul>
       </div>
+      <% unless @project %>
       <div>
         <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Notes <span class="normal-case">(optional)</span></label>
         <textarea name="description" rows="3" placeholder="Anything the imaging team should know?" class="<%= input %>"></textarea>
       </div>
+      <% end %>
     </div>
 
     <div class="pt-6 flex justify-between">
       <%= link_to "Back", project_wizard_exposures_path, class: "rounded-lg px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" %>
-      <%= submit_tag "Submit project", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
+      <%= submit_tag (@project ? "Add to #{@project.name}" : "Submit project"), class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
     </div>
   <% end %>
 </div>
