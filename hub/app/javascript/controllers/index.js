@@ -9,3 +9,6 @@ application.register("chart", ChartController)
 
 import BulkSelectController from "./bulk_select_controller"
 application.register("bulk-select", BulkSelectController)
+
+import AutoRefreshController from "./auto_refresh_controller"
+application.register("auto-refresh", AutoRefreshController)

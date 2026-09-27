@@ -5,6 +5,8 @@ class ObservingNight < ApplicationRecord
   validates :night, presence: true, uniqueness: { scope: :optical_train_id }
   validates :state, inclusion: { in: %w[open closing closed] }
 
+  after_commit -> { ObservatoryStatus.broadcast }
+
   def imaging_now?
     roof_open_at.present? && roof_closed_at.nil? && session_end_at.nil?
   end

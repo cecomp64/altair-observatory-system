@@ -26,7 +26,10 @@ module Api
             record = ObservingNight.find_or_initialize_by(optical_train: train, night: night)
             record.telescope = telescope
             case event
-            when "roof_open" then record.roof_open_at = at
+            when "roof_open"
+              # Opening again after a close (clouds passed) resumes the session.
+              record.roof_open_at = at
+              record.roof_closed_at = nil
             when "roof_close" then record.roof_closed_at = at
             when "session_end" then record.session_end_at = at
             end

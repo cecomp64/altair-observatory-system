@@ -102,3 +102,37 @@ def test_sync_progress_to_api_reports_accepted_counts(telescope_config_yaml):
     assert reported == 1
     body = json.loads(progress_mock.calls[0].request.body)
     assert body == {"exposure_plans": [{"id": 50, "completed_count": 7}]}
+
+
+@responses.activate
+def test_sync_follows_plan_changes_made_in_the_hub(telescope_config_yaml):
+    """More frames, a new filter, and a removed plan all reach Target Scheduler."""
+    import copy
+
+    config = TelescopeConfig.load(telescope_config_yaml)
+    api = ObservatoryApiClient(config.api_base_url, config.api_key)
+    url = f"{config.api_base_url}/api/v1/telescopes/{config.slug}/active_targets"
+    first = copy.deepcopy(ACTIVE_TARGETS_RESPONSE)
+    first["targets"][0]["exposure_plans"].append(
+        {"id": 51, "filter": "Ha", "exposure_seconds": 600, "desired_count": 10, "completed_count": 0, "remaining_count": 10})
+    second = copy.deepcopy(ACTIVE_TARGETS_RESPONSE)
+    second["targets"][0]["exposure_plans"][0]["desired_count"] = 40
+    second["targets"][0]["exposure_plans"].append(
+        {"id": 52, "filter": "OIII", "exposure_seconds": 600, "desired_count": 15, "completed_count": 0, "remaining_count": 15})
+    responses.get(url, json=first)
+    responses.get(url, json=second)
+
+    sync_targets_into_scheduler(config, api)
+    with scheduler_db.open_scheduler_db(config.scheduler_db_path) as conn:
+        ha_plan = conn.execute("SELECT p.id FROM exposureplan p JOIN exposuretemplate t ON t.id = p.exposureTemplateId "
+                               "WHERE t.filtername = 'Ha'").fetchone()["id"]
+        conn.execute("UPDATE exposureplan SET accepted = 3 WHERE id = ?", (ha_plan,))
+
+    sync_targets_into_scheduler(config, api)
+
+    with scheduler_db.open_scheduler_db(config.scheduler_db_path) as conn:
+        rows = {r["filtername"]: (r["desired"], r["accepted"]) for r in conn.execute(
+            "SELECT t.filtername, p.desired, p.accepted FROM exposureplan p JOIN exposuretemplate t ON t.id = p.exposureTemplateId")}
+    assert rows == {"Luminance": (40, 0), "Ha": (3, 3), "OIII": (15, 0)}
+    with state.open_state_db(state.state_db_path_for(config.scheduler_db_path)) as conn:
+        assert sorted(link["rails_exposure_plan_id"] for link in state.exposure_plan_links_for_target(conn, 5)) == [50, 52]

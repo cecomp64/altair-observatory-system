@@ -12,11 +12,24 @@
       Dec <%= number_with_precision(@target.dec_deg, precision: 3) %>&deg;
     </p>
   </div>
-  <div class="flex items-center gap-2">
-    <span class="rounded-full px-3 py-1 text-xs font-medium
-      <%= @target.completed? ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700" %>">
-      <%= @target.status.humanize %>
-    </span>
+  <div class="flex flex-wrap items-center justify-end gap-2">
+    <%= render "targets/scheduling_badge", target: @target %>
+    <% if policy(@target).manage? %>
+      <% if @target.open? && !@target.paused? %>
+        <%= button_to "Pause", pause_target_path(@target), method: :post,
+              class: "rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50" %>
+      <% elsif @target.paused? %>
+        <%= button_to "Resume", resume_target_path(@target), method: :post,
+              class: "rounded-lg bg-indigo-600 text-white px-3 py-1.5 text-xs font-medium hover:bg-indigo-500" %>
+      <% elsif @target.cancelled? || (@target.completed? && !@target.fully_captured?) %>
+        <%= button_to "Reopen", reopen_target_path(@target), method: :post,
+              class: "rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50" %>
+      <% end %>
+      <% unless @target.draft? || @target.cancelled? %>
+        <%= link_to (@target.completed? ? "Add frames" : "Edit plans"), edit_target_plans_path(@target),
+              class: "rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50" %>
+      <% end %>
+    <% end %>
     <% if policy(@target).cancel? && !@target.cancelled? && !@target.completed? %>
       <%= button_to "Cancel", cancel_target_path(@target), method: :post, data: { turbo_confirm: "Cancel this target?" },
             class: "rounded-lg border border-rose-200 text-rose-600 px-3 py-1.5 text-xs font-medium hover:bg-rose-50" %>

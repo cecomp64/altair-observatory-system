@@ -62,5 +62,53 @@ RSpec.describe Target, type: :model do
       expect(Target.schedulable).to include(*schedulable)
       expect(Target.schedulable).not_to include(*not_schedulable)
     end
+
+    it "leaves out paused targets and targets of paused, completed or archived projects" do
+      telescope = create(:telescope)
+      open = create(:target, telescope: telescope, status: :active)
+      paused = create(:target, telescope: telescope, status: :active, paused_at: Time.current)
+      halted = %w[paused completed archived].map do |status|
+        project = create(:project, status: status)
+        create(:target, telescope: telescope, status: :active, project: project, user: project.user)
+      end
+
+      expect(Target.schedulable).to contain_exactly(open)
+      expect(paused.scheduling_state).to eq("paused")
+      expect(halted.map(&:scheduling_state)).to eq(%w[project_paused project_completed project_archived])
+      expect(open).to be_schedulable
+    end
+  end
+
+  describe "pause, resume, reopen and settle" do
+    let(:owner) { create(:user) }
+    let(:target) { create(:target, user: owner, status: :active) }
+    let!(:plan) { create(:exposure_plan, target: target, desired_count: 10, completed_count: 10) }
+
+    it "pauses and resumes an open target, recording who did it" do
+      expect(target.pause!(by: owner)).to be(true)
+      expect(target.reload).to be_paused
+      expect(target.pause!(by: owner)).to be(false)
+      expect(target.resume!(by: owner)).to be(true)
+      expect(target.reload).not_to be_paused
+      expect(target.target_events.status_changed.map { |e| e.payload["status"] }).to eq(%w[paused resumed])
+      expect(target.target_events.last.summary).to eq("Resumed by #{owner.display_name}")
+    end
+
+    it "completes when everything is captured, and reopens when more frames are wanted" do
+      target.settle_status!(by: owner)
+      expect(target).to be_completed
+      expect(target.reopen!(by: owner)).to be(false)
+
+      plan.update!(desired_count: 20)
+      target.settle_status!(by: owner)
+      expect(target).to be_active
+    end
+
+    it "reopens a cancelled target" do
+      target.update!(status: :cancelled)
+      plan.update!(completed_count: 2)
+      expect(target.reopen!(by: owner)).to be(true)
+      expect(target.reload).to be_active
+    end
   end
 end

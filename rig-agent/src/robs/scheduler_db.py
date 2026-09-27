@@ -205,6 +205,16 @@ def upsert_exposure_plan(conn: sqlite3.Connection, target_id: int, exposure_temp
     return cursor.lastrowid
 
 
+def retire_exposure_plan(conn: sqlite3.Connection, exposure_plan_id: int) -> None:
+    """A plan removed in the Hub: wanted = accepted, so Target Scheduler
+    treats it as done (the row and its history stay)."""
+    cols = schema.EXPOSURE_PLAN_COLUMNS
+    conn.execute(
+        f"UPDATE {schema.EXPOSURE_PLAN_TABLE} SET {cols['desired']} = {cols['accepted']} WHERE {cols['id']} = ?",
+        (exposure_plan_id,),
+    )
+
+
 def read_accepted_count(conn: sqlite3.Connection, exposure_plan_id: int) -> int:
     cols = schema.EXPOSURE_PLAN_COLUMNS
     row = conn.execute(

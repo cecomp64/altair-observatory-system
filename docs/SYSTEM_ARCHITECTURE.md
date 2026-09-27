@@ -445,7 +445,7 @@ generated `observatory-contracts` models.
 | `GET /telescopes/:slug/active_targets` | The telescope (with `timezone`) and its schedulable targets: coordinates, `nina_name`, `rotation_deg`, `min_altitude_deg`, `project` (id, name, priority, `ts_project_name`), `optical_train.key`, and exposure plans with `completed_count`, `remaining_count` and `schedule_count`. The effective Target Scheduler priority is the project's. |
 | `PATCH /targets/:id/progress` | Sets `completed_count` per plan. Completion follows `completion_basis`. |
 | `POST /targets/:id/events` | A target event (notifications). |
-| `POST /telescopes/:slug/sessions` | `{event: roof_open \| roof_close \| session_end, at, night, target_ids}`. Updates `observing_nights` and emits `session` events. `session_end` queues `night_ready` for each optical train of the telescope on each node that serves it. |
+| `POST /telescopes/:slug/sessions` | `{event: roof_open \| roof_close \| session_end, at, night, target_ids}`. Updates `observing_nights` (a `roof_open` after a `roof_close` reopens the session) and emits `session` events. `session_end` queues `night_ready` for each optical train of the telescope on each node that serves it. |
 | `POST /heartbeat` | `{agent, version, api_revision, status}`. Both principals. The response carries the Hub's `api_revision`. |
 
 ### 5.3 Processing endpoints (`/api/v1/processing`)
@@ -587,10 +587,12 @@ settings change that forces a re-reference (such as `drizzle_scale`) asks for a 
 | Page | Content |
 |---|---|
 | `/` Dashboard | My projects' progress; "Tonight" per telescope (my targets ranked by imaging score, plus well-placed catalogue suggestions); "imaging now" from session events; open issues that need me. Admins also see node health. |
+| `/observatory` | For every member, per active telescope: operating now or why not (imaging, done for the night, waiting for dark, closed, didn't open, or an admin's maintenance/offline with a note), tonight's darkness and Moon, lights and hours so far, the target being imaged (other members' private targets stay anonymous), the queue size, rig agent and processing node heartbeats, and the last 7 nights. Refreshes live on session events, heartbeats and frames, and every 5 minutes. Built from data the Hub already has; weather is not shown yet. |
 | `/objects` Catalogue | Trigram search over names and aliases, with facets (type, constellation, catalogue). |
 | `/objects/:id` | Tonight's altitude chart with a telescope picker (twilight, horizon, Moon), best viewing, aliases, the showcase, frames of the object, projects containing it, and "Start a project". |
 | `/objects/new` | Resolve a name through the local catalogue, then Telescopius, or enter custom coordinates. |
-| `/projects`, `/projects/:id` | Project cards. Project page: per-filter progress, tonight's visibility, targets and plans, integration over time, latest multi-night masters, nights (include/exclude), open issues, and processing controls (settings, rerun, re-reference, mode). |
+| `/projects`, `/projects/:id` | Project cards. Project page: per-filter progress, tonight's visibility, targets and plans, integration over time, latest multi-night masters, nights (include/exclude), open issues, and processing controls (settings, rerun, re-reference, mode). Pause/resume the project and "Add target" (the wizard, adding to this project). |
+| `/targets/:id`, `/targets/:id/plans/edit` | Target page with Pause/Resume, Reopen (cancelled, or completed once more frames are wanted) and Cancel. The plan editor raises or lowers counts, adds a filter × exposure, and removes plans nothing was captured for; a completed target reopens when it needs more frames. |
 | `/projects/new` | The wizard: objects → telescope (each candidate shows tonight's altitude and best season with its horizon) → exposures (filters from the optical train) → review. `/targets/new` redirects here. |
 | `/frames` | File search: object or alias, cone search, project, target, telescope, optical train, filter, image type, night range, exposure, gain, binning, status, unassigned only. Stats by filter. |
 | `/data_products/:id/download` | Redirects to a 10-minute presigned S3 link in Altair's archive (§12), when the archive reader is configured: a master, the target's **masters zip** (`masters_bundle`: the latest multi-night master of each filter with its report), or with `?part=calibrated` a night's **calibrated subs zip**. Offered on target and project pages once the file is in S3. No image data is ever stored in the Hub. |
@@ -989,7 +991,18 @@ pipeline.
 - Not verified here: the Hub's Docker image build (this sandbox can't reach the Debian
   mirrors), and the Windows jobs, which run only on GitHub.
 
-### 9.6 Future work
+### 9.6 Target controls and the observatory page (done)
+
+- Pausing is `targets.paused_at` rather than a new status, so the contract's status enum
+  (and Altair) are unchanged. `Target.schedulable` also leaves out targets of paused,
+  completed or archived projects. The rig agent already disabled targets that drop off
+  `active_targets` and re-enables them, with their accepted counts, when they return; it now
+  also retires Target Scheduler plans removed in the Hub (wanted = accepted).
+- `/observatory` (§7) and an admin-set operating status and note per telescope.
+- Weather is open: local weather and roof data live in an InfluxDB/Grafana setup at the
+  observatory, and how it reaches the Hub is still being decided.
+
+### 9.7 Future work
 
 These have not been started:
 - Automatic flats: turning `FLAT_MISSING` into Target Scheduler flat requests.
@@ -1082,7 +1095,7 @@ keeps working against a newer Hub.
 | 5 | Default `completion_basis`. | `acquired`. Projects opt into `integrated`. |
 | 6 | Previews: Python stretch or PJSR export? | Python (`previews.py`), outside PixInsight's single instance. |
 | 7 | Project visibility to other members. | `private` by default; `club` is opt-in. |
-| 8 | Automatic flats. | Future work (§9.6). The flats shopping list comes first. |
+| 8 | Automatic flats. | Future work (§9.7). The flats shopping list comes first. |
 | 9 | Mosaic assembly. | Future work. Panels are separate targets in one project. |
 | 10 | Offline mobile. | Future work. |
 | 11 | Several processing nodes. | Supported by the data model. One node per telescope at a time. |

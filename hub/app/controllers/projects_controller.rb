@@ -1,5 +1,5 @@
 class ProjectsController < ApplicationController
-  before_action :set_project, only: [ :show, :edit, :update ]
+  before_action :set_project, only: [ :show, :edit, :update, :pause, :resume ]
 
   def index
     @scope = params[:scope] == "club" ? "club" : "mine"
@@ -35,6 +35,24 @@ class ProjectsController < ApplicationController
     else
       render :edit, status: :unprocessable_content
     end
+  end
+
+  # Pausing the project takes all its targets off the telescopes' lists
+  # (they keep their own state, so resuming restores exactly what was there).
+  def pause
+    authorize @project, :manage?
+    return redirect_to(@project, alert: "Only an active project can be paused.") unless @project.active? || @project.planning?
+
+    @project.update!(status: :paused)
+    redirect_to @project, notice: "Project paused. The telescopes stop imaging its targets at their next sync."
+  end
+
+  def resume
+    authorize @project, :manage?
+    return redirect_to(@project, alert: "The project isn't paused.") unless @project.paused?
+
+    @project.update!(status: :active)
+    redirect_to @project, notice: "Project resumed."
   end
 
   private

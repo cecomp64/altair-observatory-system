@@ -24,6 +24,16 @@ class Telescope < ApplicationRecord
 
   scope :active, -> { where(active: true) }
 
+  # Set by an admin and shown to every member on /observatory.
+  OPERATING_STATUSES = %w[operational maintenance offline].freeze
+  validates :operating_status, inclusion: { in: OPERATING_STATUSES }
+  before_save -> { self.status_changed_at = Time.current }, if: -> { will_save_change_to_operating_status? || will_save_change_to_status_note? }
+  after_commit -> { ObservatoryStatus.broadcast }
+
+  def operational?
+    operating_status == "operational"
+  end
+
   def to_param
     slug
   end

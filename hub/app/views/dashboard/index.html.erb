@@ -6,12 +6,13 @@
     <h1 class="text-2xl font-semibold">Welcome back, <%= current_user.display_name %></h1>
     <p class="text-slate-500 text-sm">Your projects, and what's worth imaging tonight.</p>
   </div>
-  <%= link_to "New project", new_project_path, class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
+  <%= link_to "New project", new_project_path(new: 1), class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
 </div>
 
 <% if @imaging_now.any? %>
   <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3 mb-6 text-sm text-emerald-800">
     Imaging now: <%= safe_join(@imaging_now.map { |t| link_to(t.name, telescope_path(t), class: "font-medium underline") }, ", ") %>
+    · <%= link_to "Observatory status", observatory_path, class: "underline" %>
   </div>
 <% end %>
 
@@ -90,7 +91,7 @@
       <% end %>
     </ul>
   <% else %>
-    <p class="text-sm text-slate-400">No projects yet — <%= link_to "start one", new_project_path, class: "text-indigo-600 underline" %>.</p>
+    <p class="text-sm text-slate-400">No projects yet — <%= link_to "start one", new_project_path(new: 1), class: "text-indigo-600 underline" %>.</p>
   <% end %>
 </div>
 

@@ -28,6 +28,7 @@ module Frames
         { sha256: item.is_a?(Hash) ? item["sha256"].to_s : "", status: "error", error: e.message }
       end
       emit_collected_events
+      ObservatoryStatus.broadcast if results.any? { |r| r[:status] == "ok" }
       results
     end
 
