@@ -1,0 +1,42 @@
+{
+  // Tasks for the Hub dev container, which opens hub/ as the workspace folder.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Hub: Start dev server",
+      "detail": "bin/dev: Rails, esbuild and Tailwind watchers on port 3000",
+      "type": "shell",
+      "command": "bin/dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Hub: Run specs",
+      "detail": "bundle exec rspec",
+      "type": "shell",
+      "command": "bundle exec rspec",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "Hub: Lint and security checks",
+      "detail": "rubocop, brakeman, bundler-audit",
+      "type": "shell",
+      "command": "bin/rubocop && bin/brakeman --no-pager && bin/bundler-audit",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "group": "test"
+    },
+    {
+      "label": "Hub: Update after pull",
+      "detail": "bin/setup --skip-server: new gems and packages, migrations",
+      "type": "shell",
+      "command": "bin/setup --skip-server",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    }
+  ]
+}

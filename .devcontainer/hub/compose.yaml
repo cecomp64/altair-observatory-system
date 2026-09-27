@@ -1,0 +1,37 @@
+name: altair-hub
+
+services:
+  hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # The whole repo is mounted: the contract specs read ../contracts.
+    volumes:
+      - ../..:/workspaces/altair-observatory-system:cached
+      - bundle:/usr/local/bundle
+      # Claude Code's login and settings, kept across rebuilds (see CLAUDE_CONFIG_DIR).
+      - claude-config:/home/vscode/.claude
+    command: sleep infinity
+    environment:
+      # database.yml sets no host or user for development and test; libpq reads these.
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      # Puts .claude.json in the volume too, not just ~/.claude/.
+      CLAUDE_CONFIG_DIR: /home/vscode/.claude
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  bundle:
+  claude-config:
+  postgres-data:
