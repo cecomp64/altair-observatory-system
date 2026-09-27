@@ -3,7 +3,7 @@ class FramesController < ApplicationController
 
   def index
     authorize Frame
-    @search = Frames::Search.new(policy_scope(Frame), search_params)
+    @search = Frames::Search.new(policy_scope(Frame), search_params, objects: policy_scope(AstroObject))
     respond_to do |format|
       format.html do
         @stats = @search.stats

@@ -18,11 +18,13 @@
   <div class="grid grid-cols-3 gap-4">
     <div>
       <%= f.label :latitude, class: "block text-sm font-medium text-slate-700 mb-1" %>
-      <%= f.text_field :latitude, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+      <%= f.text_field :latitude, value: CoordinateFormatter.latitude(f.object.latitude), placeholder: "37° 18′ 00″ N or 37.3",
+            class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
     </div>
     <div>
       <%= f.label :longitude, class: "block text-sm font-medium text-slate-700 mb-1" %>
-      <%= f.text_field :longitude, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+      <%= f.text_field :longitude, value: CoordinateFormatter.longitude(f.object.longitude), placeholder: "121° 54′ 00″ W or -121.9",
+            class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
     </div>
     <div>
       <%= f.label :elevation_m, "Elevation (m)", class: "block text-sm font-medium text-slate-700 mb-1" %>

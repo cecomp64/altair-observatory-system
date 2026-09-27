@@ -61,7 +61,7 @@
         <% suggestions.each do |s| %>
           <%= link_to object_path(s.object, telescope: planner.telescope.slug), class: "rounded-lg border border-slate-200 px-3 py-1.5 text-sm hover:border-indigo-300" do %>
             <span class="font-medium"><%= s.object.primary_name %></span>
-            <span class="text-xs text-slate-400"><%= s.entry.hours.round(1) %> h · <%= s.entry.max_altitude.round %>°</span>
+            <span class="text-xs text-slate-400"><%= s.entry.hours.round(1) %> h · <%= format_angle(s.entry.max_altitude) %></span>
           <% end %>
         <% end %>
       </div>

@@ -20,7 +20,7 @@ class ProjectWizardController < ApplicationController
 
   def objects
     @query = params[:q].to_s.strip
-    @results = @query.present? ? AstroObject.search(@query).limit(15) : []
+    @results = @query.present? ? policy_scope(AstroObject).search(@query).limit(15) : []
     @objects = selected_objects
   end
 
@@ -211,7 +211,7 @@ class ProjectWizardController < ApplicationController
   # custom coordinates.
   def build_object_entry
     if params[:astro_object_id].present?
-      object = AstroObject.find_by(id: params[:astro_object_id])
+      object = policy_scope(AstroObject).find_by(id: params[:astro_object_id])
       return object_entry(object) if object&.coordinates?
 
       @object_error = "That object has no coordinates."

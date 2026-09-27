@@ -31,7 +31,7 @@
           <% @objects.each do |object| %>
             <li class="py-2 flex justify-between">
               <span><%= object["name"] %><%= " · panel #{object['panel']}" if object["panel"].present? %></span>
-              <span class="text-slate-500">RA <%= number_with_precision(object["ra_deg"], precision: 3) %>° · Dec <%= number_with_precision(object["dec_deg"], precision: 3) %>°</span>
+              <span class="text-slate-500"><%= format_radec(object["ra_deg"], object["dec_deg"]) %></span>
             </li>
           <% end %>
         </ul>

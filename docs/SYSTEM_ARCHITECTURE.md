@@ -590,7 +590,7 @@ settings change that forces a re-reference (such as `drizzle_scale`) asks for a 
 | `/observatory` | For every member, per active telescope: operating now or why not (imaging, done for the night, waiting for dark, closed, didn't open, or an admin's maintenance/offline with a note), tonight's darkness and Moon, lights and hours so far, the target being imaged (other members' private targets stay anonymous), the queue size, rig agent and processing node heartbeats, and the last 7 nights. Refreshes live on session events, heartbeats and frames, and every 5 minutes. Built from data the Hub already has; weather is not shown yet. |
 | `/objects` Catalogue | Trigram search over names and aliases, with facets (type, constellation, catalogue). |
 | `/objects/:id` | Tonight's altitude chart with a telescope picker (twilight, horizon, Moon), best viewing, aliases, the showcase, frames of the object, projects containing it, and "Start a project". |
-| `/objects/new` | Resolve a name through the local catalogue, then Telescopius, or enter custom coordinates. |
+| `/objects/new` | Resolve a name through the local catalogue, then Telescopius, or enter custom coordinates. A custom object is private to its creator (and admins) until they share it with every member from its page; catalogue imports and Telescopius lookups are always public. Name resolution, search, the wizard and frame pages never show another member's private object. |
 | `/projects`, `/projects/:id` | Project cards. Project page: per-filter progress, tonight's visibility, targets and plans, integration over time, latest multi-night masters, nights (include/exclude), open issues, and processing controls (settings, rerun, re-reference, mode). Pause/resume the project and "Add target" (the wizard, adding to this project). |
 | `/targets/:id`, `/targets/:id/plans/edit` | Target page with Pause/Resume, Reopen (cancelled, or completed once more frames are wanted) and Cancel. The plan editor raises or lowers counts, adds a filter × exposure, and removes plans nothing was captured for; a completed target reopens when it needs more frames. |
 | `/projects/new` | The wizard: objects → telescope (each candidate shows tonight's altitude and best season with its horizon) → exposures (filters from the optical train) → review. `/targets/new` redirects here. |
@@ -1002,7 +1002,16 @@ pipeline.
 - Weather is open: local weather and roof data live in an InfluxDB/Grafana setup at the
   observatory, and how it reaches the Hub is still being decided.
 
-### 9.7 Future work
+### 9.7 UI consistency (done)
+
+- One coordinate format everywhere (`CoordinateFormatter`): RA as `05h 35m 17.3s`, Dec as
+  `−05° 23′ 28″`, latitude and longitude as `37° 18′ 00″ N`, altitude, azimuth and
+  separations as decimal degrees. The decimal value is in a tooltip, and every input
+  (`CoordinateParser`) accepts the displayed form, colon-separated sexagesimal, or decimal.
+- The telescope's local time (a live clock in its time zone) wherever its site is shown.
+- A shorter nav with a "More" menu, and a hamburger menu below the `lg` breakpoint.
+
+### 9.8 Future work
 
 These have not been started:
 - Automatic flats: turning `FLAT_MISSING` into Target Scheduler flat requests.
@@ -1095,7 +1104,7 @@ keeps working against a newer Hub.
 | 5 | Default `completion_basis`. | `acquired`. Projects opt into `integrated`. |
 | 6 | Previews: Python stretch or PJSR export? | Python (`previews.py`), outside PixInsight's single instance. |
 | 7 | Project visibility to other members. | `private` by default; `club` is opt-in. |
-| 8 | Automatic flats. | Future work (§9.7). The flats shopping list comes first. |
+| 8 | Automatic flats. | Future work (§9.8). The flats shopping list comes first. |
 | 9 | Mosaic assembly. | Future work. Panels are separate targets in one project. |
 | 10 | Offline mobile. | Future work. |
 | 11 | Several processing nodes. | Supported by the data model. One node per telescope at a time. |

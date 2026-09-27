@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_27_000013) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_27_000014) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -67,6 +67,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_27_000013) do
     t.decimal "position_angle_deg", precision: 6, scale: 2
     t.string "primary_name", null: false
     t.decimal "ra_deg", precision: 9, scale: 5
+    t.boolean "shared", default: false, null: false
     t.decimal "size_major_arcmin", precision: 8, scale: 2
     t.decimal "size_minor_arcmin", precision: 8, scale: 2
     t.string "source", default: "custom", null: false

@@ -10,8 +10,10 @@ module Frames
 
     attr_reader :params
 
-    def initialize(scope, params)
+    # objects: the catalogue objects the viewer may see (name search).
+    def initialize(scope, params, objects: AstroObject.all)
       @scope = scope
+      @objects = objects
       @params = params.to_h.symbolize_keys.slice(*FILTERS, :group)
     end
 
@@ -86,7 +88,7 @@ module Frames
     # catalogue object in the field of view.
     def by_name(rel, q)
       like = "%#{ActiveRecord::Base.sanitize_sql_like(q)}%"
-      object_ids = AstroObject.search(q).limit(50).pluck(:id)
+      object_ids = @objects.search(q).limit(50).pluck(:id)
       rel.where(target_id: Target.where("targets.name ILIKE ?", like).or(Target.where(astro_object_id: object_ids)).select(:id))
          .or(rel.where("frames.object_header ILIKE ?", like))
          .or(rel.where(id: FrameObject.where(astro_object_id: object_ids).select(:frame_id)))

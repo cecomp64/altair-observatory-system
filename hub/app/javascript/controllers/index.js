@@ -12,3 +12,9 @@ application.register("bulk-select", BulkSelectController)
 
 import AutoRefreshController from "./auto_refresh_controller"
 application.register("auto-refresh", AutoRefreshController)
+
+import LocalClockController from "./local_clock_controller"
+application.register("local-clock", LocalClockController)
+
+import DropdownController from "./dropdown_controller"
+application.register("dropdown", DropdownController)

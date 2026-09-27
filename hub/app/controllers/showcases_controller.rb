@@ -34,6 +34,6 @@ class ShowcasesController < ApplicationController
   private
 
   def set_object
-    @object = AstroObject.find(params[:object_id])
+    @object = policy_scope(AstroObject).find(params[:object_id])
   end
 end

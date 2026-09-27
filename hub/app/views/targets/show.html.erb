@@ -8,8 +8,7 @@
     <h1 class="text-2xl font-semibold"><%= @target.name %> <span class="text-sm font-mono text-slate-400"><%= @target.nina_name %></span></h1>
     <p class="text-slate-500 text-sm mt-1">
       <%= @target.telescope.name %> &middot; <%= @target.effective_optical_train&.name %> &middot;
-      RA <%= number_with_precision(@target.ra_deg, precision: 3) %>&deg; &middot;
-      Dec <%= number_with_precision(@target.dec_deg, precision: 3) %>&deg;
+      <%= format_radec(@target.ra_deg, @target.dec_deg) %>
     </p>
   </div>
   <div class="flex flex-wrap items-center justify-end gap-2">

@@ -26,7 +26,7 @@ class TonightPlanner
   # given targets already point at.
   def suggestions(limit: 5, exclude_object_ids: [])
     entries = Astro::WellPlaced.for(telescope, date: @night.date)
-    candidates = AstroObject.where(id: entries.keys).where.not(id: exclude_object_ids)
+    candidates = AstroObject.where(id: entries.keys).where.not(id: exclude_object_ids).where.not(source: "custom")
                             .where("magnitude <= 9 OR size_major_arcmin >= 15").pluck(:id)
     top = candidates.map { |id| entries[id] }.sort_by { |e| -e.score }.first(limit)
     objects = AstroObject.where(id: top.map(&:id)).index_by(&:id)

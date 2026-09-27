@@ -46,13 +46,22 @@ module Admin
       @telescope = Telescope.find_by_param!(params[:id])
     end
 
+    # Latitude and longitude may be entered as 37° 18′ 00″ N, 37:18:00 or 37.3;
+    # an unparseable value is passed through so validation reports it.
     def telescope_params
-      params.require(:telescope).permit(
+      permitted = params.require(:telescope).permit(
         :name, :slug, :latitude, :longitude, :elevation_m,
         :active, :self_serve_submit, :description, :horizon_file,
         :timezone, :min_altitude_deg, :default_optical_train_id,
         :operating_status, :status_note
       )
+      { latitude: :parse_latitude, longitude: :parse_longitude }.each do |key, parser|
+        next unless permitted.key?(key)
+
+        parsed = CoordinateParser.public_send(parser, permitted[key])
+        permitted[key] = parsed unless parsed.nil?
+      end
+      permitted
     end
   end
 end

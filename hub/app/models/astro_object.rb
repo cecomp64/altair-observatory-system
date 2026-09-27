@@ -15,6 +15,13 @@ class AstroObject < ApplicationRecord
 
   after_create :add_primary_alias
 
+  # Custom objects are private to their creator (and admins) unless shared.
+  scope :visible_to, lambda { |user|
+    next all if user&.admin?
+
+    where.not(source: "custom").or(where(shared: true)).or(where(created_by_id: user&.id))
+  }
+
   # Fuzzy search over primary names and aliases (pg_trgm). Exact alias hits
   # rank first, then prefix hits, then trigram similarity.
   scope :search, lambda { |query|
@@ -49,6 +56,14 @@ class AstroObject < ApplicationRecord
 
   def alias_names
     aliases.map(&:name)
+  end
+
+  def custom?
+    source == "custom"
+  end
+
+  def visible_to?(user)
+    !custom? || shared? || user&.admin? || (user.present? && created_by_id == user.id)
   end
 
   def coordinates?

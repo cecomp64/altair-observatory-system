@@ -8,8 +8,9 @@
       <h2 class="font-medium text-lg"><%= telescope.name %></h2>
       <p class="text-sm text-slate-500 mt-1"><%= telescope.description.presence || "No description yet." %></p>
       <p class="text-xs text-slate-400 mt-3">
-        <%= number_with_precision(telescope.latitude, precision: 3) %>, <%= number_with_precision(telescope.longitude, precision: 3) %>
+        <%= format_site(telescope) %>
         <% if telescope.elevation_m.present? %> &middot; <%= telescope.elevation_m.to_i %> m <% end %>
+        &middot; <%= telescope_clock(telescope) %> local
       </p>
     <% end %>
   <% end %>

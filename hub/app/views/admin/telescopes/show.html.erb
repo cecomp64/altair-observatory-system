@@ -19,12 +19,13 @@
 <% end %>
 
 <dl class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 text-sm">
-  <div><dt class="text-slate-400">Latitude</dt><dd><%= @telescope.latitude %></dd></div>
-  <div><dt class="text-slate-400">Longitude</dt><dd><%= @telescope.longitude %></dd></div>
+  <div><dt class="text-slate-400">Latitude</dt><dd><%= format_latitude(@telescope.latitude) %></dd></div>
+  <div><dt class="text-slate-400">Longitude</dt><dd><%= format_longitude(@telescope.longitude) %></dd></div>
   <div><dt class="text-slate-400">Elevation</dt><dd><%= @telescope.elevation_m || "—" %> m</dd></div>
   <div><dt class="text-slate-400">Status</dt><dd><%= @telescope.active? ? "Active" : "Inactive" %></dd></div>
   <div><dt class="text-slate-400">Timezone</dt><dd><%= @telescope.timezone %></dd></div>
-  <div><dt class="text-slate-400">Min altitude</dt><dd><%= @telescope.min_altitude_deg %>°</dd></div>
+  <div><dt class="text-slate-400">Local time</dt><dd><%= telescope_clock(@telescope) %></dd></div>
+  <div><dt class="text-slate-400">Min altitude</dt><dd><%= format_angle(@telescope.min_altitude_deg) %></dd></div>
 </dl>
 
 <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">

@@ -63,6 +63,7 @@ Rails.application.routes.draw do
   end
 
   resources :objects, only: [ :index, :show, :new, :create ] do
+    patch :share, on: :member
     resource :showcase, only: [ :create, :destroy ]
   end
 

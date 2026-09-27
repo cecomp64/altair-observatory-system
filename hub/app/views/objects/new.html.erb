@@ -24,14 +24,18 @@
       <% end %>
       <div><%= f.label :primary_name, "Name", class: label %><%= f.text_field :primary_name, class: field, required: true %></div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="<%= label %>">RA</label><input type="text" name="astro_object[ra]" value="<%= params.dig(:astro_object, :ra) %>" placeholder="05:35:17" class="<%= field %>"></div>
-        <div><label class="<%= label %>">Dec</label><input type="text" name="astro_object[dec]" value="<%= params.dig(:astro_object, :dec) %>" placeholder="-05:23:28" class="<%= field %>"></div>
+        <div><label class="<%= label %>">RA</label><input type="text" name="astro_object[ra]" value="<%= params.dig(:astro_object, :ra) %>" placeholder="05h 35m 17s" class="<%= field %>"></div>
+        <div><label class="<%= label %>">Dec</label><input type="text" name="astro_object[dec]" value="<%= params.dig(:astro_object, :dec) %>" placeholder="−05° 23′ 28″" class="<%= field %>"></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div><%= f.label :object_type, "Type", class: label %><%= f.text_field :object_type, class: field %></div>
         <div><%= f.label :size_major_arcmin, "Size (′)", class: label %><%= f.number_field :size_major_arcmin, step: "any", class: field %></div>
       </div>
       <div><label class="<%= label %>">Other names <span class="text-slate-400 font-normal">(comma-separated)</span></label><input type="text" name="astro_object[aliases]" class="<%= field %>"></div>
+      <label class="flex items-center gap-2 text-sm text-slate-600">
+        <%= check_box_tag "astro_object[shared]", "1", params.dig(:astro_object, :shared) == "1", class: "h-4 w-4 rounded border-slate-300" %>
+        Share with every member (otherwise only you, and admins, can see it)
+      </label>
       <%= f.submit "Add object", class: "rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white cursor-pointer" %>
     <% end %>
   </div>

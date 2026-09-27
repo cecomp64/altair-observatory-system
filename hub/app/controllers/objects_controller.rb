@@ -3,7 +3,7 @@
 class ObjectsController < ApplicationController
   PER_PAGE = 25
 
-  before_action :set_object, only: :show
+  before_action :set_object, only: [ :show, :share ]
   before_action :set_telescope, only: [ :index, :show ]
 
   def index
@@ -15,9 +15,10 @@ class ObjectsController < ApplicationController
     count = scope.unscope(:order).count
     @pagy, @objects = pagy(ordered(scope), limit: PER_PAGE, count: count)
     @objects = @objects.includes(:aliases)
+    visible = policy_scope(AstroObject)
     @facets = {
-      types: AstroObject.where.not(object_type: nil).distinct.order(:object_type).pluck(:object_type),
-      constellations: AstroObject.where.not(constellation: nil).distinct.order(:constellation).pluck(:constellation),
+      types: visible.where.not(object_type: nil).distinct.order(:object_type).pluck(:object_type),
+      constellations: visible.where.not(constellation: nil).distinct.order(:constellation).pluck(:constellation),
       catalogs: ObjectAlias.where.not(catalog: nil).distinct.order(:catalog).pluck(:catalog)
     }
     if @telescope
@@ -59,16 +60,24 @@ class ObjectsController < ApplicationController
       return render :new, status: :unprocessable_content
     end
 
-    @object = AstroObject.new(custom_params.merge(source: "custom", created_by: current_user))
+    @object = AstroObject.new(custom_params.merge(source: "custom", created_by: current_user,
+                                                  shared: params.dig(:astro_object, :shared) == "1"))
     @object.ra_deg = CoordinateParser.parse_ra(params[:astro_object][:ra])
     @object.dec_deg = CoordinateParser.parse_dec(params[:astro_object][:dec])
     @object.errors.add(:base, "Enter valid coordinates (e.g. RA 05:35:17, Dec -05:23:28)") if @object.ra_deg.nil? || @object.dec_deg.nil?
     if @object.errors.none? && @object.save
       params[:astro_object][:aliases].to_s.split(",").each { |name| @object.add_alias(name) }
-      redirect_to object_path(@object), notice: "Object added to the catalogue."
+      redirect_to object_path(@object), notice: @object.shared? ? "Object added and shared with every member." : "Object added. Only you can see it until you share it."
     else
       render :new, status: :unprocessable_content
     end
+  end
+
+  # A custom object's creator shares it with every member, or makes it private.
+  def share
+    authorize @object
+    @object.update!(shared: params[:shared] == "1")
+    redirect_to object_path(@object), notice: @object.shared? ? "Shared with every member." : "Now only you can see it."
   end
 
   private
@@ -84,7 +93,9 @@ class ObjectsController < ApplicationController
   end
 
   def filtered_scope
-    scope = params[:q].present? ? AstroObject.search(params[:q]) : AstroObject.all
+    visible = policy_scope(AstroObject)
+    scope = params[:q].present? ? visible.search(params[:q]) : visible
+    scope = scope.where(source: "custom", created_by: current_user) if params[:mine] == "1"
     scope = scope.where(object_type: params[:type]) if params[:type].present?
     scope = scope.where(constellation: params[:constellation]) if params[:constellation].present?
     scope = scope.where(id: ObjectAlias.where(catalog: params[:catalog]).select(:astro_object_id)) if params[:catalog].present?

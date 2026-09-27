@@ -26,31 +26,7 @@
 
   <body class="min-h-screen bg-slate-50 text-slate-900">
     <% if user_signed_in? %>
-      <nav class="bg-slate-900 text-slate-100">
-        <div class="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
-          <div class="flex items-center gap-6">
-            <%= link_to "Remote Observatory", root_path, class: "font-semibold tracking-tight" %>
-            <div class="hidden sm:flex items-center gap-4 text-sm text-slate-300">
-              <%= link_to "Dashboard", root_path, class: "hover:text-white" %>
-              <%= link_to "Observatory", observatory_path, class: "hover:text-white" %>
-              <%= link_to "Catalogue", objects_path, class: "hover:text-white" %>
-              <%= link_to "Telescopes", telescopes_path, class: "hover:text-white" %>
-              <%= link_to "Projects", projects_path, class: "hover:text-white" %>
-              <%= link_to "Targets", targets_path, class: "hover:text-white" %>
-              <%= link_to "Files", frames_path, class: "hover:text-white" %>
-              <%= link_to "Issues", issues_path, class: "hover:text-white" %>
-              <%= link_to "New Project", new_project_path(new: 1), class: "hover:text-white" %>
-              <% if current_user.admin? %>
-                <%= link_to "Admin", admin_root_path, class: "hover:text-white" %>
-              <% end %>
-            </div>
-          </div>
-          <div class="flex items-center gap-3 text-sm text-slate-300">
-            <%= link_to current_user.display_name, edit_profile_path, class: "hover:text-white" %>
-            <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "hover:text-white underline bg-transparent border-0 p-0 cursor-pointer" %>
-          </div>
-        </div>
-      </nav>
+      <%= render "layouts/nav" %>
     <% end %>
 
     <main class="mx-auto max-w-5xl px-4 py-8">

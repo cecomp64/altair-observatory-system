@@ -10,7 +10,18 @@
             (@object.size_major_arcmin && "#{@object.size_major_arcmin.to_f.round(1)}′ × #{@object.size_minor_arcmin&.to_f&.round(1) || '?'}′") ].compact.join(" · ") %>
     </p>
     <% if @object.coordinates? %>
-      <p class="text-sm text-slate-500">RA <%= number_with_precision(@object.ra_deg, precision: 4) %>° · Dec <%= number_with_precision(@object.dec_deg, precision: 4) %>° (J2000)</p>
+      <p class="text-sm text-slate-500"><%= format_radec(@object.ra_deg, @object.dec_deg) %> (J2000)</p>
+    <% end %>
+    <% if @object.custom? %>
+      <p class="text-xs mt-1 flex items-center gap-2">
+        <span class="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600"><%= @object.shared? ? "Custom · shared with members" : "Custom · private" %></span>
+        <% if @object.created_by && @object.created_by != current_user %><span class="text-slate-400">added by <%= @object.created_by.display_name %></span><% end %>
+        <% if policy(@object).share? %>
+          <%= button_to (@object.shared? ? "Make private" : "Share with members"), share_object_path(@object), method: :patch,
+                params: { shared: @object.shared? ? "0" : "1" }, form_class: "inline",
+                class: "text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
+        <% end %>
+      </p>
     <% end %>
     <p class="text-xs text-slate-400 mt-1">Also known as <%= @object.aliases.map(&:name).reject { |n| n == @object.primary_name }.join(", ").presence || "—" %></p>
   </div>
@@ -33,8 +44,8 @@
       <%= altitude_chart(@tonight, labels: [ @object.primary_name ], night: @night, now_line: @date == @telescope.night_for(Time.current)) %>
       <dl class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mt-4">
         <div><dt class="text-slate-400">Clear in darkness</dt><dd class="font-medium"><%= @tonight.hours_clear_in_darkness.round(1) %> h</dd></div>
-        <div><dt class="text-slate-400">Highest</dt><dd class="font-medium"><%= @tonight.max_altitude %>° at <%= @tonight.transit_time.in_time_zone(@site.time_zone).strftime("%H:%M") %></dd></div>
-        <div><dt class="text-slate-400">Moon</dt><dd class="font-medium"><%= (@tonight.moon_illumination * 100).round %>% lit, <%= @tonight.moon_separation.round %>° away</dd></div>
+        <div><dt class="text-slate-400">Highest</dt><dd class="font-medium"><%= format_angle(@tonight.max_altitude) %> at <%= @tonight.transit_time.in_time_zone(@site.time_zone).strftime("%H:%M") %></dd></div>
+        <div><dt class="text-slate-400">Moon</dt><dd class="font-medium"><%= (@tonight.moon_illumination * 100).round %>% lit, <%= format_angle(@tonight.moon_separation) %> away</dd></div>
         <div><dt class="text-slate-400">Dark</dt><dd class="font-medium">
           <% if (dark = @night.darkness) %><%= dark.begin.strftime("%H:%M") %>–<%= dark.end.strftime("%H:%M") %><% else %>no astronomical darkness<% end %></dd></div>
       </dl>

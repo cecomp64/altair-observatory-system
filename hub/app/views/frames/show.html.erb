@@ -15,7 +15,7 @@
       <dt class="text-slate-400">Gain · offset · bin</dt><dd><%= [ @frame.gain&.to_f, @frame.offset&.to_f, @frame.binning ].compact.join(" · ") %></dd>
       <dt class="text-slate-400">Sensor</dt><dd><%= @frame.sensor_temp_c ? "#{@frame.sensor_temp_c.to_f} °C" : "—" %></dd>
       <dt class="text-slate-400">Rotator</dt><dd><%= [ @frame.rotator_pos&.to_f, @frame.rotator_units ].compact.join(" ") %></dd>
-      <dt class="text-slate-400">Pointing</dt><dd><%= @frame.ra_deg ? "RA #{@frame.ra_deg.to_f.round(4)}° Dec #{@frame.dec_deg.to_f.round(4)}°" : "—" %></dd>
+      <dt class="text-slate-400">Pointing</dt><dd><%= format_radec(@frame.ra_deg, @frame.dec_deg) %></dd>
       <dt class="text-slate-400">Field of view</dt><dd><%= @frame.fov_width_deg ? "#{(@frame.fov_width_deg.to_f * 60).round(1)}′ × #{(@frame.fov_height_deg.to_f * 60).round(1)}′" : "—" %></dd>
       <dt class="text-slate-400">Status</dt><dd><%= @frame.status %><%= " — #{@frame.status_reason}" if @frame.status_reason.present? %></dd>
       <dt class="text-slate-400">Quality</dt><dd><%= @frame.quality.map { |k, v| "#{k} #{v}" }.join(" · ").presence || "—" %></dd>
@@ -34,9 +34,10 @@
     </div>
     <div class="rounded-xl border border-slate-200 bg-white p-5">
       <h2 class="text-sm font-medium text-slate-500 mb-3">In the field of view</h2>
-      <% if @frame.frame_objects.any? %>
+      <% in_fov = @frame.frame_objects.select { |fo| fo.astro_object.visible_to?(current_user) } %>
+      <% if in_fov.any? %>
         <ul class="text-sm divide-y divide-slate-100">
-          <% @frame.frame_objects.sort_by { |fo| fo.angular_distance_arcmin.to_f }.each do |fo| %>
+          <% in_fov.sort_by { |fo| fo.angular_distance_arcmin.to_f }.each do |fo| %>
             <li class="py-1.5 flex justify-between"><%= link_to fo.astro_object.primary_name, object_path(fo.astro_object), class: "hover:text-indigo-600" %>
               <span class="text-xs text-slate-400"><%= fo.association_type == "primary" ? "target · " : "" %><%= fo.angular_distance_arcmin.to_f.round(1) %>′ from centre</span></li>
           <% end %>
