@@ -13,6 +13,8 @@ class Telescope < ApplicationRecord
 
   before_validation :generate_slug, on: :create
   after_create :create_default_optical_train
+  validate :horizon_file_parses, if: -> { attachment_changes["horizon_file"].is_a?(ActiveStorage::Attached::Changes::CreateOne) }
+  before_save :cache_horizon_points, if: -> { attachment_changes.key?("horizon_file") }
 
   validates :name, presence: true
   validates :slug, presence: true, uniqueness: true, format: { with: /\A[a-z0-9\-]+\z/ }
@@ -53,25 +55,45 @@ class Telescope < ApplicationRecord
     (time.in_time_zone(time_zone) - 12.hours).to_date
   end
 
-  # Parses the horizon file, a plain text/CSV file of "azimuth,altitude"
-  # pairs (degrees) describing the minimum altitude that is clear of
-  # obstructions at each azimuth. Returns an array of [az, alt] floats
-  # sorted by azimuth, or [] if no file is attached / it fails to parse.
-  def horizon_points
-    return [] unless horizon_file.attached?
+  private
 
-    horizon_file.download.each_line.filter_map do |line|
-      line = line.strip
-      next if line.empty? || line.start_with?("#")
-
-      az, alt = line.split(/[,\s]+/).first(2).map(&:to_f)
-      [ az, alt ]
-    end.sort_by(&:first)
-  rescue StandardError
-    []
+  # horizon_points caches the parsed horizon file (see HorizonFileParser). It
+  # is parsed from the attachable, because the blob isn't uploaded until after
+  # commit; a file that doesn't parse is rejected.
+  def horizon_file_parses
+    result = parsed_horizon_file(attachment_changes["horizon_file"])
+    errors.add(:horizon_file, result.message) if result.is_a?(HorizonFileParser::Error)
   end
 
-  private
+  def cache_horizon_points
+    change = attachment_changes["horizon_file"]
+    result = parsed_horizon_file(change) if change.is_a?(ActiveStorage::Attached::Changes::CreateOne)
+    self.horizon_points = result.is_a?(Array) ? result : []
+  end
+
+  # Points, or the HorizonFileParser::Error; parsed once per attachment change.
+  def parsed_horizon_file(change)
+    (@parsed_horizon_files ||= {}.compare_by_identity)[change] ||= begin
+      if change.blob.byte_size > HorizonFileParser::MAX_BYTES
+        raise HorizonFileParser::Error, "is larger than #{HorizonFileParser::MAX_BYTES / 1.megabyte} MB"
+      end
+
+      HorizonFileParser.parse(read_attachable(change.attachable))
+    rescue HorizonFileParser::Error => e
+      e
+    end
+  end
+
+  def read_attachable(attachable)
+    case attachable
+    when ActiveStorage::Blob then attachable.download
+    when String then ActiveStorage::Blob.find_signed!(attachable).download
+    when Pathname then attachable.read
+    else
+      io = attachable.is_a?(Hash) ? attachable.fetch(:io) : attachable
+      io.read.tap { io.rewind }
+    end
+  end
 
   def generate_slug
     return if name.blank?

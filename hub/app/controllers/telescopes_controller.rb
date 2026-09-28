@@ -6,6 +6,5 @@ class TelescopesController < ApplicationController
   def show
     @telescope = policy_scope(Telescope).find_by!(slug: params[:id])
     authorize @telescope, :show?
-    @horizon_points = @telescope.horizon_points
   end
 end

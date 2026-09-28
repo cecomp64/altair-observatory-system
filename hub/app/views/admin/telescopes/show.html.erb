@@ -29,6 +29,12 @@
 </dl>
 
 <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+  <h2 class="text-sm font-medium text-slate-500 mb-3">Horizon profile
+    <span class="text-slate-400"><%= @telescope.horizon_file.attached? ? "(#{@telescope.horizon_file.filename}, #{pluralize(@telescope.horizon_points.size, 'point')})" : "(no horizon file; flat)" %></span></h2>
+  <%= horizon_chart(Astro::Site.for(@telescope)) %>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
   <div class="flex items-center justify-between mb-4">
     <h2 class="text-sm font-medium text-slate-500">Optical trains <span class="text-slate-400">(one per Altair rig; key = rig name)</span></h2>
     <%= link_to "New optical train", new_admin_telescope_optical_train_path(@telescope), class: "text-sm text-indigo-600 hover:underline" %>

@@ -16,12 +16,12 @@ Rails.application.routes.draw do
   # declared before `resources :projects` below, otherwise `/projects/new`
   # would be swallowed by `projects#show` (id="new").
   controller :project_wizard do
-    get    "projects/new",                   action: :objects,    as: :new_project
-    patch  "projects/new",                   action: :update_objects
+    get    "projects/new",                   action: :telescope,  as: :new_project
+    patch  "projects/new",                   action: :update_telescope
+    get    "projects/new/objects",           action: :objects,    as: :project_wizard_objects
+    patch  "projects/new/objects",           action: :update_objects
     post   "projects/new/objects",           action: :add_object, as: :project_wizard_add_object
     delete "projects/new/objects/:index",    action: :remove_object, as: :project_wizard_remove_object
-    get    "projects/new/telescope",         action: :telescope,  as: :project_wizard_telescope
-    patch  "projects/new/telescope",         action: :update_telescope
     get    "projects/new/exposures",         action: :exposures,  as: :project_wizard_exposures
     post   "projects/new/exposures",         action: :add_exposure_plan, as: :project_wizard_add_exposure_plan
     delete "projects/new/exposures/:index",  action: :remove_exposure_plan, as: :project_wizard_remove_exposure_plan
@@ -30,6 +30,8 @@ Rails.application.routes.draw do
     post   "projects/new/review",            action: :create,     as: :project_wizard_create
   end
 
+  # The telescope became the first step.
+  get "projects/new/telescope", to: redirect("/projects/new")
   # The single-target wizard became the project wizard.
   get "targets/new", to: redirect("/projects/new"), as: :new_target
 

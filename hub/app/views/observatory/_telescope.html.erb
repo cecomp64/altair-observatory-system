@@ -18,6 +18,7 @@
     <div>
       <h2 class="text-lg font-semibold"><%= link_to telescope.name, telescope_path(telescope), class: "hover:text-indigo-600" %></h2>
       <p class="text-sm text-slate-500"><%= blurb %> <span class="text-slate-400">· Local time <%= telescope_clock(telescope) %></span></p>
+      <div class="mt-2 w-64 max-w-full"><%= horizon_silhouette(telescope) %></div>
       <% if telescope.status_note.present? %>
         <p class="text-sm text-slate-700 mt-1"><%= telescope.status_note %>
           <% if telescope.status_changed_at %><span class="text-xs text-slate-400">(<%= time_ago_in_words(telescope.status_changed_at) %> ago)</span><% end %></p>

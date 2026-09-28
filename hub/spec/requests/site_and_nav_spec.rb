@@ -40,6 +40,20 @@ RSpec.describe "Telescope local time, coordinates and navigation", type: :reques
     expect(response).to have_http_status(:unprocessable_content)
   end
 
+  it "lets admins upload a horizon file and reports a bad one" do
+    sign_in create(:user, :admin)
+    upload = ->(text) { Rack::Test::UploadedFile.new(StringIO.new(text), "text/csv", original_filename: "horizon.csv") }
+
+    patch admin_telescope_path(telescope), params: { telescope: { horizon_file: upload.("azimuth,altitude\n0,15\n180,25\n") } }
+    expect(response).to redirect_to(admin_telescope_path(telescope))
+    expect(telescope.reload.horizon_points).to eq([ [ 0.0, 15.0 ], [ 180.0, 25.0 ] ])
+
+    patch admin_telescope_path(telescope), params: { telescope: { horizon_file: upload.("0,15\n180,95\n") } }
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.body).to include("Horizon file line 2: altitude must be between -90 and 90")
+    expect(telescope.reload.horizon_points).to eq([ [ 0.0, 15.0 ], [ 180.0, 25.0 ] ])
+  end
+
   it "has a compact nav with a More menu and a hamburger menu for small screens" do
     get root_path
     expect(response.body).to include('aria-label="Menu"', "More ▾", "New project")

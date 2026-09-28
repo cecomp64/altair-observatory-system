@@ -26,7 +26,7 @@
     <p class="text-xs text-slate-400 mt-1">Also known as <%= @object.aliases.map(&:name).reject { |n| n == @object.primary_name }.join(", ").presence || "—" %></p>
   </div>
   <% if @object.coordinates? %>
-    <%= button_to "Start a project", project_wizard_add_object_path, params: { astro_object_id: @object.id },
+    <%= button_to "Start a project", project_wizard_add_object_path, params: { astro_object_id: @object.id, telescope: @telescope&.slug },
           class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
   <% end %>
 </div>
@@ -84,6 +84,18 @@
     <% end %>
   </div>
 </div>
+
+<% if @tonight %>
+  <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+    <h2 class="text-sm font-medium text-slate-500 mb-3">Path across the sky from <%= @telescope.name %>, night of <%= l(@date, format: :long) %></h2>
+    <%= horizon_chart(@site, night: @night, paths: [ { label: @object.primary_name, result: @tonight } ]) %>
+    <p class="text-xs text-slate-400 mt-2">
+      <% if @tonight.hours_clear_in_darkness.positive? %>Where <%= @object.primary_name %> is during <%= @night.darkness ? "astronomical" : "nautical" %> darkness, with a dot on each hour (local time).
+      <% else %>It doesn't clear this telescope's horizon in darkness that night.<% end %>
+      <%= @site.horizon_points.any? ? "Below the shaded horizon or the dashed minimum altitude it can't be imaged." : "There's no horizon file, so the horizon is flat; below the dashed minimum altitude it can't be imaged." %>
+    </p>
+  </div>
+<% end %>
 
 <% if @best %>
   <div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">

@@ -31,7 +31,15 @@ RSpec.describe "Objects", type: :request do
   it "shows tonight's chart, best viewing and a start-a-project button" do
     get object_path(m31, telescope: telescope.slug, date: "2026-09-24")
     expect(response).to have_http_status(:ok)
-    expect(response.body).to include("Clear in darkness", "Best viewing from", "Start a project")
+    expect(response.body).to include("Clear in darkness", "Best viewing from", "Start a project", "Path across the sky from #{telescope.name}")
+    labels = Nokogiri::HTML(response.body).css("canvas[data-chart-data-value]").flat_map { |c| JSON.parse(c["data-chart-data-value"])["datasets"].map { |d| d["label"] } }
+    expect(labels).to include("Minimum altitude (30.0°)")
+    expect(labels.count("Andromeda Galaxy")).to eq(2) # the altitude chart and the sky path
+  end
+
+  it "starts a project with the object and the telescope it was viewed from" do
+    post project_wizard_add_object_path, params: { astro_object_id: m31.id, telescope: telescope.slug }
+    expect(response).to redirect_to(new_project_path(telescope: telescope.slug))
   end
 
   it "only lets admins add objects to the catalogue" do

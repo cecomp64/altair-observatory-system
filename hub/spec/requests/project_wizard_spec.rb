@@ -13,21 +13,35 @@ RSpec.describe "ProjectWizard", type: :request do
 
   before { sign_in user }
 
+  def choose_train
+    patch new_project_path, params: { optical_train_id: train.id }
+    expect(response).to redirect_to(project_wizard_objects_path)
+  end
+
   def choose_train_and_plan
-    patch new_project_path
-    expect(response).to redirect_to(project_wizard_telescope_path)
-    patch project_wizard_telescope_path, params: { optical_train_id: train.id }
+    choose_train
+    patch project_wizard_objects_path
     expect(response).to redirect_to(project_wizard_exposures_path)
     post project_wizard_add_exposure_plan_path, params: { filter: "h-alpha", exposure_seconds: 300, desired_count: 20 }
     patch project_wizard_exposures_path
     expect(response).to redirect_to(project_wizard_review_path)
   end
 
-  it "walks objects -> telescope -> exposures -> review and creates a project with one target per object" do
-    get new_project_path(q: "m31")
+  def chart_datasets
+    canvas = Nokogiri::HTML(response.body).at_css("canvas[data-horizon-preview-target=chart]")
+    JSON.parse(canvas["data-chart-data-value"])["datasets"]
+  end
+
+  it "walks telescope -> objects -> exposures -> review and creates a project with one target per object" do
+    get new_project_path
+    expect(response.body).to include(telescope.name, train.name)
+    choose_train
+
+    get project_wizard_objects_path(q: "m31")
     expect(response.body).to include("Andromeda Galaxy")
 
     post project_wizard_add_object_path, params: { astro_object_id: m31.id }
+    expect(response).to redirect_to(project_wizard_objects_path)
     post project_wizard_add_object_path, params: { name: "Panel B", ra: "00:45:00", dec: "+41:30:00", panel: "B" }
     choose_train_and_plan
 
@@ -50,10 +64,81 @@ RSpec.describe "ProjectWizard", type: :request do
     expect(first.exposure_plans.sole).to have_attributes(filter: "Ha", exposure_seconds: 300, desired_count: 20)
   end
 
+  it "charts tonight's altitude against the horizon, with search results as hidden previews" do
+    telescope.update!(min_altitude_deg: 5, horizon_file: Rack::Test::UploadedFile.new(StringIO.new("0,10\n180,20\n"), "text/csv", original_filename: "horizon.csv"))
+    choose_train
+    get project_wizard_objects_path
+    expect(response.body).to include("Search for an object to see how it clears #{telescope.name}'s horizon tonight.")
+    expect(response.body).not_to include("<canvas")
+
+    post project_wizard_add_object_path, params: { astro_object_id: m31.id }
+    get project_wizard_objects_path(q: "andromeda")
+    expect(response.body).to include("Night of", telescope.name, "Change telescope", "Local time (")
+    datasets = chart_datasets
+    expect(datasets.map { |d| d["label"] }).to match([ "Andromeda Galaxy", "Limit (horizon / min altitude)", "Andromeda Galaxy", "Andromeda Galaxy limit", a_string_starting_with("Moon") ])
+    altitude, limit, preview, preview_limit = datasets
+    expect(altitude).not_to have_key("hidden")
+    # The limit follows the horizon in the object's direction, never below the minimum altitude.
+    expect(limit["data"].minmax).to match([ be >= 5, be <= 20 ])
+    expect(limit["data"].uniq.size).to be > 1
+    expect([ preview, preview_limit ]).to all(include("hidden" => true, "hideInLegend" => true, "previewKey" => "object-#{m31.id}"))
+    expect(response.body).to include(%(data-horizon-preview-key-param="object-#{m31.id}"))
+    expect(response.body).to match(/h clear tonight|Not clear of the horizon/)
+  end
+
+  it "gives each object its own limit when there are several" do
+    choose_train
+    post project_wizard_add_object_path, params: { astro_object_id: m31.id }
+    post project_wizard_add_object_path, params: { name: "Southern field", ra: "05:35:17", dec: "-05:23:28" }
+
+    get project_wizard_objects_path
+    datasets = chart_datasets
+    expect(datasets.map { |d| d["label"] }).to match([ "Andromeda Galaxy", "Southern field", "Andromeda Galaxy limit", "Southern field limit",
+                                                       "Limits (horizon / min altitude, dashed)", a_string_starting_with("Moon") ])
+    expect(datasets[2..3]).to all(include("hideInLegend" => true))
+    expect(datasets[2]["borderColor"]).to eq(datasets[0]["borderColor"])
+    expect(datasets[4]["data"]).to be_empty
+  end
+
+  it "asks for the telescope before the objects" do
+    get project_wizard_objects_path
+    expect(response).to redirect_to(new_project_path)
+    expect(flash[:alert]).to eq("Pick a telescope first.")
+  end
+
+  it "asks for a telescope next when started from an object's page" do
+    post project_wizard_add_object_path, params: { astro_object_id: m31.id }
+    expect(response).to redirect_to(new_project_path)
+    expect(flash[:notice]).to eq("Added Andromeda Galaxy. Choose a telescope to image it with.")
+
+    choose_train
+    get project_wizard_objects_path
+    expect(chart_datasets.map { |d| d["label"] }).to include("Andromeda Galaxy")
+  end
+
+  it "preselects a telescope's default train when started from its page" do
+    get new_project_path(telescope: telescope.slug)
+    checked = Nokogiri::HTML(response.body).css("input[name=optical_train_id][checked]").map { |i| i["value"].to_i }
+    expect(checked).to eq([ telescope.default_optical_train_id ])
+  end
+
+  it "adds a repeated filter and exposure to the existing row" do
+    post project_wizard_add_object_path, params: { astro_object_id: m31.id }
+    choose_train
+    post project_wizard_add_exposure_plan_path, params: { filter: "Ha", exposure_seconds: 300, desired_count: 20 }
+    post project_wizard_add_exposure_plan_path, params: { filter: "Ha", exposure_seconds: 600, desired_count: 5 }
+    post project_wizard_add_exposure_plan_path, params: { filter: "h-alpha", exposure_seconds: 300, desired_count: 10 }
+    expect(flash[:notice]).to eq("Added 10 to Ha 300s (now 30).")
+
+    get project_wizard_review_path
+    rows = Nokogiri::HTML(response.body).css("li").map { |li| li.text.squish }
+    expect(rows).to include("Ha · 300s x30", "Ha · 600s x5")
+    expect(rows.count { |r| r.start_with?("Ha · 300s") }).to eq(1)
+  end
+
   it "offers only the optical train's filters" do
     post project_wizard_add_object_path, params: { astro_object_id: m31.id }
-    patch new_project_path
-    patch project_wizard_telescope_path, params: { optical_train_id: train.id }
+    patch new_project_path, params: { optical_train_id: train.id }
 
     get project_wizard_exposures_path
     expect(response.body).to include("<option value=\"OIII\">")
@@ -72,7 +157,7 @@ RSpec.describe "ProjectWizard", type: :request do
     post project_wizard_add_object_path, params: { resolve: "Pacman Nebula" }
 
     # A member's lookup adds nothing to the catalogue...
-    expect(flash[:notice]).to eq("Added Pacman Nebula.")
+    expect(flash[:notice]).to start_with("Added Pacman Nebula.")
     expect(AstroObject.find_by_alias("NGC281")).to be_nil
 
     # ...until the project is created: then it is their own private object,
@@ -108,8 +193,17 @@ RSpec.describe "ProjectWizard", type: :request do
   end
 
   it "refuses to continue past objects with nothing chosen" do
-    get project_wizard_telescope_path
-    expect(response).to redirect_to(new_project_path)
+    choose_train
+    patch project_wizard_objects_path
+    expect(response).to redirect_to(project_wizard_objects_path)
+    get project_wizard_exposures_path
+    expect(response).to redirect_to(project_wizard_objects_path)
+  end
+
+  it "refuses to continue past the telescope with nothing chosen" do
+    patch new_project_path
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.body).to include("Please choose a telescope to continue.")
   end
 
   it "rejects an invalid custom coordinate" do
@@ -117,8 +211,10 @@ RSpec.describe "ProjectWizard", type: :request do
     expect(flash[:alert]).to include("valid right ascension")
   end
 
-  it "redirects the old /targets/new entry point" do
+  it "redirects the old /targets/new and /projects/new/telescope entry points" do
     get "/targets/new"
+    expect(response).to redirect_to("/projects/new")
+    get "/projects/new/telescope"
     expect(response).to redirect_to("/projects/new")
   end
 end

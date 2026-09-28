@@ -10,17 +10,32 @@ RSpec.describe "Project wizard", type: :system do
 
   before { sign_in user }
 
-  it "creates a project from a catalogue search, a telescope and an exposure plan" do
+  it "creates a project from a telescope, a catalogue search and an exposure plan" do
     visit new_project_path
+    expect(page).to have_text("Which telescope would you like to use?")
+    expect(page).to have_text("Flat horizon")
+    find("input[type=radio][value='#{train.id}']").click
+    click_on "Continue"
+
+    expect(page).to have_text("What would you like to image?")
+    expect(page).to have_text("Search for an object to see how it clears Backyard 16in's horizon tonight.")
     fill_in "q", with: "m31"
     click_on "Search"
     expect(page).to have_text("Andromeda Galaxy")
+    expect(page).to have_css("canvas[data-horizon-preview-target=chart]")
+    # Pointing at a result shows it on the chart.
+    find("[data-horizon-preview-key-param='object-#{m31.id}']").hover
+    preview_visible = page.evaluate_script(<<~JS)
+      (() => {
+        const canvas = document.querySelector("canvas[data-horizon-preview-target=chart]")
+        const chart = window.Stimulus.getControllerForElementAndIdentifier(canvas, "chart").chart
+        const index = chart.data.datasets.findIndex((d) => d.previewKey === "object-#{m31.id}")
+        return chart.isDatasetVisible(index)
+      })()
+    JS
+    expect(preview_visible).to be(true)
     click_on "Add", match: :first
     expect(page).to have_button("Remove")
-
-    click_on "Continue"
-    expect(page).to have_text("Which telescope would you like to use?")
-    find("input[type=radio][value='#{train.id}']").click
     click_on "Continue"
 
     expect(page).to have_text("Plan your exposures")

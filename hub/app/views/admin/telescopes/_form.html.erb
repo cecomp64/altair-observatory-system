@@ -52,7 +52,7 @@
 
   <div>
     <%= f.label :horizon_file, "Horizon file", class: "block text-sm font-medium text-slate-700 mb-1" %>
-    <p class="text-xs text-slate-400 mb-1">A text/CSV file of "azimuth,altitude" pairs describing the minimum clear altitude at each azimuth.</p>
+    <p class="text-xs text-slate-400 mb-1">A text/CSV file of "azimuth,altitude" pairs in degrees (azimuth 0–360, altitude −90–90) giving the minimum clear altitude at each azimuth. Lines starting with # and a header row are skipped; up to 1 MB.</p>
     <%= f.file_field :horizon_file, class: "w-full text-sm" %>
   </div>
 

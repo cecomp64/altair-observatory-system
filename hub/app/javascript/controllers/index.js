@@ -18,3 +18,6 @@ application.register("local-clock", LocalClockController)
 
 import DropdownController from "./dropdown_controller"
 application.register("dropdown", DropdownController)
+
+import HorizonPreviewController from "./horizon_preview_controller"
+application.register("horizon-preview", HorizonPreviewController)

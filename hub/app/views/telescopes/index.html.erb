@@ -12,6 +12,7 @@
         <% if telescope.elevation_m.present? %> &middot; <%= telescope.elevation_m.to_i %> m <% end %>
         &middot; <%= telescope_clock(telescope) %> local
       </p>
+      <div class="mt-3"><%= horizon_silhouette(telescope) %></div>
     <% end %>
   <% end %>
 </div>

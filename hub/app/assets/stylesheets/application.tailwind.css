@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Preflight strips button chrome, which leaves file inputs' button looking like text in Safari. */
+@layer base {
+  input[type="file"]::file-selector-button {
+    @apply mr-3 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 cursor-pointer hover:bg-slate-50;
+  }
+}
+
 /* Altair's Markdown reports (DataProductsController#report). */
 @layer components {
   .altair-report { @apply text-sm text-slate-700 overflow-x-auto; }

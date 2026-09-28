@@ -1,9 +1,11 @@
 # A guided, multi-step "new project" experience (evolved from the original
 # target wizard). Each step is its own small screen:
 #
-#   1. objects   - catalogue search, a Telescopius lookup, or custom coordinates;
-#                  several objects (or mosaic panels) become several targets
-#   2. telescope - which telescope and optical train to image with
+#   1. telescope - which telescope and optical train to image with; each card
+#                  shows the telescope's horizon
+#   2. objects   - catalogue search, a Telescopius lookup, or custom coordinates;
+#                  several objects (or mosaic panels) become several targets.
+#                  Their paths tonight are drawn over the telescope's horizon.
 #   3. exposures - filter (from the optical train's list) x exposure x count
 #   4. review    - project name and priority, then submit
 #
@@ -18,52 +20,14 @@ class ProjectWizardController < ApplicationController
 
   # Step 1 ------------------------------------------------------------------
 
-  def objects
-    @query = params[:q].to_s.strip
-    @results = @query.present? ? policy_scope(AstroObject).search(@query).limit(15) : []
-    @objects = selected_objects
-  end
-
-  def add_object
-    object = build_object_entry
-    if object.nil?
-      return redirect_to(new_project_path(q: params[:q]), alert: @object_error || "Couldn't add that object.")
-    end
-
-    list = (@state["objects"] ||= [])
-    return redirect_to(new_project_path, alert: "A project can have at most #{MAX_OBJECTS} targets.") if list.size >= MAX_OBJECTS
-
-    list << object
-    save_state
-    redirect_to new_project_path, notice: "Added #{object['name']}."
-  end
-
-  def remove_object
-    (@state["objects"] ||= []).delete_at(params[:index].to_i)
-    save_state
-    redirect_to new_project_path
-  end
-
-  def update_objects
-    return redirect_to(new_project_path, alert: "Add at least one object to image.") if selected_objects.empty?
-
-    redirect_to project_wizard_telescope_path
-  end
-
-  # Step 2 ------------------------------------------------------------------
-
   def telescope
-    return unless require_objects
-
-    @telescopes = policy_scope(Telescope).active.includes(:optical_trains).order(:name)
+    @telescopes = wizard_telescopes
   end
 
   def update_telescope
-    return unless require_objects
-
     train = OpticalTrain.active.joins(:telescope).merge(policy_scope(Telescope).active).find_by(id: params[:optical_train_id])
     if train.nil?
-      @telescopes = policy_scope(Telescope).active.includes(:optical_trains).order(:name)
+      @telescopes = wizard_telescopes
       flash.now[:alert] = "Please choose a telescope to continue."
       return render :telescope, status: :unprocessable_content
     end
@@ -73,19 +37,68 @@ class ProjectWizardController < ApplicationController
     @state["exposure_plans"] = [] if @state.delete("plans_train_id").to_i != train.id
     @state["plans_train_id"] = train.id
     save_state
+    redirect_to project_wizard_objects_path
+  end
+
+  # Step 2 ------------------------------------------------------------------
+
+  def objects
+    return unless (@optical_train = current_train_or_redirect)
+
+    @query = params[:q].to_s.strip
+    @results = @query.present? ? policy_scope(AstroObject).search(@query).limit(15).to_a : []
+    @objects = selected_objects
+
+    # Tonight at the chosen telescope, for the chart and the search results.
+    telescope = @optical_train.telescope
+    visibility = Astro::Visibility.new(Astro::Site.for(telescope))
+    @date = telescope.night_for(Time.current)
+    @night = visibility.night(@date)
+    @object_visibility = @objects.map { |o| visibility.for_night(o["ra_deg"], o["dec_deg"], @date) }
+    @result_visibility = @results.select(&:coordinates?).to_h { |o| [ o.id, visibility.for_night(o.ra_deg, o.dec_deg, @date) ] }
+  end
+
+  def add_object
+    object = build_object_entry
+    if object.nil?
+      return redirect_to(project_wizard_objects_path(q: params[:q]), alert: @object_error || "Couldn't add that object.")
+    end
+
+    list = (@state["objects"] ||= [])
+    return redirect_to(project_wizard_objects_path, alert: "A project can have at most #{MAX_OBJECTS} targets.") if list.size >= MAX_OBJECTS
+
+    list << object
+    save_state
+    # Started from an object's page: the telescope comes next.
+    unless current_train
+      return redirect_to(new_project_path(telescope: params[:telescope].presence), notice: "Added #{object['name']}. Choose a telescope to image it with.")
+    end
+
+    redirect_to project_wizard_objects_path, notice: "Added #{object['name']}."
+  end
+
+  def remove_object
+    (@state["objects"] ||= []).delete_at(params[:index].to_i)
+    save_state
+    redirect_to project_wizard_objects_path
+  end
+
+  def update_objects
+    return redirect_to(project_wizard_objects_path, alert: "Add at least one object to image.") if selected_objects.empty?
+
     redirect_to project_wizard_exposures_path
   end
 
   # Step 3 ------------------------------------------------------------------
 
   def exposures
-    return unless (@optical_train = current_train_or_redirect)
+    return unless (@optical_train = current_train_or_redirect) && require_objects
 
     @exposure_plans = @state["exposure_plans"] || []
   end
 
   def add_exposure_plan
-    return unless (train = current_train_or_redirect)
+    return unless (train = current_train_or_redirect) && require_objects
 
     filter = params[:filter].to_s.strip
     filter = train.canonical_filter(filter) if train.filter_names.any?
@@ -98,9 +111,17 @@ class ProjectWizardController < ApplicationController
     errors << "enter how many frames you want" unless count.positive?
     return redirect_to(project_wizard_exposures_path, alert: "Please #{errors.to_sentence}.") if errors.any?
 
-    (@state["exposure_plans"] ||= []) << { "filter" => filter, "exposure_seconds" => seconds, "desired_count" => count }
+    plans = (@state["exposure_plans"] ||= [])
+    # The same filter and exposure again adds to that row's count.
+    existing = plans.find { |plan| plan["filter"].to_s.casecmp?(filter) && plan["exposure_seconds"].to_i == seconds }
+    if existing
+      existing["desired_count"] = existing["desired_count"].to_i + count
+      notice = "Added #{count} to #{filter} #{seconds}s (now #{existing['desired_count']})."
+    else
+      plans << { "filter" => filter, "exposure_seconds" => seconds, "desired_count" => count }
+    end
     save_state
-    redirect_to project_wizard_exposures_path
+    redirect_to project_wizard_exposures_path, notice: notice
   end
 
   def remove_exposure_plan
@@ -120,7 +141,7 @@ class ProjectWizardController < ApplicationController
   # Step 4 ------------------------------------------------------------------
 
   def review
-    return unless (@optical_train = current_train_or_redirect)
+    return unless (@optical_train = current_train_or_redirect) && require_objects
     return redirect_to(project_wizard_exposures_path, alert: "Add at least one exposure plan.") if (@state["exposure_plans"] || []).empty?
 
     @objects = selected_objects
@@ -128,11 +149,10 @@ class ProjectWizardController < ApplicationController
   end
 
   def create
-    return unless (train = current_train_or_redirect)
+    return unless (train = current_train_or_redirect) && require_objects
 
     objects = selected_objects
     plans = @state["exposure_plans"] || []
-    return redirect_to(new_project_path, alert: "Add at least one object to image.") if objects.empty?
     return redirect_to(project_wizard_exposures_path, alert: "Add at least one exposure plan.") if plans.empty?
 
     return add_to_existing_project(@project, train, objects, plans) if @project
@@ -300,17 +320,23 @@ class ProjectWizardController < ApplicationController
   def require_objects
     return true if selected_objects.any?
 
-    redirect_to new_project_path, alert: "Let's start by choosing what to image."
+    redirect_to project_wizard_objects_path, alert: "Choose something to image first."
     false
   end
 
-  def current_train_or_redirect
-    return nil unless require_objects
-
-    train = @state["optical_train_id"] &&
+  def current_train
+    @state["optical_train_id"] &&
       OpticalTrain.active.joins(:telescope).merge(policy_scope(Telescope).active).find_by(id: @state["optical_train_id"])
-    redirect_to project_wizard_telescope_path, alert: "Pick a telescope first." if train.nil?
+  end
+
+  def current_train_or_redirect
+    train = current_train
+    redirect_to new_project_path, alert: "Pick a telescope first." if train.nil?
     train
+  end
+
+  def wizard_telescopes
+    policy_scope(Telescope).active.includes(:optical_trains).order(:name)
   end
 
   def load_state

@@ -12,8 +12,7 @@ RSpec.describe "Members' custom catalogue objects", type: :request do
     train = create(:optical_train, telescope: telescope)
     sign_in owner
     post project_wizard_add_object_path, params: { name: "Garden Nebula", ra: "05h 35m 17s", dec: "−05° 23′ 28″" }
-    patch new_project_path
-    patch project_wizard_telescope_path, params: { optical_train_id: train.id }
+    patch new_project_path, params: { optical_train_id: train.id }
     post project_wizard_add_exposure_plan_path, params: { filter: "L", exposure_seconds: 300, desired_count: 10 }
     post project_wizard_create_path, params: { name: "Garden" }
     created = AstroObject.find_by!(primary_name: "Garden Nebula")

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_27_000015) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_27_000016) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -436,6 +436,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_27_000015) do
     t.bigint "default_optical_train_id"
     t.text "description"
     t.decimal "elevation_m", precision: 7, scale: 2
+    t.jsonb "horizon_points", default: [], null: false
     t.decimal "latitude", precision: 8, scale: 5, null: false
     t.decimal "longitude", precision: 8, scale: 5, null: false
     t.decimal "min_altitude_deg", precision: 5, scale: 2, default: "30.0", null: false

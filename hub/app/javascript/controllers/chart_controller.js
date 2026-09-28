@@ -17,13 +17,24 @@ Chart.register(...registerables, annotationPlugin)
 // line) are configured server-side. With `nowLine: true` a vertical line
 // marks the current time and keeps moving; on a category axis of evenly
 // spaced samples, `timeStart`/`timeStep` (epoch ms) place it.
+//
+// A data point's `tip` (for `{ x, y, tip }` points) replaces its tooltip
+// line (and the title, when every point shown has one); a dataset with
+// `hideInLegend: true` is left out of the legend.
 export default class extends Controller {
   static values = { type: String, data: Object, options: Object, nowLine: Boolean, timeStart: Number, timeStep: Number }
 
   connect() {
     const options = Object.assign({ responsive: true, maintainAspectRatio: false }, this.optionsValue || {})
+    options.plugins = options.plugins || {}
+    const tooltip = options.plugins.tooltip = options.plugins.tooltip || {}
+    tooltip.callbacks = Object.assign({
+      title: (items) => (items.length && items.every((item) => item.raw?.tip) ? "" : undefined),
+      label: (context) => context.raw?.tip
+    }, tooltip.callbacks)
+    const legendLabels = ((options.plugins.legend = options.plugins.legend || {}).labels = options.plugins.legend.labels || {})
+    legendLabels.filter = legendLabels.filter || ((item, data) => !data.datasets[item.datasetIndex]?.hideInLegend)
     if (this.nowLineValue) {
-      options.plugins = options.plugins || {}
       options.plugins.annotation = options.plugins.annotation || { annotations: {} }
       options.plugins.annotation.annotations.now = this.nowAnnotation()
       this.timer = setInterval(() => {

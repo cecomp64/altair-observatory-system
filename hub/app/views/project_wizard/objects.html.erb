@@ -1,21 +1,50 @@
 <% content_for :title, "New project — objects" %>
 <% input = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+<% telescope = @optical_train.telescope %>
+<% tonight = ->(result) do
+     if result.hours_clear_in_darkness.positive?
+       "#{result.hours_clear_in_darkness.round(1)} h clear tonight · up to #{format_angle(result.max_altitude_in_darkness)}"
+     else
+       "Not clear of the horizon in darkness tonight"
+     end
+   end %>
 
-<div class="max-w-2xl mx-auto">
+<div class="max-w-2xl mx-auto" data-controller="horizon-preview">
   <%= render "steps", current_step: "objects" %>
 
   <h1 class="text-xl font-semibold">What would you like to image?</h1>
   <p class="text-slate-500 text-sm mt-1 mb-6">Search the catalogue by any name (M 31, NGC 7000, Pelican Nebula…). Add several objects, or mosaic panels, to image them as one project.</p>
 
+  <div class="rounded-xl border border-slate-200 bg-white p-4 mb-6">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+      <h2 class="text-sm font-medium text-slate-500">Night of <%= l(@date, format: :long) %> at <span class="text-slate-900"><%= telescope.name %></span> · <%= @optical_train.name %></h2>
+      <%= link_to "Change telescope", new_project_path, class: "text-xs text-indigo-600 hover:underline" %>
+    </div>
+    <% labels = @objects.map { |object| [ object["name"], object["panel"].presence && "panel #{object['panel']}" ].compact.join(" · ") } %>
+    <% previews = @results.filter_map { |object| (result = @result_visibility[object.id]) && { key: "object-#{object.id}", label: object.primary_name, result: result } } %>
+    <% if @objects.any? || previews.any? %>
+      <%= altitude_chart(@object_visibility, labels: labels, night: @night, each_limit: true, previews: previews) %>
+      <p class="text-xs text-slate-400 mt-2">
+        Altitude through the night, local time; the darker the band, the darker the sky.
+        <%= @objects.size > 1 ? "Each object's dashed line is" : "The dashed line is" %> <%= telescope.name %>'s horizon in the object's direction, or the minimum altitude if that's higher: below it the object can't be imaged.
+        <% if previews.any? %>Point at a search result to preview it.<% end %>
+      </p>
+    <% else %>
+      <p class="text-sm text-slate-400 py-6 text-center">Search for an object to see how it clears <%= telescope.name %>'s horizon tonight.</p>
+    <% end %>
+  </div>
+
   <% if @objects.any? %>
     <ul class="space-y-2 mb-6">
       <% @objects.each_with_index do |object, index| %>
-        <li class="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
+        <li class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
           <span class="text-sm">
+            <span class="inline-block h-2.5 w-2.5 rounded-full mr-1" style="background-color: <%= AstroChartsHelper::COLORS[index % AstroChartsHelper::COLORS.size] %>"></span>
             <span class="font-medium"><%= object["name"] %></span>
             <% if object["panel"].present? %><span class="text-slate-500">· panel <%= object["panel"] %></span><% end %>
             <span class="text-slate-400">· <%= format_radec(object["ra_deg"], object["dec_deg"]) %></span>
             <% unless object["astro_object_id"] %><span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">custom</span><% end %>
+            <span class="block text-xs text-slate-500 mt-0.5"><%= tonight.(@object_visibility[index]) %></span>
           </span>
           <%= button_to "Remove", project_wizard_remove_object_path(index: index), method: :delete,
                 class: "text-xs text-rose-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
@@ -24,7 +53,7 @@
     </ul>
   <% end %>
 
-  <%= form_with url: new_project_path, method: :get, class: "flex gap-2" do %>
+  <%= form_with url: project_wizard_objects_path, method: :get, class: "flex gap-2" do %>
     <input type="search" name="q" value="<%= @query %>" placeholder="Search the catalogue" class="<%= input %>" autofocus>
     <%= submit_tag "Search", name: nil, class: "rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 cursor-pointer" %>
   <% end %>
@@ -32,11 +61,15 @@
   <% if @query.present? %>
     <div class="mt-3 rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
       <% @results.each do |object| %>
-        <div class="flex items-center justify-between px-4 py-2 text-sm">
+        <% result = @result_visibility[object.id] %>
+        <div class="flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-slate-50"
+             <% if result %>data-action="mouseenter->horizon-preview#show mouseleave->horizon-preview#hide focusin->horizon-preview#show focusout->horizon-preview#hide"
+             data-horizon-preview-key-param="object-<%= object.id %>"<% end %>>
           <div>
             <span class="font-medium"><%= object.primary_name %></span>
             <span class="text-slate-400"><%= [ object.object_type, object.constellation, (object.magnitude && "mag #{object.magnitude.to_f}") ].compact.join(" · ") %></span>
             <p class="text-xs text-slate-400"><%= object.aliases.map(&:name).first(5).join(", ") %></p>
+            <% if result %><p class="text-xs <%= result.hours_clear_in_darkness.positive? ? "text-emerald-700" : "text-slate-500" %>"><%= tonight.(result) %></p><% end %>
           </div>
           <%= button_to "Add", project_wizard_add_object_path, params: { astro_object_id: object.id, q: @query },
                 class: "text-xs text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
@@ -76,7 +109,8 @@
     <% end %>
   </details>
 
-  <%= form_with url: new_project_path, method: :patch, class: "pt-6 flex justify-end" do %>
+  <%= form_with url: project_wizard_objects_path, method: :patch, class: "pt-6 flex justify-between" do %>
+    <%= link_to "Back", new_project_path, class: "rounded-lg px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" %>
     <%= submit_tag "Continue", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
   <% end %>
 </div>

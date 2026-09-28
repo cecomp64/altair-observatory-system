@@ -103,8 +103,7 @@ RSpec.describe "Pausing, resuming and adding to targets", type: :request do
       expect(response.body).to include("Adding targets to", project.name)
 
       post project_wizard_add_object_path, params: { astro_object_id: m42.id }
-      patch new_project_path
-      patch project_wizard_telescope_path, params: { optical_train_id: train.id }
+      patch new_project_path, params: { optical_train_id: train.id }
       post project_wizard_add_exposure_plan_path, params: { filter: "Ha", exposure_seconds: 300, desired_count: 20 }
       patch project_wizard_exposures_path
       get project_wizard_review_path
