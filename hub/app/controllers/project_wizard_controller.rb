@@ -31,6 +31,11 @@ class ProjectWizardController < ApplicationController
       flash.now[:alert] = "Please choose a telescope to continue."
       return render :telescope, status: :unprocessable_content
     end
+    unless policy(train.telescope).use?
+      @telescopes = wizard_telescopes
+      flash.now[:alert] = sjaa_required_message(train.telescope)
+      return render :telescope, status: :unprocessable_content
+    end
 
     @state.merge!("telescope_id" => train.telescope_id, "optical_train_id" => train.id)
     # Filters differ between trains; plans made for another train no longer apply.
@@ -331,8 +336,21 @@ class ProjectWizardController < ApplicationController
 
   def current_train_or_redirect
     train = current_train
-    redirect_to new_project_path, alert: "Pick a telescope first." if train.nil?
+    if train.nil?
+      redirect_to new_project_path, alert: "Pick a telescope first."
+    elsif !policy(train.telescope).use?
+      redirect_to new_project_path, alert: sjaa_required_message(train.telescope)
+      train = nil
+    end
     train
+  end
+
+  def sjaa_required_message(telescope)
+    if current_user.sjaa_linked?
+      "#{telescope.name} needs a current SJAA membership. Renew it, then refresh your membership on your profile."
+    else
+      "#{telescope.name} needs a current SJAA membership. Link your SJAA membership on your profile."
+    end
   end
 
   def wizard_telescopes

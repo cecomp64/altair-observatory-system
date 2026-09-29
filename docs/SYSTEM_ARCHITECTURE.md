@@ -331,8 +331,8 @@ erDiagram
 
 | Table | Key columns |
 |---|---|
-| `users` | Devise auth, `role` (member / admin), `notify_email`, `notify_discord`, `discord_webhook_url`, `sjaa_membership_number` |
-| `telescopes` | `slug`, `name`, `latitude`, `longitude`, `elevation_m`, **`timezone`**, `min_altitude_deg`, `default_optical_train_id`, `active`, `self_serve_submit`, `worker_last_heartbeat_at`, `worker_status`; `horizon_file` attachment, parsed into `horizon_points` (jsonb) when it is attached |
+| `users` | Devise auth, `role` (member / admin), `notify_email`, `notify_discord`, `discord_webhook_url`; SJAA link: `sjaa_person_id` (unique), `sjaa_linked_at`, `sjaa_membership_active`, `sjaa_membership_expires_on` (nil = lifetime), `sjaa_membership_checked_at` |
+| `telescopes` | `slug`, `name`, `latitude`, `longitude`, `elevation_m`, **`timezone`**, `min_altitude_deg`, `default_optical_train_id`, `active`, `self_serve_submit`, `requires_sjaa_membership`, `worker_last_heartbeat_at`, `worker_status`; `horizon_file` attachment, parsed into `horizon_points` (jsonb) when it is attached |
 | `optical_trains` | `telescope_id`, `key` (unique per telescope, = Altair rig), `camera_name`, `camera_type` (mono / osc), `bayer_pattern`, `pixel_size_um`, `sensor_width_px`, `sensor_height_px`, `focal_length_mm`, `has_rotator`, `filters` jsonb (`[{name, aliases}]`), `header_aliases` jsonb, `active`. A train missing optics is left out of the processing config. |
 | `astro_objects` | `primary_name`, `ra_deg`, `dec_deg`, `object_type`, `magnitude`, sizes, `position_angle_deg`, `constellation`, `source` (openngc / ldn / lbn / telescopius / custom), `source_ref`, `created_by_id`. Trigram index on the name. |
 | `object_aliases` | `astro_object_id`, `name`, `normalized_name` (trigram + btree), `catalog` |
@@ -914,7 +914,8 @@ deployment is a fresh install:
    - Optionally, for master downloads: a read-only `hub-archive-reader` IAM user with
      `s3:GetObject` on the archive's `altair/projects/*` and `altair/calibration/masters/*`,
      given to the Hub as `ARCHIVE_READER_*` and `ARCHIVE_BUCKET`.
-   - Add credentials: SMTP, the Discord webhook, and `TELESCOPIUS_API_KEY`.
+   - Add credentials: SMTP, the Discord webhook, `TELESCOPIUS_API_KEY` and, for "Log in
+     with SJAA", `SJAA_API_TOKEN` (see `hub/README.md`).
    - Run `bin/rails catalogue:import`.
 2. **Set up equipment in the Hub:**
    - Each telescope: site, timezone and horizon file.
@@ -1025,7 +1026,7 @@ These have not been started:
 
 | Component | How it is deployed | Configuration and secrets |
 |---|---|---|
-| Hub | Kamal from `hub/` (`config/deploy.yml`, Dockerfile), PostgreSQL | Rails credentials; `TELESCOPIUS_API_KEY`; optionally `ACTIVE_STORAGE_SERVICE` + `ACTIVE_STORAGE_S3_*`, and `ARCHIVE_READER_*` + `ARCHIVE_BUCKET` for master downloads. Solid Queue runs inside Puma (`SOLID_QUEUE_IN_PUMA`) until jobs move to their own server. |
+| Hub | Kamal from `hub/` (`config/deploy.yml`, Dockerfile), PostgreSQL | Rails credentials; `TELESCOPIUS_API_KEY`; optionally `SJAA_API_TOKEN` (Log in with SJAA), and `ACTIVE_STORAGE_SERVICE` + `ACTIVE_STORAGE_S3_*`, and `ARCHIVE_READER_*` + `ARCHIVE_BUCKET` for master downloads. Solid Queue runs inside Puma (`SOLID_QUEUE_IN_PUMA`) until jobs move to their own server. |
 | Rig agent | `robs.exe` from a `rig-agent-v*` release on each rig PC, run by NINA External Script steps and a scheduled `sync-progress` | One YAML per telescope (`config/example.telescope.yml`); `ROBS_<SLUG>_API_KEY` |
 | Altair | `altair.exe` from a `processing-v*` release on the processing PC. `altaird` (`altair serve --windowless`) runs as a Task Scheduler task at log-on (`processing/deploy/windows/install-task.ps1`), because PixInsight needs an interactive session | `altair.yaml`; the node key in Windows Credential Manager (`altair-hub`) or `ALTAIR_HUB_API_KEY`; notification secrets in environment variables |
 

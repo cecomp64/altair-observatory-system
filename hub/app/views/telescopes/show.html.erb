@@ -21,6 +21,7 @@
         <div class="flex justify-between"><dt class="text-slate-500">Elevation</dt><dd><%= @telescope.elevation_m.to_i %> m</dd></div>
       <% end %>
       <div class="flex justify-between"><dt class="text-slate-500">Self-serve submit</dt><dd><%= @telescope.self_serve_submit? ? "Yes" : "No" %></dd></div>
+      <div class="flex justify-between"><dt class="text-slate-500">SJAA membership</dt><dd><%= @telescope.requires_sjaa_membership? ? "Required" : "Not required" %></dd></div>
     </dl>
   </div>
 

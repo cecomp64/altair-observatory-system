@@ -70,6 +70,27 @@ bundle exec rspec
 | `APP_HOST` | Host used to build absolute URLs in production emails |
 | `DISCORD_DEFAULT_WEBHOOK_URL` | Fallback Discord webhook for users who opt in but haven't set their own |
 | `SJAA_MEMBERSHIP_URL` | Link shown on the profile page to the SJAA membership site |
+| `SJAA_API_TOKEN` | Enables "Log in with SJAA". A key for the [SJAA membership API](https://github.com/sjaa/sjaa-memberships/tree/main/docs/api-reference) with `read` permission (or credentials `sjaa.api_token`) |
+| `SJAA_API_URL` | SJAA membership API base URL (default `https://membership.sjaa.net/api`) |
+
+### Log in with SJAA
+
+SJAA's API issues keys only to SJAA admin accounts and can't check a member's
+password. So the Hub uses one service key and proves a member's identity by
+emailing a one-time link (30 minutes) to the address on their SJAA record; the
+Hub needs working SMTP for this. Following the link finds or creates the Hub
+account with that email, links it to the SJAA Person, and copies their name, email
+and membership end date. A linked member's name comes from SJAA. The membership
+is re-read on each SJAA login or with **Refresh** on the profile.
+
+To get the key, an SJAA admin with `read` permission runs
+`curl -u admin@example.org:PASSWORD -X POST https://membership.sjaa.net/api/keys -H 'Accept: application/json'`
+and puts the returned `token` in `SJAA_API_TOKEN`.
+
+An admin can tick **Requires an active SJAA membership** on a telescope. Members
+then need a linked, current membership to choose it in the project wizard, or to
+resume or reopen work on it. Admins are exempt. Targets already queued keep
+running if a membership lapses.
 
 ## Notes on gem pinning
 

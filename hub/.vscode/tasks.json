@@ -13,6 +13,14 @@
       "group": { "kind": "build", "isDefault": true }
     },
     {
+      "label": "Hub: Restart web server",
+      "detail": "bin/rails restart: Puma reloads in place (tmp_restart); the esbuild and Tailwind watchers keep running",
+      "type": "shell",
+      "command": "bin/rails restart",
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "panel": "shared" }
+    },
+    {
       "label": "Hub: Run specs",
       "detail": "bundle exec rspec",
       "type": "shell",

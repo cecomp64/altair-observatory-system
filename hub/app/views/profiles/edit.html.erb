@@ -6,7 +6,12 @@
   <%= form_with model: @user, url: profile_path, method: :patch, class: "rounded-xl border border-slate-200 bg-white p-5 space-y-5" do |f| %>
     <div>
       <%= f.label :name, class: "block text-sm font-medium text-slate-700 mb-1" %>
-      <%= f.text_field :name, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+      <% if @user.sjaa_linked? %>
+        <%= f.text_field :name, disabled: true, class: "w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500" %>
+        <p class="text-xs text-slate-400 mt-1">From your SJAA membership; updated each time you log in with SJAA.</p>
+      <% else %>
+        <%= f.text_field :name, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+      <% end %>
     </div>
 
     <div>
@@ -27,18 +32,40 @@
     <%= f.submit "Save", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
   <% end %>
 
+  <%# Admins aren't bound by the membership rules, so they don't link one here. %>
+  <% if !@user.admin? && Sjaa::Client.configured? %>
   <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
     <h2 class="text-sm font-medium text-slate-500">SJAA membership</h2>
-    <%= form_with model: @user, url: profile_path, method: :patch, class: "space-y-3" do |f| %>
-      <div>
-        <%= f.label :sjaa_membership_number, "SJAA membership number", class: "block text-sm font-medium text-slate-700 mb-1" %>
-        <%= f.text_field :sjaa_membership_number, class: "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" %>
+    <% if @user.sjaa_linked? %>
+      <div class="flex items-start justify-between gap-4">
+        <div class="text-sm">
+          <p class="font-medium">Linked <span class="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">SJAA</span></p>
+          <p class="text-slate-500">
+            <% if @user.sjaa_membership_current? %>
+              <%= @user.sjaa_membership_expires_on ? "Current until #{@user.sjaa_membership_expires_on.to_fs(:long)}" : "Lifetime membership" %>
+            <% else %>
+              <span class="text-rose-600">Not current<%= " (ended #{@user.sjaa_membership_expires_on.to_fs(:long)})" if @user.sjaa_membership_expires_on %></span>
+            <% end %>
+          </p>
+          <% if @user.sjaa_membership_checked_at %>
+            <p class="text-xs text-slate-400">Checked <%= time_ago_in_words(@user.sjaa_membership_checked_at) %> ago</p>
+          <% end %>
+        </div>
+        <div class="flex gap-2 shrink-0">
+          <%= button_to "Refresh", refresh_sjaa_profile_path, class: "rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 cursor-pointer" %>
+          <%= button_to "Unlink", unlink_sjaa_profile_path, method: :delete,
+                data: { turbo_confirm: "Unlink your SJAA membership? Telescopes that require a membership won't be available until you link it again." },
+                class: "rounded-lg border border-rose-200 text-rose-600 px-3 py-1.5 text-sm font-medium hover:bg-rose-50 cursor-pointer" %>
+        </div>
       </div>
-      <%= f.submit "Save", class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100 cursor-pointer" %>
+    <% else %>
+      <p class="text-sm text-slate-500">Not linked. Some telescopes are for SJAA members; link your membership to use them.</p>
+      <%= link_to "Link SJAA membership", sjaa_login_path, class: "inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
     <% end %>
     <p class="text-xs text-slate-400">
       Need to check or renew your membership?
       <%= link_to "Visit the SJAA membership site", sjaa_membership_url, target: "_blank", rel: "noopener", class: "text-indigo-600 hover:underline" %>.
     </p>
   </div>
+  <% end %>
 </div>

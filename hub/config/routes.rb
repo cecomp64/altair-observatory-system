@@ -6,7 +6,18 @@ Rails.application.routes.draw do
 
   root "dashboard#index"
 
-  resource :profile, only: [ :edit, :update ]
+  resource :profile, only: [ :edit, :update ] do
+    post :refresh_sjaa
+    delete :unlink_sjaa
+  end
+
+  # Log in with SJAA (an emailed link; see SjaaLoginsController).
+  controller :sjaa_logins do
+    get  "sjaa/login",        action: :new,     as: :sjaa_login
+    post "sjaa/login",        action: :create
+    get  "sjaa/login/verify", action: :verify,  as: :sjaa_login_verify
+    post "sjaa/login/verify", action: :confirm
+  end
 
   resources :telescopes, only: [ :index, :show ] do
     resources :optical_trains, only: :show

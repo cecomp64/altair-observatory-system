@@ -23,6 +23,12 @@
     <%= f.submit "Log in", class: "w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
   <% end %>
 
+  <% if Sjaa::Client.configured? %>
+    <div class="my-4 flex items-center gap-3 text-xs text-slate-400"><span class="h-px flex-1 bg-slate-200"></span>or<span class="h-px flex-1 bg-slate-200"></span></div>
+    <%= link_to "Log in with SJAA", sjaa_login_path,
+          class: "block w-full rounded-lg border border-indigo-300 px-4 py-2 text-center text-sm font-medium text-indigo-700 hover:bg-indigo-50" %>
+  <% end %>
+
   <div class="mt-4 text-sm text-slate-500">
     <%= render "devise/shared/links" %>
   </div>

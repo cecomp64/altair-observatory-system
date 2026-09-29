@@ -1,0 +1,14 @@
+<% content_for :title, "Log in with SJAA" %>
+
+<div class="max-w-sm mx-auto mt-12 rounded-xl border border-slate-200 bg-white p-6">
+  <h2 class="text-xl font-semibold mb-1"><%= @data["user_id"] ? "Link your SJAA membership" : "Log in with SJAA" %></h2>
+  <p class="text-slate-500 text-sm mb-6">
+    <% if @data["user_id"] %>
+      Link the SJAA membership for <strong><%= @data["email"] %></strong> to your account.
+    <% else %>
+      Continue as <strong><%= @data["email"] %></strong>. Your name, email and membership are copied from SJAA.
+    <% end %>
+  </p>
+  <%= button_to(@data["user_id"] ? "Link membership" : "Continue", sjaa_login_verify_path, params: { token: @token },
+        class: "w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer") %>
+</div>

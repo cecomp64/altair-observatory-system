@@ -1,0 +1,7 @@
+Hello<%= " #{@name}" if @name %>,
+
+<%= @linking ? "Open this link to link your SJAA membership to your Remote Observatory account:" : "Open this link to log in to the Remote Observatory with your SJAA membership:" %>
+
+<%= @url %>
+
+The link works once, for <%= @ttl.inspect %>. If you didn't ask for it, you can ignore this email.

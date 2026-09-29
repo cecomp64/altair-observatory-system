@@ -50,6 +50,11 @@ class ProjectsController < ApplicationController
   def resume
     authorize @project, :manage?
     return redirect_to(@project, alert: "The project isn't paused.") unless @project.paused?
+    # Work on a members-only telescope only restarts for a current member.
+    restricted = @project.targets.includes(:telescope).map(&:telescope).uniq.reject { |t| policy(t).use? }
+    if restricted.any?
+      return redirect_to(@project, alert: "#{restricted.map(&:name).to_sentence} #{restricted.one? ? 'needs' : 'need'} a current SJAA membership. Link or refresh it on your profile.")
+    end
 
     @project.update!(status: :active)
     redirect_to @project, notice: "Project resumed."

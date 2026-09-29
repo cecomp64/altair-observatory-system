@@ -32,11 +32,13 @@ class TargetsController < ApplicationController
 
   def resume
     authorize @target, :manage?
+    return if refuse_without_membership
     change(@target.resume!(by: current_user), "Target resumed.", "The target isn't paused.")
   end
 
   def reopen
     authorize @target, :manage?
+    return if refuse_without_membership
     change(@target.reopen!(by: current_user), "Target reopened.",
            "Everything is already captured: add frames to its exposure plans to reopen it.")
   end
@@ -45,6 +47,13 @@ class TargetsController < ApplicationController
 
   def change(ok, notice, alert)
     ok ? redirect_to(@target, notice: notice) : redirect_to(@target, alert: alert)
+  end
+
+  # Work on a members-only telescope only restarts for a current member.
+  def refuse_without_membership
+    return false if policy(@target.telescope).use?
+
+    redirect_to @target, alert: "#{@target.telescope.name} needs a current SJAA membership. Link or refresh it on your profile."
   end
 
   def set_target

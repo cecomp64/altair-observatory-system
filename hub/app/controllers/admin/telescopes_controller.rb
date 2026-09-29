@@ -51,7 +51,7 @@ module Admin
     def telescope_params
       permitted = params.require(:telescope).permit(
         :name, :slug, :latitude, :longitude, :elevation_m,
-        :active, :self_serve_submit, :description, :horizon_file,
+        :active, :self_serve_submit, :requires_sjaa_membership, :description, :horizon_file,
         :timezone, :min_altitude_deg, :default_optical_train_id,
         :operating_status, :status_note
       )

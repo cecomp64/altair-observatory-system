@@ -77,7 +77,19 @@
     <label class="flex items-center gap-2 text-sm">
       <%= f.check_box :self_serve_submit, class: "h-4 w-4 rounded border-slate-300 text-indigo-600" %> Members can submit directly
     </label>
+    <%# Without SJAA members can't link a membership, so the option is offered only
+        when SJAA is set up (or to clear a requirement set while it was). %>
+    <% if Sjaa::Client.configured? || telescope.requires_sjaa_membership_in_database %>
+      <label class="flex items-center gap-2 text-sm">
+        <%= f.check_box :requires_sjaa_membership, class: "h-4 w-4 rounded border-slate-300 text-indigo-600" %> Requires an active SJAA membership
+      </label>
+    <% end %>
   </div>
+  <% if Sjaa::Client.configured? %>
+    <p class="text-xs text-slate-500 -mt-3">When required, members must link a current SJAA membership to submit to this telescope or resume work on it.</p>
+  <% elsif telescope.requires_sjaa_membership_in_database %>
+    <p class="text-xs text-rose-600 -mt-3">SJAA isn't set up on this Hub, so members can't link a membership and can't use this telescope. Untick this, or set up SJAA.</p>
+  <% end %>
 
   <div class="pt-2">
     <%= f.submit class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>

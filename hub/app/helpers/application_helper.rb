@@ -2,7 +2,7 @@ module ApplicationHelper
   include Pagy::Frontend
 
   def sjaa_membership_url
-    ENV.fetch("SJAA_MEMBERSHIP_URL", "https://www.sjaa.net/membership/")
+    ENV.fetch("SJAA_MEMBERSHIP_URL", "https://membership.sjaa.net")
   end
 
   # Signs master download links; `archive.downloadable?(product)` is false

@@ -36,6 +36,12 @@ class Telescope < ApplicationRecord
     operating_status == "operational"
   end
 
+  # Admins can make a telescope members-only: then only accounts linked to a
+  # current SJAA membership (and admins) can submit to it or resume work on it.
+  def usable_by?(user)
+    !requires_sjaa_membership? || user.admin? || user.sjaa_membership_current?
+  end
+
   def to_param
     slug
   end

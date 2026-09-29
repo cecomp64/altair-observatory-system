@@ -9,6 +9,10 @@ class TelescopePolicy < ApplicationPolicy
     true
   end
 
+  def use?
+    record.usable_by?(user)
+  end
+
   def manage?
     user.admin?
   end
