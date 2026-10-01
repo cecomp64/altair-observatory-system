@@ -99,3 +99,4 @@ running if a membership lapses.
 `ActiveSupport::JSON.decode` calls it — without the pin, encrypted
 session cookies fail to decrypt (`ArgumentError: wrong number of
 arguments`) on every request that round-trips a session/CSRF cookie.
+ 
