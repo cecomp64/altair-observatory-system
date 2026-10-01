@@ -57,6 +57,10 @@ env:
 
     # Log everything from Rails
     # RAILS_LOG_LEVEL: debug
+    ACTIVE_STORAGE_SERVICE: amazon
+    APP_HOST: https://altair-observatory-system-a815fe88304e.herokuapp.com/
+    DISCORD_DEFAULT_WEBHOOK_URL: https://discord.com/api/webhooks/1538741689278136332/zCknGXwAhgiuLQW367fr60PmHkoSxbzgo6bsDHmo3sZJo7kpTIjpVkj5P--1iwj7Ska0
+    DISCORD_SYSTEM_WEBHOOK_URL: https://discord.com/api/webhooks/1538741689278136332/zCknGXwAhgiuLQW367fr60PmHkoSxbzgo6bsDHmo3sZJo7kpTIjpVkj5P--1iwj7Ska0
 
 # Aliases are triggered with "bin/kamal <alias>". You can overwrite arguments on invocation:
 # "bin/kamal logs -r job" will tail logs from the first server in the job section.
