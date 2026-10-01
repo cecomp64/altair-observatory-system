@@ -23,7 +23,7 @@
     "3000": { "label": "Hub" }
   },
 
-  "postCreateCommand": "sudo chown -R vscode /usr/local/bundle /home/vscode/.claude && corepack install -g yarn@1.22.22 && npm install -g bun && bin/setup --skip-server && RAILS_ENV=test bin/rails db:prepare",
+  "postCreateCommand": "sudo chown -R vscode /usr/local/bundle /home/vscode/.claude && corepack install -g yarn@1.22.22 && npm install -g bun heroku && bin/setup --skip-server && RAILS_ENV=test bin/rails db:prepare",
 
   "customizations": {
     "vscode": {
