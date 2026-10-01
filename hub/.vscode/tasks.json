@@ -45,6 +45,15 @@
       "command": "bin/setup --skip-server",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Hub: Deploy to Heroku",
+      "detail": "git subtree push --prefix hub heroku main (runs from the repo root)",
+      "type": "shell",
+      "command": "git subtree push --prefix hub heroku main",
+      "options": { "cwd": "${workspaceFolder}/.." },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     }
   ]
 }
