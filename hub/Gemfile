@@ -87,7 +87,7 @@ end
 
 gem "csv", "~> 3.3"
 
-gem "pagy", "~> 9.3"
+gem "pagy", "~> 43.6"
 
 gem "sqlite3", "~> 2.9", require: false
 
