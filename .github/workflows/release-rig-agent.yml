@@ -62,7 +62,7 @@ jobs:
           name: rig-agent
           path: release
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: rig agent ${{ needs.build.outputs.version }}
           prerelease: ${{ contains(needs.build.outputs.version, '-') }}
