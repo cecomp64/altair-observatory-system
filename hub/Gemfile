@@ -93,7 +93,7 @@ gem "sqlite3", "~> 2.9", require: false
 
 # Active Storage on S3 in production (optional) and presigned download links
 # for masters in Altair's archive bucket (docs/SYSTEM_ARCHITECTURE.md §12).
-gem "aws-sdk-s3", "~> 1.170", require: false
+gem "aws-sdk-s3", "~> 1.232", require: false
 
 # Altair's Markdown reports (GFM tables), rendered and sanitized on the product report page.
 gem "kramdown", "~> 2.5"
