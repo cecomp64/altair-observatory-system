@@ -63,9 +63,11 @@
     </thead>
     <tbody class="divide-y divide-slate-100">
       <% @objects.each do |object| %>
-        <tr>
+        <%# The name's link stretches over the whole row, so the row is the link. %>
+        <tr class="group relative hover:bg-slate-50 focus-within:bg-slate-50" data-object-row="<%= object.id %>">
           <td class="px-4 py-2">
-            <%= link_to object.primary_name, object_path(object, telescope: @telescope&.slug), class: "font-medium hover:text-indigo-600" %>
+            <%= link_to object.primary_name, object_path(object, telescope: @telescope&.slug),
+                  class: "font-medium group-hover:text-indigo-600 focus:outline-none after:absolute after:inset-0 after:content-['']" %>
             <p class="text-xs text-slate-400"><%= object.aliases.map(&:name).reject { |n| n == object.primary_name }.first(4).join(", ") %></p>
           </td>
           <td class="px-2 py-2 text-slate-600"><%= object.object_type %></td>

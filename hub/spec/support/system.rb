@@ -1,10 +1,12 @@
 # Browser specs run headless Chrome over CDP (Cuprite): no chromedriver.
-# BROWSER_PATH points at Chrome/Chromium when it isn't on the PATH.
+# BROWSER_PATH points at Chrome/Chromium when it isn't on the PATH. Headless
+# Chrome reports no mouse, so Tailwind's hover styles (`@media (hover: hover)`)
+# would never apply; blink-settings make it a desktop with a mouse.
 require "capybara/cuprite"
 
 Capybara.register_driver(:hub_cuprite) do |app|
   Capybara::Cuprite::Driver.new(app, window_size: [ 1400, 1000 ], headless: true, process_timeout: 30, timeout: 15,
-                                     browser_path: ENV["BROWSER_PATH"].presence, browser_options: { "no-sandbox" => nil })
+                                     browser_path: ENV["BROWSER_PATH"].presence, browser_options: { "no-sandbox" => nil, "blink-settings" => "primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4" })
 end
 Capybara.default_max_wait_time = 5
 
