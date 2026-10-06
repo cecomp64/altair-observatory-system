@@ -38,8 +38,8 @@ RSpec.describe "Objects", type: :request do
   end
 
   it "starts a project with the object and the telescope it was viewed from" do
-    post project_wizard_add_object_path, params: { astro_object_id: m31.id, telescope: telescope.slug }
-    expect(response).to redirect_to(new_project_path(telescope: telescope.slug))
+    post project_wizard_add_object_path, params: { astro_object_id: m31.id, telescope: telescope.slug, start: "target" }
+    expect(response).to redirect_to(project_wizard_telescope_path(telescope: telescope.slug))
   end
 
   it "only lets admins add objects to the catalogue" do

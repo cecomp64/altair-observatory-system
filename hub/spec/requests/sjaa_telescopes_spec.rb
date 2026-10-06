@@ -35,7 +35,7 @@ RSpec.describe "Telescopes that require an SJAA membership", type: :request do
     before { sign_in user }
 
     it "shows the telescope but won't let an unlinked member choose it" do
-      get new_project_path
+      get project_wizard_telescope_path
       expect(response.body).to include("Members Scope", "SJAA members", "Link your SJAA membership")
       expect(Nokogiri::HTML(response.body).at_css("input[name=optical_train_id][value='#{train.id}']")["disabled"]).to be_present
 
@@ -58,7 +58,7 @@ RSpec.describe "Telescopes that require an SJAA membership", type: :request do
 
       travel 3.days do
         get project_wizard_objects_path
-        expect(response).to redirect_to(new_project_path)
+        expect(response).to redirect_to(project_wizard_telescope_path)
         expect(flash[:alert]).to include("needs a current SJAA membership")
       end
     end

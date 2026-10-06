@@ -6,7 +6,11 @@
   <%= render "steps", current_step: "telescope" %>
 
   <h1 class="text-xl font-semibold">Which telescope would you like to use?</h1>
-  <p class="text-slate-500 text-sm mt-1 mb-6">Each telescope has its own horizon and imaging schedule, and each camera setup (optical train) its own field of view and filters. Next you'll see how your objects clear the horizon tonight.</p>
+  <% if target_first? %>
+    <p class="text-slate-500 text-sm mt-1 mb-6">Each telescope sees <%= @objects.size == 1 ? @objects.first["name"] : "your objects" %> differently. The charts show <%= @objects.size == 1 ? "its" : "their" %> altitude tonight against each telescope's horizon, so you can pick the best one for the job. Each camera setup (optical train) has its own field of view and filters.</p>
+  <% else %>
+    <p class="text-slate-500 text-sm mt-1 mb-6">Each telescope has its own horizon and imaging schedule, and each camera setup (optical train) its own field of view and filters. Next you'll see how your objects clear the horizon tonight.</p>
+  <% end %>
 
   <%= form_with url: new_project_path, method: :patch, class: "space-y-4" do |f| %>
     <% @telescopes.each do |telescope| %>
@@ -14,9 +18,32 @@
       <% usable = policy(telescope).use? %>
       <div class="rounded-xl border border-slate-200 bg-white p-4">
         <p class="font-medium"><%= link_to telescope.name, telescope_path(telescope), class: "hover:text-indigo-600", target: "_blank" %>
-          <% if telescope.requires_sjaa_membership? %><span class="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">SJAA members</span><% end %></p>
+          <% if telescope.requires_sjaa_membership? %><span class="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">SJAA members</span><% end %>
+          <% if telescope == @best_telescope %><span class="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Best view tonight</span><% end %></p>
         <p class="text-xs text-slate-500 mb-3"><%= telescope.description.presence || format_site(telescope) %> · <%= telescope_clock(telescope) %> local</p>
-        <div class="mb-3"><%= horizon_silhouette(telescope) %></div>
+        <% if @views && (view = @views[telescope.id]) %>
+          <%# Starting with a target: the objects tonight at this telescope. %>
+          <div class="mb-3" data-telescope-view="<%= telescope.id %>">
+            <p class="text-xs font-medium text-slate-500 mb-1">Night of <%= l(view[:date], format: :long) %></p>
+            <%= altitude_chart(view[:results], labels: @objects.map { |o| [ o["name"], o["panel"].presence && "panel #{o['panel']}" ].compact.join(" · ") },
+                  night: view[:night], each_limit: true, height: "h-56") %>
+            <ul class="mt-2 space-y-0.5 text-xs">
+              <% @objects.each_with_index do |object, index| %>
+                <% result = view[:results][index] %>
+                <li class="<%= result.hours_clear_in_darkness.positive? ? "text-emerald-700" : "text-slate-500" %>">
+                  <span class="font-medium"><%= object["name"] %><%= " · panel #{object['panel']}" if object["panel"].present? %>:</span>
+                  <% if result.hours_clear_in_darkness.positive? %>
+                    <%= result.hours_clear_in_darkness.round(1) %> h clear tonight · up to <%= format_angle(result.max_altitude_in_darkness) %>
+                  <% else %>
+                    not clear of the horizon in darkness tonight
+                  <% end %>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+        <% else %>
+          <div class="mb-3"><%= horizon_silhouette(telescope) %></div>
+        <% end %>
         <% unless usable %>
           <p class="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
             This telescope is for SJAA members with a current membership.
@@ -49,7 +76,8 @@
       <p class="text-sm text-slate-400">No telescopes are available right now — check back soon.</p>
     <% end %>
 
-    <div class="pt-2 flex justify-end">
+    <div class="pt-2 flex justify-between">
+      <%= link_to "Back", target_first? ? project_wizard_objects_path : new_project_path, class: "rounded-lg px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" %>
       <%= f.submit "Continue", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
     </div>
   <% end %>

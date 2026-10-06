@@ -49,8 +49,9 @@ bundle exec rspec
 ## Key areas of the app
 
 * `app/controllers/project_wizard_controller.rb` — the multi-step,
-  session-backed "new project" flow (`/projects/new`: objects → telescope →
-  exposures → review; `/targets/new` redirects here).
+  session-backed "new project" flow (`/projects/new`: start with a telescope
+  or a target, then telescope ⇄ objects in that order → exposures → review;
+  `/targets/new` redirects here).
 * `app/controllers/admin/` — admin-only telescope + API key management
   (`/admin`).
 * `app/controllers/api/v1/` — the API the rig agent and Altair call:

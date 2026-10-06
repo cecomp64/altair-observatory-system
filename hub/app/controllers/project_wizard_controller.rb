@@ -1,6 +1,7 @@
 # A guided, multi-step "new project" experience (evolved from the original
 # target wizard). Each step is its own small screen:
 #
+#   0. start     - begin with a telescope or with a target
 #   1. telescope - which telescope and optical train to image with; each card
 #                  shows the telescope's horizon
 #   2. objects   - catalogue search, a Telescopius lookup, or custom coordinates;
@@ -8,6 +9,9 @@
 #                  Their paths tonight are drawn over the telescope's horizon.
 #   3. exposures - filter (from the optical train's list) x exposure x count
 #   4. review    - project name and priority, then submit
+#
+# Starting with a target swaps steps 1 and 2: the objects come first, then
+# each telescope's card charts them tonight, to pick the best one for the job.
 #
 # In-progress answers live in the session (`session[:project_wizard]`) until
 # `create` persists a Project with one Target per object. Started from a
@@ -18,41 +22,65 @@ class ProjectWizardController < ApplicationController
   before_action :load_state
   before_action :load_existing_project
 
+  STARTS = %w[telescope target].freeze
+
+  # Step 0 ------------------------------------------------------------------
+
+  def start
+    # From a telescope's page (?telescope=slug), the telescope comes first.
+    return unless params[:telescope].present?
+
+    @state["start"] = "telescope"
+    save_state
+    redirect_to project_wizard_telescope_path(telescope: params[:telescope])
+  end
+
+  def choose_start
+    return redirect_to(new_project_path, alert: "Choose how you'd like to start.") unless STARTS.include?(params[:start])
+
+    @state["start"] = params[:start]
+    save_state
+    redirect_to target_first? ? project_wizard_objects_path : project_wizard_telescope_path
+  end
+
   # Step 1 ------------------------------------------------------------------
 
   def telescope
-    @telescopes = wizard_telescopes
+    return unless !target_first? || require_objects
+
+    load_telescopes
   end
 
   def update_telescope
     train = OpticalTrain.active.joins(:telescope).merge(policy_scope(Telescope).active).find_by(id: params[:optical_train_id])
-    if train.nil?
-      @telescopes = wizard_telescopes
-      flash.now[:alert] = "Please choose a telescope to continue."
-      return render :telescope, status: :unprocessable_content
-    end
-    unless policy(train.telescope).use?
-      @telescopes = wizard_telescopes
-      flash.now[:alert] = sjaa_required_message(train.telescope)
-      return render :telescope, status: :unprocessable_content
-    end
+    return render_telescope_error("Please choose a telescope to continue.") if train.nil?
+    return render_telescope_error(sjaa_required_message(train.telescope)) unless policy(train.telescope).use?
 
     @state.merge!("telescope_id" => train.telescope_id, "optical_train_id" => train.id)
     # Filters differ between trains; plans made for another train no longer apply.
     @state["exposure_plans"] = [] if @state.delete("plans_train_id").to_i != train.id
     @state["plans_train_id"] = train.id
     save_state
-    redirect_to project_wizard_objects_path
+    redirect_to(target_first? && selected_objects.any? ? project_wizard_exposures_path : project_wizard_objects_path)
   end
 
   # Step 2 ------------------------------------------------------------------
 
   def objects
-    return unless (@optical_train = current_train_or_redirect)
+    # Starting with a target, the telescope is chosen after the objects.
+    if target_first?
+      @optical_train = current_train
+      @optical_train = nil if @optical_train && !policy(@optical_train.telescope).use?
+    else
+      return unless (@optical_train = current_train_or_redirect)
+    end
 
     @query = params[:q].to_s.strip
     @results = @query.present? ? policy_scope(AstroObject).search(@query).limit(15).to_a : []
     @objects = selected_objects
+    @object_visibility = []
+    @result_visibility = {}
+    return unless @optical_train
 
     # Tonight at the chosen telescope, for the chart and the search results.
     telescope = @optical_train.telescope
@@ -73,11 +101,16 @@ class ProjectWizardController < ApplicationController
     return redirect_to(project_wizard_objects_path, alert: "A project can have at most #{MAX_OBJECTS} targets.") if list.size >= MAX_OBJECTS
 
     list << object
-    save_state
-    # Started from an object's page: the telescope comes next.
-    unless current_train
-      return redirect_to(new_project_path(telescope: params[:telescope].presence), notice: "Added #{object['name']}. Choose a telescope to image it with.")
+    # Started from an object's page: that's starting with a target, so the
+    # telescopes, with their view of it, come next.
+    if params[:start] == "target" || !(current_train || target_first?)
+      @state["start"] = "target"
+      save_state
+      return redirect_to(project_wizard_telescope_path(telescope: params[:telescope].presence),
+                         notice: "Added #{object['name']}. Choose a telescope to image it with.")
     end
+
+    save_state
 
     redirect_to project_wizard_objects_path, notice: "Added #{object['name']}."
   end
@@ -91,7 +124,7 @@ class ProjectWizardController < ApplicationController
   def update_objects
     return redirect_to(project_wizard_objects_path, alert: "Add at least one object to image.") if selected_objects.empty?
 
-    redirect_to project_wizard_exposures_path
+    redirect_to target_first? ? project_wizard_telescope_path : project_wizard_exposures_path
   end
 
   # Step 3 ------------------------------------------------------------------
@@ -186,6 +219,37 @@ class ProjectWizardController < ApplicationController
   end
 
   private
+
+  def target_first?
+    @state["start"] == "target"
+  end
+  helper_method :target_first?
+
+  def render_telescope_error(message)
+    load_telescopes
+    flash.now[:alert] = message
+    render :telescope, status: :unprocessable_content
+  end
+
+  # Starting with a target, each telescope's view of the objects tonight,
+  # and the usable telescope with the most clear dark hours.
+  def load_telescopes
+    @telescopes = wizard_telescopes.to_a
+    return unless target_first?
+
+    @objects = selected_objects
+    @views = @telescopes.to_h do |telescope|
+      visibility = Astro::Visibility.new(Astro::Site.for(telescope))
+      date = telescope.night_for(Time.current)
+      results = @objects.map { |o| visibility.for_night(o["ra_deg"], o["dec_deg"], date) }
+      [ telescope.id, { date: date, night: visibility.night(date), results: results,
+                        hours: results.sum(&:hours_clear_in_darkness) } ]
+    end
+    return if @telescopes.size < 2
+
+    best = @telescopes.select { |t| policy(t).use? }.max_by { |t| @views[t.id][:hours] }
+    @best_telescope = best if best && @views[best.id][:hours].positive?
+  end
 
   def build_target(project, train, object, primary:)
     project.targets.build(
@@ -337,9 +401,9 @@ class ProjectWizardController < ApplicationController
   def current_train_or_redirect
     train = current_train
     if train.nil?
-      redirect_to new_project_path, alert: "Pick a telescope first."
+      redirect_to project_wizard_telescope_path, alert: "Pick a telescope first."
     elsif !policy(train.telescope).use?
-      redirect_to new_project_path, alert: sjaa_required_message(train.telescope)
+      redirect_to project_wizard_telescope_path, alert: sjaa_required_message(train.telescope)
       train = nil
     end
     train

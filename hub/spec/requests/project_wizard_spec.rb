@@ -13,12 +13,14 @@ RSpec.describe "ProjectWizard", type: :request do
 
   before { sign_in user }
 
-  def choose_train
+  def choose_train(next_step = project_wizard_objects_path)
     patch new_project_path, params: { optical_train_id: train.id }
-    expect(response).to redirect_to(project_wizard_objects_path)
+    expect(response).to redirect_to(next_step)
   end
 
+  # Adds the objects (if any) after the telescope, as when starting with one.
   def choose_train_and_plan
+    post project_wizard_start_path, params: { start: "telescope" }
     choose_train
     patch project_wizard_objects_path
     expect(response).to redirect_to(project_wizard_exposures_path)
@@ -32,9 +34,18 @@ RSpec.describe "ProjectWizard", type: :request do
     JSON.parse(canvas["data-chart-data-value"])["datasets"]
   end
 
-  it "walks telescope -> objects -> exposures -> review and creates a project with one target per object" do
+  it "asks whether to start with a target or a telescope" do
     get new_project_path
-    expect(response.body).to include(telescope.name, train.name)
+    expect(response.body).to include("Start with a target", "Start with a telescope")
+    post project_wizard_start_path, params: { start: "sideways" }
+    expect(response).to redirect_to(new_project_path)
+  end
+
+  it "walks telescope -> objects -> exposures -> review and creates a project with one target per object" do
+    post project_wizard_start_path, params: { start: "telescope" }
+    expect(response).to redirect_to(project_wizard_telescope_path)
+    get project_wizard_telescope_path
+    expect(response.body).to include(telescope.name, train.name, "Flat horizon")
     choose_train
 
     get project_wizard_objects_path(q: "m31")
@@ -62,6 +73,47 @@ RSpec.describe "ProjectWizard", type: :request do
     expect(second.ra_deg.to_f).to be_within(0.001).of(11.25)
     # The filter was entered as an alias and stored as the train's canonical name.
     expect(first.exposure_plans.sole).to have_attributes(filter: "Ha", exposure_seconds: 300, desired_count: 20)
+  end
+
+  it "walks target -> telescope -> exposures -> review, charting the objects at every telescope" do
+    other = create(:telescope, name: "Southern Scope", latitude: -31.27, longitude: 149.06)
+    create(:optical_train, telescope: other, key: "southern_train")
+
+    post project_wizard_start_path, params: { start: "target" }
+    expect(response).to redirect_to(project_wizard_objects_path)
+    get project_wizard_objects_path(q: "m31")
+    expect(response).to have_http_status(:ok)
+    expect(response.body).to include("Andromeda Galaxy", "compare how each telescope sees them tonight")
+    expect(response.body).not_to include("<canvas", "Change telescope")
+
+    # The telescopes come after the objects.
+    get project_wizard_telescope_path
+    expect(response).to redirect_to(project_wizard_objects_path)
+    post project_wizard_add_object_path, params: { astro_object_id: m31.id, q: "m31" }
+    expect(response).to redirect_to(project_wizard_objects_path)
+    patch project_wizard_objects_path
+    expect(response).to redirect_to(project_wizard_telescope_path)
+
+    travel_to Time.utc(2026, 10, 1, 20) # autumn, when Andromeda is high in the north
+    get project_wizard_telescope_path
+    page = Nokogiri::HTML(response.body)
+    expect(page.css("[data-telescope-view] canvas").size).to eq(2)
+    expect(response.body).to include("Andromeda Galaxy:", "Night of", "Southern Scope")
+    expect(response.body).not_to include("Flat horizon")
+    # Andromeda is far north: only the northern telescope sees it in darkness.
+    best = page.at_xpath("//span[contains(., 'Best view tonight')]/ancestor::div[contains(@class, 'rounded-xl')][1]")
+    expect(best.text).to include(telescope.name)
+    travel_back
+
+    choose_train(project_wizard_exposures_path)
+    get project_wizard_exposures_path
+    expect(response.body).to include(%(href="#{project_wizard_telescope_path}"))
+    post project_wizard_add_exposure_plan_path, params: { filter: "Ha", exposure_seconds: 300, desired_count: 20 }
+    patch project_wizard_exposures_path
+    expect(response).to redirect_to(project_wizard_review_path)
+
+    expect { post project_wizard_create_path, params: { name: "Andromeda" } }.to change(Target, :count).by(1)
+    expect(Project.last.targets.sole).to have_attributes(astro_object: m31, optical_train: train)
   end
 
   it "charts tonight's altitude against the horizon, with search results as hidden previews" do
@@ -102,29 +154,33 @@ RSpec.describe "ProjectWizard", type: :request do
 
   it "asks for the telescope before the objects" do
     get project_wizard_objects_path
-    expect(response).to redirect_to(new_project_path)
+    expect(response).to redirect_to(project_wizard_telescope_path)
     expect(flash[:alert]).to eq("Pick a telescope first.")
   end
 
-  it "asks for a telescope next when started from an object's page" do
-    post project_wizard_add_object_path, params: { astro_object_id: m31.id }
-    expect(response).to redirect_to(new_project_path)
+  it "starts with the target, and shows the telescopes next, when started from an object's page" do
+    post project_wizard_add_object_path, params: { astro_object_id: m31.id, start: "target" }
+    expect(response).to redirect_to(project_wizard_telescope_path)
     expect(flash[:notice]).to eq("Added Andromeda Galaxy. Choose a telescope to image it with.")
+    get project_wizard_telescope_path
+    expect(response.body).to include("Andromeda Galaxy:")
 
-    choose_train
+    choose_train(project_wizard_exposures_path)
     get project_wizard_objects_path
     expect(chart_datasets.map { |d| d["label"] }).to include("Andromeda Galaxy")
   end
 
-  it "preselects a telescope's default train when started from its page" do
+  it "starts with the telescope, its default train preselected, when started from its page" do
     get new_project_path(telescope: telescope.slug)
+    expect(response).to redirect_to(project_wizard_telescope_path(telescope: telescope.slug))
+    follow_redirect!
     checked = Nokogiri::HTML(response.body).css("input[name=optical_train_id][checked]").map { |i| i["value"].to_i }
     expect(checked).to eq([ telescope.default_optical_train_id ])
   end
 
   it "adds a repeated filter and exposure to the existing row" do
     post project_wizard_add_object_path, params: { astro_object_id: m31.id }
-    choose_train
+    choose_train(project_wizard_exposures_path)
     post project_wizard_add_exposure_plan_path, params: { filter: "Ha", exposure_seconds: 300, desired_count: 20 }
     post project_wizard_add_exposure_plan_path, params: { filter: "Ha", exposure_seconds: 600, desired_count: 5 }
     post project_wizard_add_exposure_plan_path, params: { filter: "h-alpha", exposure_seconds: 300, desired_count: 10 }
@@ -193,6 +249,7 @@ RSpec.describe "ProjectWizard", type: :request do
   end
 
   it "refuses to continue past objects with nothing chosen" do
+    post project_wizard_start_path, params: { start: "telescope" }
     choose_train
     patch project_wizard_objects_path
     expect(response).to redirect_to(project_wizard_objects_path)
@@ -211,10 +268,8 @@ RSpec.describe "ProjectWizard", type: :request do
     expect(flash[:alert]).to include("valid right ascension")
   end
 
-  it "redirects the old /targets/new and /projects/new/telescope entry points" do
+  it "redirects the old /targets/new entry point" do
     get "/targets/new"
-    expect(response).to redirect_to("/projects/new")
-    get "/projects/new/telescope"
     expect(response).to redirect_to("/projects/new")
   end
 end

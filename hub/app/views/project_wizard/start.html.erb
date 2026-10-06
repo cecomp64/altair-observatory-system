@@ -1,0 +1,22 @@
+<% content_for :title, "New project" %>
+<% card = "w-full h-full text-left rounded-xl border bg-white p-5 cursor-pointer hover:border-indigo-400 hover:ring-1 hover:ring-indigo-400" %>
+
+<div class="max-w-2xl mx-auto">
+  <div class="mt-4"><%= render "project_banner" %></div>
+
+  <h1 class="text-xl font-semibold">How would you like to start?</h1>
+  <p class="text-slate-500 text-sm mt-1 mb-6">Either way you'll choose a telescope, what to image, and your exposures.</p>
+
+  <div class="grid gap-4 sm:grid-cols-2">
+    <%= button_to project_wizard_start_path, params: { start: "target" }, form_class: "h-full",
+          class: "#{card} #{target_first? ? "border-indigo-500" : "border-slate-200"}" do %>
+      <p class="font-medium">Start with a target</p>
+      <p class="text-sm text-slate-500 mt-1">Choose what to image first, then compare how each telescope sees it tonight and pick the best one for the job.</p>
+    <% end %>
+    <%= button_to project_wizard_start_path, params: { start: "telescope" }, form_class: "h-full",
+          class: "#{card} #{@state["start"] == "telescope" ? "border-indigo-500" : "border-slate-200"}" do %>
+      <p class="font-medium">Start with a telescope</p>
+      <p class="text-sm text-slate-500 mt-1">Choose a telescope and camera first, then find objects that clear its horizon tonight.</p>
+    <% end %>
+  </div>
+</div>

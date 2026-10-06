@@ -1,10 +1,12 @@
 <%
+  # Starting with a target, the objects come before the telescope.
   steps = [
     ["Telescope", "telescope"],
     ["Objects", "objects"],
     ["Exposures", "exposures"],
     ["Review", "review"]
   ]
+  steps[0], steps[1] = steps[1], steps[0] if target_first?
 %>
 <ol class="flex flex-wrap items-center gap-2 mb-8 text-sm">
   <% steps.each_with_index do |(label, key), index| %>
@@ -20,9 +22,4 @@
     </li>
   <% end %>
 </ol>
-<% if @project %>
-  <div class="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 -mt-4 mb-6 text-sm text-indigo-800 flex flex-wrap justify-between gap-2">
-    <span>Adding targets to <%= link_to @project.name, project_path(@project), class: "font-medium underline" %></span>
-    <%= link_to "Start a new project instead", new_project_path(new: 1), class: "text-indigo-600 hover:underline" %>
-  </div>
-<% end %>
+<%= render "project_banner" %>

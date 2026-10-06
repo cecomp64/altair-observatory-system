@@ -12,6 +12,7 @@ RSpec.describe "Project wizard", type: :system do
 
   it "creates a project from a telescope, a catalogue search and an exposure plan" do
     visit new_project_path
+    click_on "Start with a telescope"
     expect(page).to have_text("Which telescope would you like to use?")
     expect(page).to have_text("Flat horizon")
     find("input[type=radio][value='#{train.id}']").click
@@ -54,5 +55,35 @@ RSpec.describe "Project wizard", type: :system do
     project = Project.find_by!(name: "Andromeda deep")
     expect(page).to have_current_path(project_path(project))
     expect(project.targets.sole.exposure_plans.sole).to have_attributes(filter: "Ha", exposure_seconds: 300, desired_count: 20)
+  end
+
+  it "starts with a target, then compares the telescopes' view of it" do
+    create(:optical_train, telescope: create(:telescope, name: "Southern Scope", latitude: -31.27, longitude: 149.06), key: "southern")
+    visit new_project_path
+    click_on "Start with a target"
+
+    expect(page).to have_text("What would you like to image?")
+    fill_in "q", with: "m31"
+    click_on "Search"
+    click_on "Add", match: :first
+    expect(page).to have_button("Remove")
+    click_on "Continue"
+
+    expect(page).to have_text("Which telescope would you like to use?")
+    expect(page).to have_css("[data-telescope-view] canvas", count: 2)
+    expect(page).to have_text("Andromeda Galaxy:")
+    page.save_screenshot(ENV["WIZARD_SCREENSHOT"]) if ENV["WIZARD_SCREENSHOT"]
+    find("input[type=radio][value='#{train.id}']").click
+    click_on "Continue"
+
+    expect(page).to have_text("Plan your exposures")
+    select "Ha", from: "filter"
+    fill_in "exposure_seconds", with: "300"
+    fill_in "desired_count", with: "20"
+    click_on "Add"
+    click_on "Continue"
+    click_on "Submit project"
+
+    expect(Project.last.targets.sole).to have_attributes(astro_object: m31, optical_train: train)
   end
 end

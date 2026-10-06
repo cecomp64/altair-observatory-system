@@ -1,6 +1,6 @@
 <% content_for :title, "New project — objects" %>
 <% input = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500" %>
-<% telescope = @optical_train.telescope %>
+<% telescope = @optical_train&.telescope %>
 <% tonight = ->(result) do
      if result.hours_clear_in_darkness.positive?
        "#{result.hours_clear_in_darkness.round(1)} h clear tonight · up to #{format_angle(result.max_altitude_in_darkness)}"
@@ -13,12 +13,13 @@
   <%= render "steps", current_step: "objects" %>
 
   <h1 class="text-xl font-semibold">What would you like to image?</h1>
-  <p class="text-slate-500 text-sm mt-1 mb-6">Search the catalogue by any name (M 31, NGC 7000, Pelican Nebula…). Add several objects, or mosaic panels, to image them as one project.</p>
+  <p class="text-slate-500 text-sm mt-1 mb-6">Search the catalogue by any name (M 31, NGC 7000, Pelican Nebula…). Add several objects, or mosaic panels, to image them as one project.<% unless telescope %> Next you'll compare how each telescope sees them tonight.<% end %></p>
 
+  <% if telescope %>
   <div class="rounded-xl border border-slate-200 bg-white p-4 mb-6">
     <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
       <h2 class="text-sm font-medium text-slate-500">Night of <%= l(@date, format: :long) %> at <span class="text-slate-900"><%= telescope.name %></span> · <%= @optical_train.name %></h2>
-      <%= link_to "Change telescope", new_project_path, class: "text-xs text-indigo-600 hover:underline" %>
+      <%= link_to "Change telescope", project_wizard_telescope_path, class: "text-xs text-indigo-600 hover:underline" %>
     </div>
     <% labels = @objects.map { |object| [ object["name"], object["panel"].presence && "panel #{object['panel']}" ].compact.join(" · ") } %>
     <% previews = @results.filter_map { |object| (result = @result_visibility[object.id]) && { key: "object-#{object.id}", label: object.primary_name, result: result } } %>
@@ -33,6 +34,7 @@
       <p class="text-sm text-slate-400 py-6 text-center">Search for an object to see how it clears <%= telescope.name %>'s horizon tonight.</p>
     <% end %>
   </div>
+  <% end %>
 
   <% if @objects.any? %>
     <ul class="space-y-2 mb-6">
@@ -44,7 +46,7 @@
             <% if object["panel"].present? %><span class="text-slate-500">· panel <%= object["panel"] %></span><% end %>
             <span class="text-slate-400">· <%= format_radec(object["ra_deg"], object["dec_deg"]) %></span>
             <% unless object["astro_object_id"] %><span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">custom</span><% end %>
-            <span class="block text-xs text-slate-500 mt-0.5"><%= tonight.(@object_visibility[index]) %></span>
+            <% if (result = @object_visibility[index]) %><span class="block text-xs text-slate-500 mt-0.5"><%= tonight.(result) %></span><% end %>
           </span>
           <%= button_to "Remove", project_wizard_remove_object_path(index: index), method: :delete,
                 class: "text-xs text-rose-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
@@ -110,7 +112,7 @@
   </details>
 
   <%= form_with url: project_wizard_objects_path, method: :patch, class: "pt-6 flex justify-between" do %>
-    <%= link_to "Back", new_project_path, class: "rounded-lg px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" %>
+    <%= link_to "Back", target_first? ? new_project_path : project_wizard_telescope_path, class: "rounded-lg px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" %>
     <%= submit_tag "Continue", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
   <% end %>
 </div>
