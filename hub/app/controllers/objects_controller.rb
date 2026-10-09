@@ -13,6 +13,7 @@ class ObjectsController < ApplicationController
     scope = scope.where(id: @well_placed.keys) if @well_placed
 
     count = scope.unscope(:order).count
+    @total = count
     @pagy, @objects = pagy(ordered(scope), limit: PER_PAGE, count: count)
     @objects = @objects.includes(:aliases)
     @listings = DynamicCatalogueEntry.active.includes(:dynamic_catalogue).where(astro_object_id: @objects.map(&:id)).group_by(&:astro_object_id)
@@ -100,14 +101,20 @@ class ObjectsController < ApplicationController
     visible = policy_scope(AstroObject)
     scope = params[:q].present? ? visible.search(params[:q]) : visible
     scope = scope.where(source: "custom", created_by: current_user) if params[:mine] == "1"
-    scope = scope.where(object_type: params[:type]) if params[:type].present?
-    scope = scope.where(constellation: params[:constellation]) if params[:constellation].present?
-    scope = scope.where(id: ObjectAlias.where(catalog: params[:catalog]).select(:astro_object_id)) if params[:catalog].present?
-    scope = scope.where(id: DynamicCatalogueEntry.active.joins(:dynamic_catalogue).where(dynamic_catalogues: { key: params[:list] }).select(:astro_object_id)) if params[:list].present?
+    scope = scope.where(object_type: list_param(:type)) if list_param(:type).any?
+    scope = scope.where(constellation: list_param(:constellation)) if list_param(:constellation).any?
+    scope = scope.where(id: ObjectAlias.where(catalog: list_param(:catalog)).select(:astro_object_id)) if list_param(:catalog).any?
+    scope = scope.where(id: DynamicCatalogueEntry.active.joins(:dynamic_catalogue).where(dynamic_catalogues: { key: list_param(:list) }).select(:astro_object_id)) if list_param(:list).any?
     scope = scope.where(magnitude: ..params[:mag_max].to_f) if params[:mag_max].present?
     scope = scope.where(size_major_arcmin: params[:size_min].to_f..) if params[:size_min].present?
     scope
   end
+
+  # A filter that takes one or several values (?type=Galaxy or ?type[]=Galaxy&type[]=Nebula).
+  def list_param(key)
+    Array(params[key]).select { |v| v.is_a?(String) }.reject(&:blank?)
+  end
+  helper_method :list_param
 
   def ordered(scope)
     case params[:sort]

@@ -25,6 +25,11 @@ RSpec.describe "Dynamic catalogues in the catalogue", type: :request do
     expect(response.body).to include("CH Cyg")
     expect(response.body).not_to include("RS Oph", "Andromeda Galaxy")
     expect(Nokogiri::HTML(response.body).css("tr[data-object-row='#{ch_cyg.id}'] span.bg-amber-100").text.strip).to eq("AAVSO")
+
+    page = Nokogiri::HTML(response.body)
+    expect(page.at_css("input[type=checkbox][name='list[]'][value='aavso_campaigns']")["checked"]).to be_present
+    remove = page.css("a[title='Remove filter']").find { |link| link.text.include?("AAVSO Alerts & Campaigns") }
+    expect(remove["href"]).not_to include("list")
   end
 
   it "shows the campaign on the object page, escaping the notes but linking the notice" do

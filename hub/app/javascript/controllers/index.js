@@ -24,3 +24,6 @@ application.register("horizon-preview", HorizonPreviewController)
 
 import RowLinkController from "./row_link_controller"
 application.register("row-link", RowLinkController)
+
+import FiltersController from "./filters_controller"
+application.register("filters", FiltersController)
