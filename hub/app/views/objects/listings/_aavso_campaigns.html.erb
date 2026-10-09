@@ -1,0 +1,25 @@
+<ul class="mt-3 space-y-2 text-sm">
+  <% Array(details["campaigns"]).each do |campaign| %>
+    <li>
+      <%= link_to campaign["title"], aavso_campaign_url(campaign["id"]), target: "_blank", rel: "noopener", class: "font-medium text-indigo-700 hover:underline" %>
+      <p class="text-xs text-amber-800">
+        <%= [ aavso_campaign_window(campaign), campaign["data_types"] ].compact.join(" · ") %>
+        <% if campaign["forum_url"] %>· <%= link_to "forum", campaign["forum_url"], target: "_blank", rel: "noopener", class: "text-indigo-600 hover:underline" %><% end %>
+      </p>
+      <% if campaign["notes"] %><p class="text-xs text-amber-900"><%= campaign["notes"] %></p><% end %>
+    </li>
+  <% end %>
+</ul>
+<dl class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mt-3">
+  <% if details["var_type"] %><div><dt class="text-amber-700">Variable type</dt><dd class="font-medium"><%= details["var_type"] %></dd></div><% end %>
+  <% if (range = aavso_mag_range(details)) %><div><dt class="text-amber-700">Range</dt><dd class="font-medium"><%= range %></dd></div><% end %>
+  <% if details["period_days"] %><div><dt class="text-amber-700">Period</dt><dd class="font-medium"><%= details["period_days"].round(3) %> d</dd></div><% end %>
+  <% if details["cadence_days"] %><div><dt class="text-amber-700">Observe every</dt><dd class="font-medium"><%= details["cadence_days"].round(2) %> d</dd></div><% end %>
+  <% if details["obs_mode"] %><div><dt class="text-amber-700">Mode</dt><dd class="font-medium"><%= details["obs_mode"] %></dd></div><% end %>
+  <% if details["filters"].present? %><div><dt class="text-amber-700">Filters</dt><dd class="font-medium"><%= details["filters"].join(", ") %></dd></div><% end %>
+  <% if details["priority"] %><div><dt class="text-amber-700">Priority</dt><dd class="font-medium">High</dd></div><% end %>
+</dl>
+<% if details["other_info"] %><p class="text-sm text-amber-900 mt-3"><%= aavso_info(details["other_info"]) %></p><% end %>
+<p class="text-xs mt-3">
+  <%= link_to "VSX entry", aavso_vsx_url(details["star_name"] || object.primary_name), target: "_blank", rel: "noopener", class: "text-indigo-600 hover:underline" %>
+</p>

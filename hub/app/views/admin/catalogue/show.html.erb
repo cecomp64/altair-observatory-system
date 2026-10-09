@@ -33,3 +33,41 @@
   </table>
   <p class="text-xs text-slate-400 mt-4">Imports merge by name: an object already known under any of its names gets the new names added, not a duplicate. Also available as <code>bin/rails "catalogue:import[openngc]"</code>.</p>
 </div>
+
+<h2 class="text-lg font-semibold mt-8">Dynamic catalogues</h2>
+<p class="text-slate-500 text-sm mt-1">Lists that change on their own, refreshed every 6 hours. Objects that drop off a list stay in the catalogue; only their listing ends.</p>
+<div class="rounded-xl border border-slate-200 bg-white p-5 mt-4">
+  <table class="w-full text-sm">
+    <thead class="text-left text-slate-400"><tr><th class="pb-2">List</th><th class="pb-2">Listed now</th><th class="pb-2">Last refresh</th><th></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+      <% @dynamic.each do |list| %>
+        <tr>
+          <td class="py-2">
+            <span class="font-medium"><%= list.name %></span>
+            <p class="text-xs text-slate-400"><%= list.source::DESCRIPTION %></p>
+          </td>
+          <td class="py-2">
+            <% if list.persisted? %><%= link_to number_with_delimiter(@listed[list.id].to_i), objects_path(list: list.key), class: "text-indigo-600 hover:underline" %><% else %>—<% end %>
+          </td>
+          <td class="py-2 text-slate-500">
+            <% if !list.configured? %>
+              <span class="text-amber-700">Not configured: <%= list.source::SETUP %></span>
+            <% elsif list.refreshed_at %>
+              <%= time_ago_in_words(list.refreshed_at) %> ago
+              <% if list.last_result.present? %>· <%= list.last_result.map { |k, v| "#{k.humanize(capitalize: false)} #{v}" }.join(", ") %><% end %>
+            <% else %>never<% end %>
+            <% if list.last_error.present? %>
+              <p class="text-rose-600">Failed <%= time_ago_in_words(list.attempted_at || list.updated_at) %> ago: <%= list.last_error %></p>
+            <% end %>
+          </td>
+          <td class="py-2 text-right">
+            <% if list.configured? %>
+              <%= button_to "Refresh", refresh_admin_catalogue_path(key: list.key), class: "text-xs text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer" %>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <p class="text-xs text-slate-400 mt-4">Also available as <code>bin/rails "catalogue:refresh[aavso_campaigns]"</code>.</p>
+</div>

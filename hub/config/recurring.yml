@@ -23,3 +23,8 @@ production:
     class: NodeHealthJob
     queue: default
     schedule: every 10 minutes
+  # Dynamic catalogues (AAVSO Alerts & Campaigns...): lists that change on their own.
+  dynamic_catalogue_refresh:
+    class: DynamicCatalogueRefreshJob
+    queue: default
+    schedule: every 6 hours at minute 20

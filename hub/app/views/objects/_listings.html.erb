@@ -1,0 +1,16 @@
+<%# Dynamic catalogues the object is (or was) on; each list's details come from objects/listings/_<key>. %>
+<% current, past = listings.partition(&:active?) %>
+<% current.each do |entry| %>
+  <div class="rounded-xl border border-amber-200 bg-amber-50 p-5 mt-6">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 class="font-medium text-amber-900">On <%= entry.dynamic_catalogue.name %></h2>
+      <p class="text-xs text-amber-700">since <%= l(entry.first_seen_at.to_date, format: :long) %> · checked <%= time_ago_in_words(entry.last_seen_at) %> ago</p>
+    </div>
+    <%= render "objects/listings/#{entry.dynamic_catalogue.key}", details: entry.details, object: object %>
+  </div>
+<% end %>
+<% if past.any? %>
+  <p class="text-xs text-slate-400 mt-3">
+    <%= safe_join(past.map { |entry| "Was on #{entry.dynamic_catalogue.name} #{l(entry.first_seen_at.to_date)} – #{l(entry.removed_at.to_date)}" }, " · ") %>
+  </p>
+<% end %>

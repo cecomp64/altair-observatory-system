@@ -334,8 +334,10 @@ erDiagram
 | `users` | Devise auth, `role` (member / admin), `notify_email`, `notify_discord`, `discord_webhook_url`; SJAA link: `sjaa_person_id` (unique), `sjaa_linked_at`, `sjaa_membership_active`, `sjaa_membership_expires_on` (nil = lifetime), `sjaa_membership_checked_at` |
 | `telescopes` | `slug`, `name`, `latitude`, `longitude`, `elevation_m`, **`timezone`**, `min_altitude_deg`, `default_optical_train_id`, `active`, `self_serve_submit`, `requires_sjaa_membership`, `worker_last_heartbeat_at`, `worker_status`; `horizon_file` attachment, parsed into `horizon_points` (jsonb) when it is attached |
 | `optical_trains` | `telescope_id`, `key` (unique per telescope, = Altair rig), `camera_name`, `camera_type` (mono / osc), `bayer_pattern`, `pixel_size_um`, `sensor_width_px`, `sensor_height_px`, `focal_length_mm`, `has_rotator`, `filters` jsonb (`[{name, aliases}]`), `header_aliases` jsonb, `active`. A train missing optics is left out of the processing config. |
-| `astro_objects` | `primary_name`, `ra_deg`, `dec_deg`, `object_type`, `magnitude`, sizes, `position_angle_deg`, `constellation`, `source` (openngc / ldn / lbn / telescopius / custom), `source_ref`, `created_by_id`. Trigram index on the name. |
+| `astro_objects` | `primary_name`, `ra_deg`, `dec_deg`, `object_type`, `magnitude`, sizes, `position_angle_deg`, `constellation`, `source` (openngc / ldn / lbn / telescopius / aavso / custom), `source_ref`, `created_by_id`. Trigram index on the name. |
 | `object_aliases` | `astro_object_id`, `name`, `normalized_name` (trigram + btree), `catalog` |
+| `dynamic_catalogues` | One row per list in `Catalogue::Dynamic::SOURCES` (`key`, e.g. `aavso_campaigns`): `attempted_at`, `refreshed_at`, `last_error`, `last_result` |
+| `dynamic_catalogue_entries` | `dynamic_catalogue_id`, `astro_object_id` (unique together), `first_seen_at`, `last_seen_at`, `removed_at` (set when the object drops off the list; cleared, with a new `first_seen_at`, if it returns), `details` jsonb (what the list says, e.g. an AAVSO star's campaigns with their dates, cadence and filters). Objects stay in the catalogue after they leave a list. |
 | `object_showcases` | `astro_object_id`, `source_type` (upload / product / survey), `data_product_id`, `survey_name`, `image` attachment |
 | `projects` | `user_id`, `name`, `description`, `status` (planning / active / paused / completed / archived), `priority`, `visibility` (private / club), `completion_basis` (acquired / integrated), `processing_settings` jsonb |
 | `targets` | `project_id`, `user_id` (= the project's owner), `telescope_id`, `optical_train_id`, `astro_object_id` (null for custom coordinates), `name`, `ra_deg`, `dec_deg`, `rotation_deg`, `panel`, `is_primary`, `min_altitude_deg`, `priority`, `status`, `processing_settings` jsonb, `schedule_count_basis`, `submitted_at`, `notes` |
@@ -588,7 +590,7 @@ settings change that forces a re-reference (such as `drizzle_scale`) asks for a 
 |---|---|
 | `/` Dashboard | My projects' progress; "Tonight" per telescope (my targets ranked by imaging score, plus well-placed catalogue suggestions); "imaging now" from session events; open issues that need me. Admins also see node health. |
 | `/observatory` | For every member, per active telescope: operating now or why not (imaging, done for the night, waiting for dark, closed, didn't open, or an admin's maintenance/offline with a note), tonight's darkness and Moon, lights and hours so far, the target being imaged (other members' private targets stay anonymous), the queue size, rig agent and processing node heartbeats, and the last 7 nights. Refreshes live on session events, heartbeats and frames, and every 5 minutes. Built from data the Hub already has; weather is not shown yet. |
-| `/objects` Catalogue | Trigram search over names and aliases, with facets (type, constellation, catalogue). |
+| `/objects` Catalogue | Trigram search over names and aliases, with facets (type, constellation, catalogue). "Featured now" filters to a dynamic catalogue, and listed rows carry its badge. |
 | `/objects/:id` | Tonight's altitude chart with a telescope picker (twilight, horizon, Moon), its path across the sky over the telescope's horizon profile, best viewing, aliases, the showcase, frames of the object, projects containing it, and "Start a project". |
 | `/objects/new` | Admins only: resolve a name through the local catalogue, then Telescopius, or enter custom coordinates (shared with members by default). Members add objects only through a project's custom target: coordinates, or a name looked up online, become the member's own object when the project is created (reused by their later projects), private to them (and admins) until they share it from its page. A member's lookup stores nothing before that. Catalogue imports, admins' Telescopius lookups and objects an admin imports with `import:astrodb` are public. Search, the wizard, name resolution and frame pages never show another member's private object. |
 | `/projects`, `/projects/:id` | Project cards. Project page: per-filter progress, tonight's visibility, targets and plans, integration over time, latest multi-night masters, nights (include/exclude), open issues, and processing controls (settings, rerun, re-reference, mode). Pause/resume the project and "Add target" (the wizard, adding to this project). |
@@ -600,7 +602,7 @@ settings change that forces a re-reference (such as `drizzle_scale`) asks for a 
 | `/frames/:id`, `/frames/unassigned` | Frame detail (headers, FOV objects, storage, links). The inbox of unresolved lights grouped by night and `OBJECT`, with a suggested target, and bulk assignment. |
 | `/issues`, `/issues/:id` | Processing issues: waive, and approve or deny fetches (admins). |
 | `/telescopes/:slug/optical_trains/:key` | Optics, filters and aliases, equipment events, calibration library, and a flats shopping list built from open `FLAT_MISSING` issues. |
-| `/admin/…` | Telescopes and API keys, optical trains and equipment events, processing nodes (health, keys, refresh config), catalogue imports. |
+| `/admin/…` | Telescopes and API keys, optical trains and equipment events, processing nodes (health, keys, refresh config), catalogue imports, dynamic catalogue status and refresh. |
 
 ### 7.4 Notifications
 
@@ -624,6 +626,7 @@ aren't alerted twice.
 | `FrameFovMatchJob` | After frame batches |
 | `NodeHealthJob` | Every 10 minutes: alerts admins about nodes with no heartbeat for 30 minutes |
 | `CatalogueImportJob` | From `/admin/catalogue` (OpenNGC, LDN, LBN) |
+| `DynamicCatalogueRefreshJob` | Every 6 hours for each dynamic catalogue (AAVSO Alerts & Campaigns), or one list from `/admin/catalogue` |
 | `ShowcaseSurveyFetchJob` | A survey image (SkyView) for an object's showcase |
 | `NotifyOwnerJob`, `AdminAlertJob` | Notifications (§7.4) |
 
@@ -647,6 +650,7 @@ Recurring jobs are declared in `config/recurring.yml`.
   keys, frames and nights, and issues, jobs and commands, then the removal of the legacy worker uploads.
 - **Services** (`app/services/`):
   - `Catalogue::*`: the importers, `AliasNormalizer`, `NameResolver` (local first, then Telescopius, with misses cached) and `TelescopiusClient`
+  - `Catalogue::Dynamic::*`: dynamic catalogue sources (`AavsoCampaigns`: the stars of campaigns running today from the AAVSO apps API, `GET /v2/api/campaigns?active=true` (every page), coordinates for stars not already in the catalogue from one VizieR TAP query of VSX (`B/vsx/vsx`), with the apps API's `stars/search` only for the few VizieR lacks, and cadence and filters from the Target Tool API when `AAVSO_API_KEY` is set. Apps API requests are paced to one per 10 seconds as AAVSO asks; when star searches are rate limited, the rest are deferred and the job runs again after `Retry-After`) and the `Refresher`, which merges objects like an import and starts or ends listings
   - `Frames::BatchUpserter`, `PlanMatcher`, `Search`, `Assigner`
   - `Progress::Calculator`, `Progress::Recompute`
   - `Processing::ConfigBuilder` (payload and ETag), `Processing::CommandIssuer`
@@ -656,7 +660,7 @@ Recurring jobs are declared in `config/recurring.yml`.
   `TelescopesController#active_targets`, `TargetsController`, `SessionsController`,
   `HeartbeatsController`, and `Api::V1::Processing::*` (config, frames, nights,
   calibration masters, data products, issues, jobs, commands).
-- **Rake tasks:** `catalogue:import`, `import:astrodb`.
+- **Rake tasks:** `catalogue:import`, `catalogue:refresh`, `import:astrodb`.
 - **Performance:** `script/perf/frames_search.rb` seeds 100k synthetic frames and times
   the frame search. Measured: filtered p95 62 ms, cone search p95 109 ms.
 - **Seeds:** `db/seeds.rb` creates an admin, a member, a telescope and sample data for
@@ -914,8 +918,10 @@ deployment is a fresh install:
    - Optionally, for master downloads: a read-only `hub-archive-reader` IAM user with
      `s3:GetObject` on the archive's `altair/projects/*` and `altair/calibration/masters/*`,
      given to the Hub as `ARCHIVE_READER_*` and `ARCHIVE_BUCKET`.
-   - Add credentials: SMTP, the Discord webhook, `TELESCOPIUS_API_KEY` and, for "Log in
-     with SJAA", `SJAA_API_TOKEN` (see `hub/README.md`).
+   - Add credentials: SMTP, the Discord webhook, `TELESCOPIUS_API_KEY`, optionally `AAVSO_API_KEY`
+     (a Target Tool key: cadence and filters for AAVSO campaign stars) and `AAVSO_APPS_TOKEN`
+     (from Settings at apps.aavso.org: authenticates to the campaigns API; AAVSO doesn't say
+     whether it raises the rate limit) and, for "Log in with SJAA", `SJAA_API_TOKEN` (see `hub/README.md`).
    - Run `bin/rails catalogue:import`.
 2. **Set up equipment in the Hub:**
    - Each telescope: site, timezone and horizon file.
@@ -1026,7 +1032,7 @@ These have not been started:
 
 | Component | How it is deployed | Configuration and secrets |
 |---|---|---|
-| Hub | Kamal from `hub/` (`config/deploy.yml`, Dockerfile), PostgreSQL | Rails credentials; `TELESCOPIUS_API_KEY`; optionally `SJAA_API_TOKEN` (Log in with SJAA), and `ACTIVE_STORAGE_SERVICE` + `ACTIVE_STORAGE_S3_*`, and `ARCHIVE_READER_*` + `ARCHIVE_BUCKET` for master downloads. Solid Queue runs inside Puma (`SOLID_QUEUE_IN_PUMA`) until jobs move to their own server. |
+| Hub | Kamal from `hub/` (`config/deploy.yml`, Dockerfile), PostgreSQL | Rails credentials; `TELESCOPIUS_API_KEY`; optionally `AAVSO_API_KEY` (cadence and filters for AAVSO campaign stars) and `AAVSO_APPS_TOKEN` (authenticates to the AAVSO campaigns API), `SJAA_API_TOKEN` (Log in with SJAA), and `ACTIVE_STORAGE_SERVICE` + `ACTIVE_STORAGE_S3_*`, and `ARCHIVE_READER_*` + `ARCHIVE_BUCKET` for master downloads. Solid Queue runs inside Puma (`SOLID_QUEUE_IN_PUMA`) until jobs move to their own server. |
 | Rig agent | `robs.exe` from a `rig-agent-v*` release on each rig PC, run by NINA External Script steps and a scheduled `sync-progress` | One YAML per telescope (`config/example.telescope.yml`); `ROBS_<SLUG>_API_KEY` |
 | Altair | `altair.exe` from a `processing-v*` release on the processing PC. `altaird` (`altair serve --windowless`) runs as a Task Scheduler task at log-on (`processing/deploy/windows/install-task.ps1`), because PixInsight needs an interactive session | `altair.yaml`; the node key in Windows Credential Manager (`altair-hub`) or `ALTAIR_HUB_API_KEY`; notification secrets in environment variables |
 

@@ -4,14 +4,29 @@
 <div class="flex items-center justify-between mb-4">
   <div>
     <h1 class="text-2xl font-semibold">Catalogue</h1>
-    <p class="text-slate-500 text-sm">OpenNGC, LDN, LBN and objects members have added. Search any name or alias.</p>
+    <p class="text-slate-500 text-sm">OpenNGC, LDN, LBN, AAVSO campaign targets and objects members have added. Search any name or alias.</p>
   </div>
   <% if policy(AstroObject).create? %>
     <%= link_to "Add an object", new_object_path, class: "rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100" %>
   <% end %>
 </div>
 
+<% if @lists.any? %>
+  <div class="flex flex-wrap items-center gap-2 mb-3 text-sm">
+    <span class="text-slate-500">Featured now:</span>
+    <% @lists.each do |list| %>
+      <% current = params[:list] == list.key %>
+      <%= link_to request.query_parameters.merge("list" => (current ? nil : list.key), "page" => nil).compact_blank,
+            class: "rounded-full border px-3 py-1 #{current ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-100'}",
+            title: list.source::DESCRIPTION do %>
+        <%= list.name %> <span class="<%= current ? 'text-indigo-100' : 'text-slate-400' %>"><%= @list_counts[list.id].to_i %></span>
+      <% end %>
+    <% end %>
+  </div>
+<% end %>
+
 <%= form_with url: objects_path, method: :get, class: "rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end", data: { turbo_frame: "_top" } do %>
+  <%= hidden_field_tag :list, params[:list] if params[:list].present? %>
   <div class="col-span-2">
     <label class="block text-xs text-slate-500 mb-1">Search</label>
     <input type="search" name="q" value="<%= params[:q] %>" placeholder="M 31, Pelican, NGC 7000…" class="w-full <%= field %>">
@@ -68,6 +83,9 @@
           <td class="px-4 py-2">
             <%= link_to object.primary_name, object_path(object, telescope: @telescope&.slug),
                   class: "font-medium group-hover:text-indigo-600 focus:outline-none", data: { row_link_target: "link" } %>
+            <% Array(@listings[object.id]).each do |entry| %>
+              <span class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800" title="On <%= entry.dynamic_catalogue.name %> since <%= l(entry.first_seen_at.to_date, format: :long) %>"><%= entry.dynamic_catalogue.short_name %></span>
+            <% end %>
             <p class="text-xs text-slate-400"><%= object.aliases.map(&:name).reject { |n| n == object.primary_name }.first(4).join(", ") %></p>
           </td>
           <td class="px-2 py-2 text-slate-600"><%= object.object_type %></td>

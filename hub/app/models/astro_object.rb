@@ -1,11 +1,12 @@
 # A catalogue object (port of astrophotography-database `objects`).
 class AstroObject < ApplicationRecord
-  SOURCES = %w[openngc ldn lbn telescopius custom].freeze
+  SOURCES = %w[openngc ldn lbn telescopius aavso custom].freeze
 
   has_many :aliases, class_name: "ObjectAlias", dependent: :destroy, inverse_of: :astro_object
   has_one :showcase, class_name: "ObjectShowcase", dependent: :destroy
   has_many :targets, dependent: :nullify
   has_many :frame_objects, dependent: :delete_all
+  has_many :dynamic_catalogue_entries, dependent: :delete_all
   belongs_to :created_by, class_name: "User", optional: true
 
   validates :primary_name, presence: true

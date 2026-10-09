@@ -15,6 +15,9 @@ class ObjectsController < ApplicationController
     count = scope.unscope(:order).count
     @pagy, @objects = pagy(ordered(scope), limit: PER_PAGE, count: count)
     @objects = @objects.includes(:aliases)
+    @listings = DynamicCatalogueEntry.active.includes(:dynamic_catalogue).where(astro_object_id: @objects.map(&:id)).group_by(&:astro_object_id)
+    @lists = DynamicCatalogue.where(key: Catalogue::Dynamic::SOURCES.keys).to_a
+    @list_counts = DynamicCatalogueEntry.active.group(:dynamic_catalogue_id).count
     visible = policy_scope(AstroObject)
     @facets = {
       types: visible.where.not(object_type: nil).distinct.order(:object_type).pluck(:object_type),
@@ -40,6 +43,7 @@ class ObjectsController < ApplicationController
       @best = visibility.best_viewing(@object.ra_deg, @object.dec_deg, year: @date.year)
       @fits = fits_on_trains
     end
+    @listings = @object.dynamic_catalogue_entries.includes(:dynamic_catalogue).order(Arel.sql("removed_at DESC NULLS FIRST"))
     @projects = policy_scope(Project).joins(:targets).where(targets: { astro_object_id: @object.id }).distinct.includes(:user)
   end
 
@@ -99,6 +103,7 @@ class ObjectsController < ApplicationController
     scope = scope.where(object_type: params[:type]) if params[:type].present?
     scope = scope.where(constellation: params[:constellation]) if params[:constellation].present?
     scope = scope.where(id: ObjectAlias.where(catalog: params[:catalog]).select(:astro_object_id)) if params[:catalog].present?
+    scope = scope.where(id: DynamicCatalogueEntry.active.joins(:dynamic_catalogue).where(dynamic_catalogues: { key: params[:list] }).select(:astro_object_id)) if params[:list].present?
     scope = scope.where(magnitude: ..params[:mag_max].to_f) if params[:mag_max].present?
     scope = scope.where(size_major_arcmin: params[:size_min].to_f..) if params[:size_min].present?
     scope

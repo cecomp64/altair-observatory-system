@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_000019) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_09_000020) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -127,6 +127,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_000019) do
     t.index ["processing_node_id"], name: "index_data_products_on_processing_node_id"
     t.index ["project_id"], name: "index_data_products_on_project_id"
     t.index ["target_id"], name: "index_data_products_on_target_id"
+  end
+
+  create_table "dynamic_catalogue_entries", force: :cascade do |t|
+    t.bigint "astro_object_id", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "details", default: {}, null: false
+    t.bigint "dynamic_catalogue_id", null: false
+    t.datetime "first_seen_at", null: false
+    t.datetime "last_seen_at", null: false
+    t.datetime "removed_at"
+    t.datetime "updated_at", null: false
+    t.index ["astro_object_id"], name: "index_dynamic_catalogue_entries_on_astro_object_id"
+    t.index ["dynamic_catalogue_id", "astro_object_id"], name: "index_dynamic_catalogue_entries_uniqueness", unique: true
+    t.index ["dynamic_catalogue_id"], name: "index_dynamic_catalogue_entries_on_dynamic_catalogue_id"
+  end
+
+  create_table "dynamic_catalogues", force: :cascade do |t|
+    t.datetime "attempted_at"
+    t.datetime "created_at", null: false
+    t.string "key", null: false
+    t.string "last_error"
+    t.jsonb "last_result", default: {}, null: false
+    t.datetime "refreshed_at"
+    t.datetime "updated_at", null: false
+    t.index ["key"], name: "index_dynamic_catalogues_on_key", unique: true
   end
 
   create_table "equipment_events", force: :cascade do |t|
@@ -658,6 +683,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_000019) do
   add_foreign_key "data_products", "processing_nodes"
   add_foreign_key "data_products", "projects"
   add_foreign_key "data_products", "targets"
+  add_foreign_key "dynamic_catalogue_entries", "astro_objects"
+  add_foreign_key "dynamic_catalogue_entries", "dynamic_catalogues"
   add_foreign_key "equipment_events", "optical_trains"
   add_foreign_key "equipment_events", "users", column: "created_by_id"
   add_foreign_key "exposure_plans", "targets"

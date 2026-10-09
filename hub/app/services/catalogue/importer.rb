@@ -54,6 +54,7 @@ module Catalogue
         normalized = AliasNormalizer.normalize(name)
         @alias_index[normalized] ||= object.id if normalized
       end
+      object
     rescue ActiveRecord::RecordInvalid => e
       Rails.logger.warn("[catalogue] #{self.class.name}: #{primary_name}: #{e.message}")
       @result.errors += 1

@@ -117,6 +117,7 @@ Rails.application.routes.draw do
 
     resource :catalogue, only: :show, controller: "catalogue" do
       post :import
+      post :refresh
     end
   end
 

@@ -47,6 +47,22 @@
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
+      "label": "Hub: Edit development credentials",
+      "detail": "bin/rails credentials:edit --environment development: opens in a tab, saved encrypted when the tab is closed (needs config/credentials/development.key)",
+      "type": "shell",
+      "command": "EDITOR='code --wait' bin/rails credentials:edit --environment development",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Hub: Edit production credentials",
+      "detail": "bin/rails credentials:edit --environment production: opens in a tab, saved encrypted when the tab is closed (needs config/credentials/production.key)",
+      "type": "shell",
+      "command": "EDITOR='code --wait' bin/rails credentials:edit --environment production",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
       "label": "Hub: Deploy to Heroku",
       "detail": "git subtree push --prefix hub heroku main (runs from the repo root)",
       "type": "shell",
