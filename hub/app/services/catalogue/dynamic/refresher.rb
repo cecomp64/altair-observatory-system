@@ -22,7 +22,10 @@ module Catalogue
         counts = ActiveRecord::Base.transaction do
           listed = records.each_with_object({}) do |record, seen|
             object = upsert(primary_name: record.primary_name, aliases: record.aliases, attributes: record.attributes)
-            seen[object.id] = record.details if object
+            next unless object
+
+            refresh_live(object, record.attributes)
+            seen[object.id] = record.details
           end
           sync_entries(listed, now)
         end
@@ -35,6 +38,12 @@ module Catalogue
       private
 
       def source = @fetcher.class::SOURCE
+
+      def refresh_live(object, attributes)
+        live = Array(@fetcher.class.const_defined?(:LIVE_ATTRIBUTES) && @fetcher.class::LIVE_ATTRIBUTES)
+        changes = attributes.slice(*live).select { |key, value| value.present? && object[key] != value }
+        object.update!(changes) if changes.any?
+      end
 
       def sync_entries(listed, now)
         existing = @catalogue.entries.index_by(&:astro_object_id)

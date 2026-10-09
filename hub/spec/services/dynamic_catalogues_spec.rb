@@ -195,12 +195,137 @@ RSpec.describe "Dynamic catalogues" do
       expect(existing.reload).to have_attributes(source: "telescopius", magnitude: 2.0)
     end
 
+    it "keeps a comet's position and magnitude current, but never other attributes" do
+      comets = DynamicCatalogue.for("bright_comets")
+      fetcher = Catalogue::Dynamic::BrightComets.new
+      record = lambda do |ra, mag|
+        Catalogue::Dynamic::Record.new(primary_name: "10P/Tempel", aliases: [ [ "10P", nil ] ], details: { "current_mag" => mag },
+                                       attributes: { ra_deg: ra, dec_deg: -30.0, magnitude: mag, object_type: "Comet", source_ref: "10P" })
+      end
+      allow(fetcher).to receive(:fetch).and_return([ record.call(341.0, 10.4) ])
+      described_class.new(comets, fetcher: fetcher).refresh
+      AstroObject.find_by_alias("10P").update!(object_type: "Periodic Comet")
+
+      allow(fetcher).to receive(:fetch).and_return([ record.call(342.5, 9.8) ])
+      described_class.new(comets, fetcher: fetcher).refresh
+
+      expect(AstroObject.find_by_alias("10P")).to have_attributes(source: "cobs", ra_deg: 342.5, magnitude: 9.8, object_type: "Periodic Comet")
+      expect(AstroObject.where(source: "cobs").count).to eq(1)
+    end
+
     it "changes nothing when the fetch fails" do
       refresh_with("CH Cyg")
       allow(fetcher).to receive(:fetch).and_raise("AAVSO campaigns HTTP 503")
 
       expect { described_class.new(catalogue, fetcher: fetcher).refresh }.to raise_error(/503/)
       expect(catalogue.active_entries.count).to eq(1)
+    end
+  end
+
+  describe Catalogue::Dynamic::BrightComets do
+    let(:now) { Time.utc(2026, 10, 9, 14, 30) }
+    let(:cobs_stubs) { Faraday::Adapter::Test::Stubs.new }
+    let(:jpl_stubs) { Faraday::Adapter::Test::Stubs.new }
+    let(:cobs) { Faraday.new(url: "https://www.cobs.si/api/") { |f| f.adapter :test, cobs_stubs } }
+    let(:jpl) { Faraday.new(url: "https://ssd-api.jpl.nasa.gov/") { |f| f.adapter :test, jpl_stubs } }
+    let(:source) { described_class.new(max_magnitude: 12, cobs: cobs, jpl: jpl, now: now) }
+    let(:jpl_query) { {} }
+    let(:cobs_response) do
+      lambda do
+        json(info: { page: 1, pages: 1, recordsTotal: 5 }, objects: [
+          comet(53, "10P", "10P/Tempel", "10.4"),
+          comet(7, "P/2026 R2", "P/2026 R2 (Leonard)", "11.9", type: "N"),
+          comet(8, "C/2026 A2", "C/2026 A2 (Bok)", "13.2", type: "C"),
+          comet(9, "C/2020 F1", "C/2020 F1 (Faint)", nil, type: "C"),
+          comet(10, "C/2001 X1", "C/2001 X1 (Old)", "9.0", type: "C", is_active: false)
+        ])
+      end
+    end
+    let(:jpl_response) do
+      lambda do
+        json(fields: [ "Designation", "Full name", "Rise time", "Transit time", "Set time", "Max. time observable", "R.A.", "Dec.", "Vmag",
+                       "Helio. range (au)", "Topo.range (au)", "Object-Observer-Sun (deg)", "Object-Observer-Moon (deg)", "Galactic latitude (deg)" ],
+             data: [ jpl_row("10P", "10P/Tempel 2", "341.331", "-32.537"), jpl_row("2026 R2", "P/2026 R2 (Leonard)", "247.549", "-12.321"),
+                     jpl_row("2026 A2", "C/2026 A2 (Bok)", "278.730", "+65.979") ])
+      end
+    end
+
+    def comet(id, name, fullname, mag, **fields)
+      { id: id, type: "P", name: name, fullname: fullname, mpc_name: name, icq_name: name, component: nil, current_mag: mag,
+        perihelion_date: "2026-08-02 02:29", perihelion_mag: "7.8", peak_mag: "7.8", peak_mag_date: "2026-08-03",
+        is_observed: true, is_active: true }.merge(fields)
+    end
+
+    def jpl_row(designation, full_name, ra, dec, vmag = "14.1T")
+      [ designation, full_name, "05:44*", "11:43*", "17:42*", "00:59", ra, dec, vmag, "1.58", "0.737", "129.64", "139.9", "-61.90" ]
+    end
+
+    before do
+      cobs_stubs.get("/api/comet_list.api") { instance_exec(&cobs_response) }
+      jpl_stubs.get("/sbwobs.api") do |env|
+        jpl_query.replace(env.params)
+        instance_exec(&jpl_response)
+      end
+    end
+
+    it "lists active comets at or under the limiting magnitude, brightest first, with JPL positions" do
+      records = source.fetch
+
+      expect(records.map(&:primary_name)).to eq([ "10P/Tempel", "P/2026 R2 (Leonard)" ])
+      tempel = records.first
+      expect(tempel.attributes).to include(ra_deg: 341.331, dec_deg: -32.537, magnitude: 10.4, object_type: "Comet", source_ref: "10P")
+      expect(tempel.aliases).to contain_exactly([ "10P", nil ], [ "10P/Tempel 2", nil ])
+      expect(tempel.details).to include("current_mag" => 10.4, "peak_mag" => 7.8, "peak_mag_date" => "2026-08-03", "cobs_id" => 53, "ra_deg" => 341.331)
+      expect(records.last.aliases).to eq([ [ "P/2026 R2", nil ] ]) # JPL's name is the same as COBS's
+    end
+
+    context "when JPL has no position for a bright comet" do
+      let(:cobs_response) { -> { json(objects: [ comet(11, "107P", "107P/Wilson-Harrington", "10.0"), comet(53, "10P", "10P/Tempel", "10.4") ]) } }
+
+      it "skips it, and says so" do
+        expect(source.fetch.map(&:primary_name)).to eq([ "10P/Tempel" ])
+        expect(source.report).to eq("skipped" => 1)
+      end
+    end
+
+    it "asks JPL for all comets, any time of a nearly 24 hour window, so none is dropped for being below the horizon" do
+      source.fetch
+
+      expect(jpl_query).to include("sb-kind" => "c", "optical" => "false", "elev-min" => "0", "fmt-ra-dec" => "false",
+                                   "obs-time" => "2026-10-09T14:00:00", "obs-end" => "2026-10-10T13:55:00")
+    end
+
+    context "when no comet is bright enough" do
+      let(:cobs_response) { -> { json(objects: [ comet(8, "C/2026 A2", "C/2026 A2 (Bok)", "13.2") ]) } }
+      let(:jpl_response) { -> { raise "JPL should not be asked" } }
+
+      it "lists nothing and doesn't ask JPL" do
+        expect(source.fetch).to eq([])
+      end
+    end
+
+    context "when COBS answers 200 with an error code in the body" do
+      let(:cobs_response) { -> { json({ code: "400", message: "not allowed query parameter(s): format" }) } }
+
+      it "raises, so nothing changes" do
+        expect { source.fetch }.to raise_error(/COBS comet_list.api: not allowed query/)
+      end
+    end
+
+    context "when COBS is down" do
+      let(:cobs_response) { -> { [ 503, {}, "down" ] } }
+
+      it "raises" do
+        expect { source.fetch }.to raise_error(/COBS comet_list.api HTTP 503/)
+      end
+    end
+
+    context "when JPL rejects the query" do
+      let(:jpl_response) { -> { json({ code: "400", message: "one or more query parameter was not recognized" }) } }
+
+      it "raises" do
+        expect { source.fetch }.to raise_error(/JPL sbwobs.api: one or more query/)
+      end
     end
   end
 
@@ -220,6 +345,7 @@ RSpec.describe "Dynamic catalogues" do
 
     it "refreshes configured lists only, and records a failure on the list" do
       allow(Catalogue::Dynamic::AavsoCampaigns).to receive(:configured?).and_return(false)
+      allow(Catalogue::Dynamic::BrightComets).to receive(:configured?).and_return(false)
       expect { described_class.perform_now }.not_to change(DynamicCatalogue, :count)
 
       allow_any_instance_of(Catalogue::Dynamic::AavsoCampaigns).to receive(:fetch).and_raise("AAVSO campaigns HTTP 503")

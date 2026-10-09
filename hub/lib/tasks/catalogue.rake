@@ -13,7 +13,7 @@ namespace :catalogue do
   desc "Refresh a dynamic catalogue now (e.g. aavso_campaigns), or every configured one."
   task :refresh, [ :list ] => :environment do |_, args|
     keys = args[:list].present? ? [ args[:list] ] : Catalogue::Dynamic::SOURCES.select { |_, s| s.configured? }.keys
-    abort "No dynamic catalogue is configured (set AAVSO_API_KEY)." if keys.empty?
+    abort "No dynamic catalogue is configured." if keys.empty?
     keys.each do |key|
       abort "Unknown list #{key.inspect}" unless Catalogue::Dynamic::SOURCES.key?(key)
       result = Catalogue::Dynamic::Refresher.new(DynamicCatalogue.for(key)).refresh

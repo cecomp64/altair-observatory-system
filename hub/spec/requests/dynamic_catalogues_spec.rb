@@ -45,6 +45,24 @@ RSpec.describe "Dynamic catalogues in the catalogue", type: :request do
     expect(response.body).not_to include("On AAVSO Alerts &amp; Campaigns")
   end
 
+  it "shows a comet's brightness, dates and position on its object page, and lists it under the Comet badge" do
+    tempel = create(:astro_object, primary_name: "10P/Tempel", source: "cobs", object_type: "Comet", magnitude: 10.4)
+    DynamicCatalogue.for("bright_comets").entries.create!(
+      astro_object: tempel, first_seen_at: 1.day.ago, last_seen_at: 1.hour.ago,
+      details: { "designation" => "10P", "current_mag" => 10.4, "peak_mag" => 7.8, "peak_mag_date" => "2026-08-03",
+                 "perihelion_date" => "2026-08-02 02:29", "cobs_id" => 53, "ra_deg" => 341.331, "dec_deg" => -32.537 }
+    )
+    sign_in create(:user)
+
+    get object_path(tempel)
+    expect(response.body).to include("On Bright comets", "10.4", "August 2, 2026", "August 3, 2026", "341.33°, -32.54°", "https://www.cobs.si/comet/53")
+
+    get objects_path(list: "bright_comets")
+    expect(response.body).to include("10P/Tempel")
+    expect(response.body).not_to include("CH Cyg")
+    expect(Nokogiri::HTML(response.body).css("tr[data-object-row='#{tempel.id}'] span.bg-amber-100").text.strip).to eq("Comet")
+  end
+
   it "lets an admin refresh a configured list now" do
     sign_in create(:user, :admin)
     allow(Catalogue::Dynamic::AavsoCampaigns).to receive(:configured?).and_return(true)

@@ -334,10 +334,10 @@ erDiagram
 | `users` | Devise auth, `role` (member / admin), `notify_email`, `notify_discord`, `discord_webhook_url`; SJAA link: `sjaa_person_id` (unique), `sjaa_linked_at`, `sjaa_membership_active`, `sjaa_membership_expires_on` (nil = lifetime), `sjaa_membership_checked_at` |
 | `telescopes` | `slug`, `name`, `latitude`, `longitude`, `elevation_m`, **`timezone`**, `min_altitude_deg`, `default_optical_train_id`, `active`, `self_serve_submit`, `requires_sjaa_membership`, `worker_last_heartbeat_at`, `worker_status`; `horizon_file` attachment, parsed into `horizon_points` (jsonb) when it is attached |
 | `optical_trains` | `telescope_id`, `key` (unique per telescope, = Altair rig), `camera_name`, `camera_type` (mono / osc), `bayer_pattern`, `pixel_size_um`, `sensor_width_px`, `sensor_height_px`, `focal_length_mm`, `has_rotator`, `filters` jsonb (`[{name, aliases}]`), `header_aliases` jsonb, `active`. A train missing optics is left out of the processing config. |
-| `astro_objects` | `primary_name`, `ra_deg`, `dec_deg`, `object_type`, `magnitude`, sizes, `position_angle_deg`, `constellation`, `source` (openngc / ldn / lbn / telescopius / aavso / custom), `source_ref`, `created_by_id`. Trigram index on the name. |
+| `astro_objects` | `primary_name`, `ra_deg`, `dec_deg`, `object_type`, `magnitude`, sizes, `position_angle_deg`, `constellation`, `source` (openngc / ldn / lbn / telescopius / aavso / cobs / custom), `source_ref`, `created_by_id`. Trigram index on the name. |
 | `object_aliases` | `astro_object_id`, `name`, `normalized_name` (trigram + btree), `catalog` |
 | `dynamic_catalogues` | One row per list in `Catalogue::Dynamic::SOURCES` (`key`, e.g. `aavso_campaigns`): `attempted_at`, `refreshed_at`, `last_error`, `last_result` |
-| `dynamic_catalogue_entries` | `dynamic_catalogue_id`, `astro_object_id` (unique together), `first_seen_at`, `last_seen_at`, `removed_at` (set when the object drops off the list; cleared, with a new `first_seen_at`, if it returns), `details` jsonb (what the list says, e.g. an AAVSO star's campaigns with their dates, cadence and filters). Objects stay in the catalogue after they leave a list. |
+| `dynamic_catalogue_entries` | `dynamic_catalogue_id`, `astro_object_id` (unique together), `first_seen_at`, `last_seen_at`, `removed_at` (set when the object drops off the list; cleared, with a new `first_seen_at`, if it returns), `details` jsonb (what the list says, e.g. an AAVSO star's campaigns with their dates, cadence and filters, or a comet's current magnitude, peak and perihelion dates and position). Objects stay in the catalogue after they leave a list. |
 | `object_showcases` | `astro_object_id`, `source_type` (upload / product / survey), `data_product_id`, `survey_name`, `image` attachment |
 | `projects` | `user_id`, `name`, `description`, `status` (planning / active / paused / completed / archived), `priority`, `visibility` (private / club), `completion_basis` (acquired / integrated), `processing_settings` jsonb |
 | `targets` | `project_id`, `user_id` (= the project's owner), `telescope_id`, `optical_train_id`, `astro_object_id` (null for custom coordinates), `name`, `ra_deg`, `dec_deg`, `rotation_deg`, `panel`, `is_primary`, `min_altitude_deg`, `priority`, `status`, `processing_settings` jsonb, `schedule_count_basis`, `submitted_at`, `notes` |
@@ -626,7 +626,7 @@ aren't alerted twice.
 | `FrameFovMatchJob` | After frame batches |
 | `NodeHealthJob` | Every 10 minutes: alerts admins about nodes with no heartbeat for 30 minutes |
 | `CatalogueImportJob` | From `/admin/catalogue` (OpenNGC, LDN, LBN) |
-| `DynamicCatalogueRefreshJob` | Every 6 hours for each dynamic catalogue (AAVSO Alerts & Campaigns), or one list from `/admin/catalogue` |
+| `DynamicCatalogueRefreshJob` | Every 6 hours for each dynamic catalogue (AAVSO Alerts & Campaigns, Bright comets), or one list from `/admin/catalogue` |
 | `ShowcaseSurveyFetchJob` | A survey image (SkyView) for an object's showcase |
 | `NotifyOwnerJob`, `AdminAlertJob` | Notifications (§7.4) |
 
@@ -650,6 +650,7 @@ Recurring jobs are declared in `config/recurring.yml`.
   keys, frames and nights, and issues, jobs and commands, then the removal of the legacy worker uploads.
 - **Services** (`app/services/`):
   - `Catalogue::*`: the importers, `AliasNormalizer`, `NameResolver` (local first, then Telescopius, with misses cached) and `TelescopiusClient`
+  - `Catalogue::Dynamic::BrightComets` (key `bright_comets`, object source `cobs`): active comets that observers currently report at or under `COMET_MAX_MAGNITUDE` (default 12), from the COBS API (`https://www.cobs.si/api/comet_list.api`, `current_mag`), positioned by one JPL Small-Body Observability request (`ssd-api.jpl.nasa.gov/sbwobs.api`, `sb-kind=c`, `optical=false`, a ~24 h window so none is dropped for being below the horizon), matched by designation. No keys. The refresh overwrites the object's `ra_deg`, `dec_deg` and `magnitude` each time (`LIVE_ATTRIBUTES`), since a comet moves. Comets JPL's comet query has no position for (some are filed as asteroids, e.g. 107P) are skipped and counted in the refresh result.
   - `Catalogue::Dynamic::*`: dynamic catalogue sources (`AavsoCampaigns`: the stars of campaigns running today from the AAVSO apps API, `GET /v2/api/campaigns?active=true` (every page), coordinates for stars not already in the catalogue from one VizieR TAP query of VSX (`B/vsx/vsx`), with the apps API's `stars/search` only for the few VizieR lacks, and cadence and filters from the Target Tool API when `AAVSO_API_KEY` is set. Apps API requests are paced to one per 10 seconds as AAVSO asks; when star searches are rate limited, the rest are deferred and the job runs again after `Retry-After`) and the `Refresher`, which merges objects like an import and starts or ends listings
   - `Frames::BatchUpserter`, `PlanMatcher`, `Search`, `Assigner`
   - `Progress::Calculator`, `Progress::Recompute`

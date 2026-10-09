@@ -1,0 +1,10 @@
+<dl class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mt-3">
+  <% if details["current_mag"] %><div><dt class="text-amber-700">Magnitude now</dt><dd class="font-medium"><%= details["current_mag"] %></dd></div><% end %>
+  <% if details["peak_mag"] %><div><dt class="text-amber-700">Peak</dt><dd class="font-medium"><%= details["peak_mag"] %><%= " (#{comet_date(details['peak_mag_date'])})" if details["peak_mag_date"] %></dd></div><% end %>
+  <% if details["perihelion_date"] %><div><dt class="text-amber-700">Perihelion</dt><dd class="font-medium"><%= comet_date(details["perihelion_date"]) %></dd></div><% end %>
+  <% if details["ra_deg"] %><div><dt class="text-amber-700">Position</dt><dd class="font-medium"><%= number_with_precision(details["ra_deg"], precision: 2) %>°, <%= number_with_precision(details["dec_deg"], precision: 2) %>°</dd></div><% end %>
+</dl>
+<p class="text-xs text-amber-800 mt-3">Magnitude is COBS's estimate from observers' reports; the position moves and is updated with every refresh.</p>
+<p class="text-xs mt-3">
+  <%= link_to "COBS page", comet_cobs_url(details["cobs_id"]), target: "_blank", rel: "noopener", class: "text-indigo-600 hover:underline" if details["cobs_id"] %>
+</p>
