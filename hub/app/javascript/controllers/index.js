@@ -21,3 +21,6 @@ application.register("dropdown", DropdownController)
 
 import HorizonPreviewController from "./horizon_preview_controller"
 application.register("horizon-preview", HorizonPreviewController)
+
+import RowLinkController from "./row_link_controller"
+application.register("row-link", RowLinkController)
