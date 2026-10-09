@@ -27,4 +27,18 @@ RSpec.describe "Catalogue", type: :system do
     find("tr[data-object-row='#{m42.id}'] td", text: "Ori", exact_text: true).click
     expect(page).to have_current_path(object_path(m42, telescope: telescope.slug))
   end
+
+  it "narrows by several values at once and shows removable filter chips" do
+    visit objects_path(telescope: telescope.slug)
+    expect(page).to have_css("[data-result-count]", text: "2 objects")
+
+    find("summary", text: "Type").click
+    check "Galaxy"
+    expect(page).to have_css("[data-result-count]", text: "1 object")
+    expect(page).to have_css("tr[data-object-row='#{m31.id}']")
+    expect(page).to have_no_css("tr[data-object-row='#{m42.id}']")
+
+    click_on "Remove Galaxy"
+    expect(page).to have_css("[data-result-count]", text: "2 objects")
+  end
 end

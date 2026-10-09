@@ -42,6 +42,17 @@ RSpec.describe "Objects", type: :request do
     expect(response).to redirect_to(project_wizard_telescope_path(telescope: telescope.slug))
   end
 
+  it "filters by several values of the same facet" do
+    create(:astro_object, primary_name: "Pelican Nebula", ra_deg: 313.0, dec_deg: 44.0, object_type: "Nebula")
+    get objects_path(type: %w[Nebula])
+    expect(response.body).to include("Pelican Nebula")
+    expect(response.body).not_to include("Andromeda Galaxy")
+
+    get objects_path(type: %w[Nebula Galaxy])
+    expect(response.body).to include("Pelican Nebula", "Andromeda Galaxy")
+    expect(response.body).to include("3 objects")
+  end
+
   it "only lets admins add objects to the catalogue" do
     get objects_path
     expect(response.body).not_to include("Add an object")
