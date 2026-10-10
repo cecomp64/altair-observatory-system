@@ -3,6 +3,6 @@ FactoryBot.define do
     user
     sequence(:name) { |n| "Test Project #{n}" }
     status { :active }
-    priority { 0 }
+    priority { :normal }
   end
 end

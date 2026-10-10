@@ -12,7 +12,7 @@
       "ra_deg": 10.68471,
       "dec_deg": 41.26875,
       "status": "active",
-      "priority": 5,
+      "priority": 2,
       "notes": null,
       "nina_name": "#34 M31",
       "rotation_deg": 35.0,
@@ -20,7 +20,7 @@
       "project": {
         "id": 12,
         "name": "Andromeda deep",
-        "priority": 5,
+        "priority": 2,
         "ts_project_name": "#P12 Andromeda deep"
       },
       "optical_train": {

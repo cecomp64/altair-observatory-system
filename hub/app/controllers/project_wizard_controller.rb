@@ -198,7 +198,7 @@ class ProjectWizardController < ApplicationController
     project = current_user.projects.new(
       name: params[:name].to_s.strip.presence || default_project_name,
       description: params[:description].to_s.strip.presence,
-      priority: params[:priority].to_i,
+      priority: params[:priority].presence || "normal",
       status: :active
     )
     saved = save_with_custom_objects do

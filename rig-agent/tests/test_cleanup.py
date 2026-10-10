@@ -51,8 +51,8 @@ def test_cleanup_disables_targets_no_longer_active(telescope_config_yaml):
     assert cleaned_up == 1
 
     with scheduler_db.open_scheduler_db(config.scheduler_db_path) as conn:
-        row = conn.execute("SELECT enabled FROM target").fetchone()
-        assert row["enabled"] == 0
+        row = conn.execute("SELECT active FROM target").fetchone()
+        assert row["active"] == 0
 
     state_db_path = state.state_db_path_for(config.scheduler_db_path)
     with state.open_state_db(state_db_path) as conn:
@@ -79,5 +79,5 @@ def test_cleanup_leaves_still_active_targets_alone(telescope_config_yaml):
     assert cleaned_up == 0
 
     with scheduler_db.open_scheduler_db(config.scheduler_db_path) as conn:
-        row = conn.execute("SELECT enabled FROM target").fetchone()
-        assert row["enabled"] == 1
+        row = conn.execute("SELECT active FROM target").fetchone()
+        assert row["active"] == 1

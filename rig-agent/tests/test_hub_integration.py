@@ -35,7 +35,7 @@ def target(tid: int, project_id: int, *, name: str = "M31", desired=20, complete
     return {
         "id": tid, "name": name, "ra_deg": 10.68, "dec_deg": 41.27, "status": "active", "priority": 1, "notes": None,
         "nina_name": f"#{tid} {name}", "rotation_deg": None, "min_altitude_deg": min_alt,
-        "project": {"id": project_id, "name": f"Project {project_id}", "priority": 7, "ts_project_name": f"#P{project_id} Project {project_id}"},
+        "project": {"id": project_id, "name": f"Project {project_id}", "priority": 2, "ts_project_name": f"#P{project_id} Project {project_id}"},
         "optical_train": {"key": "esprit100_2600mm"},
         "exposure_plans": [{"id": tid * 10, "filter": "Ha", "exposure_seconds": 300, "desired_count": desired, "completed_count": completed,
                             "remaining_count": desired - completed, **({"schedule_count": schedule} if schedule is not None else {})}],
@@ -79,7 +79,7 @@ def test_one_ts_project_per_hub_project_with_priority_min_altitude_and_schedule_
 
     projects = {r["name"]: r for r in rows(scheduler_db_path, "SELECT * FROM project")}
     assert set(projects) == {"#P12 Project 12", "#P13 Project 13"}
-    assert projects["#P12 Project 12"]["priority"] == 7
+    assert projects["#P12 Project 12"]["priority"] == 2  # high
     assert projects["#P13 Project 13"]["minimumAltitude"] == 20
     targets = {r["name"]: r for r in rows(scheduler_db_path, "SELECT * FROM target")}
     assert targets["#34 M31"]["projectId"] == targets["#35 M33"]["projectId"] == projects["#P12 Project 12"]["Id"]
@@ -113,7 +113,7 @@ def test_falls_back_to_a_single_project_without_the_per_project_columns(tmp_path
     from conftest import CREATE_SCHEDULER_SCHEMA
 
     conn = sqlite3.connect(db)
-    conn.executescript(CREATE_SCHEDULER_SCHEMA.replace("    minimumAltitude REAL,\n", ""))
+    conn.executescript(CREATE_SCHEDULER_SCHEMA.replace("    `minimumaltitude` REAL,\n", ""))
     conn.close()
     config = write_config(tmp_path, db)
     responses.get(f"{BASE}/telescopes/test-scope/active_targets", json=response(target(34, 12)))

@@ -7,6 +7,12 @@ alongside v1 (SYSTEM_ARCHITECTURE.md §5). Clients report the revision they
 speak in heartbeats; checking it in `robs check-config` / `altair doctor` is still to do
 (SYSTEM_ARCHITECTURE.md §9.4).
 
+## Clarification (no revision change)
+
+- `active_targets`: `project.priority` and a target's `priority` are now Target Scheduler's
+  levels, 0 = low, 1 = normal, 2 = high. They stay integers, and older Hubs sent any
+  integer, so the rig agent clamps to 0–2.
+
 ## api_revision 4
 
 Zipped downloads, so the archive holds fewer, larger objects:

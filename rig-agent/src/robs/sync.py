@@ -84,7 +84,8 @@ def sync_targets_into_scheduler(config: TelescopeConfig, api: ObservatoryApiClie
                         sched_conn, config.nina_profile_id, plan["filter"], plan["exposure_seconds"]
                     )
                     scheduler_plan_id = scheduler_db.upsert_exposure_plan(
-                        sched_conn, scheduler_target_id, template_id, plan.get("schedule_count", plan["desired_count"])
+                        sched_conn, config.nina_profile_id, scheduler_target_id, template_id,
+                        plan.get("schedule_count", plan["desired_count"]), plan["exposure_seconds"],
                     )
                     state.link_exposure_plan(state_conn, plan["id"], target["id"], scheduler_plan_id, plan["filter"])
 

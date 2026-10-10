@@ -10,6 +10,16 @@ RSpec.describe Project, type: :model do
     expect(project.ts_project_name).to eq("#P#{project.id} Andromeda deep")
   end
 
+  it "has a low, normal or high priority, normal by default, with Target Scheduler's code" do
+    expect(described_class.new).to have_attributes(priority: "normal", priority_code: 1)
+    expect(build(:project, priority: "high")).to have_attributes(priority_code: 2).and be_valid
+    expect(build(:project, priority: "urgent")).not_to be_valid
+  end
+
+  it "maps free-form numbers to a level" do
+    expect([ -2, 0, nil, 1, 7 ].map { |n| Prioritized.level_for(n) }).to eq(%w[low normal normal high high])
+  end
+
   it "merges processing settings over Altair's defaults, nested and without nils" do
     project = build(:project, processing_settings: { "multi_night" => { "mode" => "frame_reintegration" }, "drizzle_scale" => nil })
     settings = project.effective_processing_settings

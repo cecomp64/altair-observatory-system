@@ -1,12 +1,14 @@
 """Adapter around NINA Target Scheduler's SQLite database.
 
-Read `scheduler_schema.py` first — the column names here are best
-effort and may need adjusting for your installed plugin version.
+Read `scheduler_schema.py` first — the column names and defaults there
+were checked against Target Scheduler 5.9.6 and may need adjusting for
+another plugin version.
 """
 
 from __future__ import annotations
 
 import sqlite3
+import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -48,8 +50,8 @@ def ensure_schema_compatible(conn: sqlite3.Connection) -> None:
                 f"Table '{table}' not found in Target Scheduler database. "
                 "Your plugin version's schema may differ — see scheduler_schema.py."
             )
-        existing = {row["name"] for row in rows}
-        missing = {col for col in columns.values() if col not in existing}
+        existing = {row["name"].lower() for row in rows}  # SQLite column names ignore case
+        missing = {col for col in columns.values() if col.lower() not in existing}
         if missing:
             raise SchedulerSchemaError(
                 f"Table '{table}' is missing expected column(s) {sorted(missing)}. "
@@ -58,8 +60,38 @@ def ensure_schema_compatible(conn: sqlite3.Connection) -> None:
 
 
 def per_project_columns_available(conn: sqlite3.Connection) -> bool:
-    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({schema.PROJECT_TABLE})").fetchall()}
-    return all(col in existing for col in schema.PROJECT_OPTIONAL_COLUMNS.values())
+    existing = {row["name"].lower() for row in conn.execute(f"PRAGMA table_info({schema.PROJECT_TABLE})").fetchall()}
+    return all(col.lower() in existing for col in schema.PROJECT_OPTIONAL_COLUMNS.values())
+
+
+def ts_priority(hub_priority: int) -> int:
+    """The Hub sends Target Scheduler's own codes (0 low, 1 normal, 2 high);
+    older Hubs sent any integer, which clamps."""
+    return max(schema.PROJECT_PRIORITY_LOW, min(schema.PROJECT_PRIORITY_HIGH, int(hub_priority)))
+
+
+def _insert(conn: sqlite3.Connection, table: str, values: dict) -> int:
+    columns = ", ".join(f'"{column}"' for column in values)
+    cursor = conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({', '.join('?' * len(values))})", tuple(values.values()))
+    return cursor.lastrowid
+
+
+def _insert_project(conn: sqlite3.Connection, profile_id: str, name: str, description: str, priority: int,
+                    min_altitude: float | None = None) -> int:
+    """A project row as the plugin's own UI writes it, with its rule weights."""
+    cols = schema.PROJECT_COLUMNS
+    values = {
+        cols["profile_id"]: profile_id, cols["name"]: name, cols["description"]: description,
+        cols["state"]: schema.PROJECT_STATE_ACTIVE, cols["priority"]: priority,
+        cols["create_date"]: int(time.time()), cols["guid"]: str(uuid.uuid4()), **schema.PROJECT_DEFAULTS,
+    }
+    if min_altitude is not None:
+        values[schema.PROJECT_OPTIONAL_COLUMNS["minimum_altitude"]] = min_altitude
+    project_id = _insert(conn, schema.PROJECT_TABLE, values)
+    weight_cols = schema.RULE_WEIGHT_COLUMNS
+    for rule, weight in schema.DEFAULT_RULE_WEIGHTS.items():
+        _insert(conn, schema.RULE_WEIGHT_TABLE, {weight_cols["name"]: rule, weight_cols["weight"]: weight, weight_cols["project_id"]: project_id})
+    return project_id
 
 
 def upsert_hub_project(conn: sqlite3.Connection, profile_id: str, name: str, priority: int, min_altitude: float | None,
@@ -79,15 +111,10 @@ def upsert_hub_project(conn: sqlite3.Connection, profile_id: str, name: str, pri
         conn.execute(
             f"UPDATE {schema.PROJECT_TABLE} SET {cols['name']} = ?, {cols['priority']} = ?, {min_alt} = ?, {cols['state']} = ? "
             f"WHERE {cols['id']} = ?",
-            (name, priority, min_altitude or 0, schema.PROJECT_STATE_ACTIVE, row[cols["id"]]),
+            (name, ts_priority(priority), min_altitude or 0, schema.PROJECT_STATE_ACTIVE, row[cols["id"]]),
         )
         return row[cols["id"]]
-    cursor = conn.execute(
-        f"INSERT INTO {schema.PROJECT_TABLE} ({cols['profile_id']}, {cols['name']}, {cols['description']}, {cols['state']}, "
-        f"{cols['priority']}, {min_alt}, {cols['create_date']}) VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'))",
-        (profile_id, name, "Managed by robs (Hub project)", schema.PROJECT_STATE_ACTIVE, priority, min_altitude or 0),
-    )
-    return cursor.lastrowid
+    return _insert_project(conn, profile_id, name, "Managed by robs (Hub project)", ts_priority(priority), min_altitude or 0)
 
 
 def move_target(conn: sqlite3.Connection, target_id: int, project_id: int) -> None:
@@ -99,7 +126,7 @@ def move_target(conn: sqlite3.Connection, target_id: int, project_id: int) -> No
 def enabled_target_count(conn: sqlite3.Connection, project_id: int) -> int:
     cols = schema.TARGET_COLUMNS
     return conn.execute(
-        f"SELECT count(*) FROM {schema.TARGET_TABLE} WHERE {cols['project_id']} = ? AND {cols['enabled']} = 1", (project_id,)
+        f"SELECT count(*) FROM {schema.TARGET_TABLE} WHERE {cols['project_id']} = ? AND {cols['active']} = 1", (project_id,)
     ).fetchone()[0]
 
 
@@ -127,13 +154,8 @@ def get_or_create_project(conn: sqlite3.Connection, profile_id: str) -> int:
     if row:
         return row[cols["id"]]
 
-    cursor = conn.execute(
-        f"INSERT INTO {schema.PROJECT_TABLE} "
-        f"({cols['profile_id']}, {cols['name']}, {cols['description']}, {cols['state']}, {cols['priority']}, {cols['create_date']}) "
-        f"VALUES (?, ?, ?, ?, ?, strftime('%s','now'))",
-        (profile_id, schema.MANAGED_PROJECT_NAME, "Managed by remote-observatory-worker", 1, 0),
-    )
-    return cursor.lastrowid
+    return _insert_project(conn, profile_id, schema.MANAGED_PROJECT_NAME, "Managed by remote-observatory-worker",
+                           schema.PROJECT_PRIORITY_NORMAL)
 
 
 def get_or_create_exposure_template(
@@ -148,17 +170,15 @@ def get_or_create_exposure_template(
     if row:
         return row[cols["id"]]
 
-    cursor = conn.execute(
-        f"INSERT INTO {schema.EXPOSURE_TEMPLATE_TABLE} "
-        f"({cols['profile_id']}, {cols['name']}, {cols['filter_name']}, {cols['default_exposure']}) "
-        f"VALUES (?, ?, ?, ?)",
-        (profile_id, filter_name, filter_name, default_exposure_seconds),
-    )
-    return cursor.lastrowid
+    return _insert(conn, schema.EXPOSURE_TEMPLATE_TABLE, {
+        cols["profile_id"]: profile_id, cols["name"]: filter_name, cols["filter_name"]: filter_name,
+        cols["default_exposure"]: default_exposure_seconds, cols["guid"]: str(uuid.uuid4()), **schema.EXPOSURE_TEMPLATE_DEFAULTS,
+    })
 
 
 def upsert_target(conn: sqlite3.Connection, project_id: int, name: str, ra_deg: float, dec_deg: float) -> int:
     cols = schema.TARGET_COLUMNS
+    ra_hours = ra_deg / 15  # Target Scheduler stores right ascension in hours
     row = conn.execute(
         f"SELECT {cols['id']} FROM {schema.TARGET_TABLE} WHERE {cols['project_id']} = ? AND {cols['name']} = ?",
         (project_id, name),
@@ -166,22 +186,23 @@ def upsert_target(conn: sqlite3.Connection, project_id: int, name: str, ra_deg: 
     if row:
         target_id = row[cols["id"]]
         conn.execute(
-            f"UPDATE {schema.TARGET_TABLE} SET {cols['ra']} = ?, {cols['dec']} = ?, {cols['enabled']} = 1 "
+            f"UPDATE {schema.TARGET_TABLE} SET {cols['ra']} = ?, {cols['dec']} = ?, {cols['active']} = 1 "
             f"WHERE {cols['id']} = ?",
-            (ra_deg, dec_deg, target_id),
+            (ra_hours, dec_deg, target_id),
         )
         return target_id
 
-    cursor = conn.execute(
-        f"INSERT INTO {schema.TARGET_TABLE} "
-        f"({cols['project_id']}, {cols['name']}, {cols['ra']}, {cols['dec']}, {cols['enabled']}) "
-        f"VALUES (?, ?, ?, ?, 1)",
-        (project_id, name, ra_deg, dec_deg),
-    )
-    return cursor.lastrowid
+    return _insert(conn, schema.TARGET_TABLE, {
+        cols["project_id"]: project_id, cols["name"]: name, cols["ra"]: ra_hours, cols["dec"]: dec_deg, cols["active"]: 1,
+        cols["epoch_code"]: schema.TARGET_EPOCH_J2000, cols["rotation"]: 0, cols["roi"]: schema.TARGET_DEFAULT_ROI,
+        cols["guid"]: str(uuid.uuid4()),
+    })
 
 
-def upsert_exposure_plan(conn: sqlite3.Connection, target_id: int, exposure_template_id: int, desired: int) -> int:
+def upsert_exposure_plan(conn: sqlite3.Connection, profile_id: str, target_id: int, exposure_template_id: int, desired: int,
+                         exposure_seconds: float) -> int:
+    """The plan carries its own exposure time, so a template shared by plans
+    of different lengths (templates are matched by filter) doesn't decide it."""
     cols = schema.EXPOSURE_PLAN_COLUMNS
     row = conn.execute(
         f"SELECT {cols['id']} FROM {schema.EXPOSURE_PLAN_TABLE} "
@@ -191,18 +212,16 @@ def upsert_exposure_plan(conn: sqlite3.Connection, target_id: int, exposure_temp
     if row:
         plan_id = row[cols["id"]]
         conn.execute(
-            f"UPDATE {schema.EXPOSURE_PLAN_TABLE} SET {cols['desired']} = ? WHERE {cols['id']} = ?",
-            (desired, plan_id),
+            f"UPDATE {schema.EXPOSURE_PLAN_TABLE} SET {cols['desired']} = ?, {cols['exposure']} = ? WHERE {cols['id']} = ?",
+            (desired, exposure_seconds, plan_id),
         )
         return plan_id
 
-    cursor = conn.execute(
-        f"INSERT INTO {schema.EXPOSURE_PLAN_TABLE} "
-        f"({cols['target_id']}, {cols['exposure_template_id']}, {cols['desired']}, {cols['accepted']}) "
-        f"VALUES (?, ?, ?, 0)",
-        (target_id, exposure_template_id, desired),
-    )
-    return cursor.lastrowid
+    return _insert(conn, schema.EXPOSURE_PLAN_TABLE, {
+        cols["profile_id"]: profile_id, cols["target_id"]: target_id, cols["exposure_template_id"]: exposure_template_id,
+        cols["exposure"]: exposure_seconds, cols["desired"]: desired, cols["acquired"]: 0, cols["accepted"]: 0,
+        cols["enabled"]: 1, cols["guid"]: str(uuid.uuid4()),
+    })
 
 
 def retire_exposure_plan(conn: sqlite3.Connection, exposure_plan_id: int) -> None:
@@ -226,7 +245,7 @@ def read_accepted_count(conn: sqlite3.Connection, exposure_plan_id: int) -> int:
 
 def disable_target(conn: sqlite3.Connection, target_id: int) -> None:
     cols = schema.TARGET_COLUMNS
-    conn.execute(f"UPDATE {schema.TARGET_TABLE} SET {cols['enabled']} = 0 WHERE {cols['id']} = ?", (target_id,))
+    conn.execute(f"UPDATE {schema.TARGET_TABLE} SET {cols['active']} = 0 WHERE {cols['id']} = ?", (target_id,))
 
 
 def delete_target(conn: sqlite3.Connection, target_id: int) -> None:

@@ -1,6 +1,8 @@
 # A member's imaging goal: one or more targets, with a priority, status and
 # processing settings (the astrophotography-database "project").
 class Project < ApplicationRecord
+  include Prioritized
+
   # Altair's defaults (SPEC §5); a project's and a target's settings override them.
   DEFAULT_PROCESSING_SETTINGS = {
     "multi_night" => { "enabled" => true, "mode" => "master_merge" },
@@ -30,7 +32,6 @@ class Project < ApplicationRecord
   enum :completion_basis, { acquired: "acquired", integrated: "integrated" }, prefix: :completion, validate: true
 
   validates :name, presence: true
-  validates :priority, numericality: { only_integer: true }
   validate :processing_settings_is_a_hash
 
   scope :recent_first, -> { order(updated_at: :desc) }

@@ -17,7 +17,7 @@ class TonightPlanner
   def rows
     @rows ||= @targets.map do |target|
       result = @visibility.for_night(target.ra_deg, target.dec_deg, @night.date, min_altitude: target.effective_min_altitude_deg)
-      score = Astro::Visibility.imaging_score(result, progress: target.percent_complete, priority: target.project.priority)
+      score = Astro::Visibility.imaging_score(result, progress: target.percent_complete, priority: target.project.priority_code)
       Row.new(target: target, result: result, score: score)
     end.sort_by { |row| -row.score }
   end

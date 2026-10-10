@@ -26,7 +26,7 @@
       "properties": {
         "id": { "type": "integer" },
         "name": { "type": "string" },
-        "priority": { "type": "integer", "description": "Effective Target Scheduler priority; the target's own priority breaks ties." },
+        "priority": { "type": "integer", "description": "Effective Target Scheduler priority: 0 = low, 1 = normal, 2 = high (older Hubs sent any integer; clients clamp). The target's own priority breaks ties." },
         "ts_project_name": { "type": "string", "pattern": "^#P\\d+ ", "description": "\"#P<project_id> <project name>\" (§4.4)." }
       }
     },
@@ -62,7 +62,7 @@
         "ra_deg": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
         "dec_deg": { "type": "number", "minimum": -90, "maximum": 90 },
         "status": { "$ref": "../shared/common.json#/$defs/TargetStatus" },
-        "priority": { "type": "integer" },
+        "priority": { "type": "integer", "description": "0 = low, 1 = normal, 2 = high (older Hubs sent any integer)." },
         "notes": { "type": ["string", "null"] },
         "nina_name": { "type": "string", "pattern": "^#\\d+ ", "description": "\"#<target_id> <target name>\" (§4.4, api_revision 1)." },
         "rotation_deg": { "type": ["number", "null"], "description": "Sky position angle (api_revision 1)." },

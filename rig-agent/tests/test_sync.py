@@ -45,7 +45,7 @@ def test_sync_targets_into_scheduler_upserts_target_and_exposure_plan(telescope_
     with scheduler_db.open_scheduler_db(config.scheduler_db_path) as conn:
         target_row = conn.execute("SELECT * FROM target").fetchone()
         assert target_row["name"] == "#5 M42"
-        assert target_row["ra"] == 83.8
+        assert target_row["ra"] == 83.8 / 15  # Target Scheduler stores hours
 
         plan_row = conn.execute("SELECT * FROM exposureplan").fetchone()
         assert plan_row["desired"] == 20

@@ -13,7 +13,7 @@
   <div><%= f.label :description, class: label %><%= f.text_area :description, rows: 3, class: field %></div>
   <div class="grid grid-cols-2 gap-4">
     <div><%= f.label :status, class: label %><%= f.select :status, Project.statuses.keys.map { |s| [ s.humanize, s ] }, {}, class: field %></div>
-    <div><%= f.label :priority, class: label %><%= f.number_field :priority, class: field %></div>
+    <div><%= f.label :priority, class: label %><%= f.select :priority, Project.priorities.keys.map { |p| [ p.humanize, p ] }, {}, class: field %></div>
   </div>
   <div class="grid grid-cols-2 gap-4">
     <div>

@@ -38,12 +38,12 @@ module Api
           ra_deg: target.ra_deg.to_f,
           dec_deg: target.dec_deg.to_f,
           status: target.status,
-          priority: target.priority,
+          priority: target.priority_code,
           notes: target.notes,
           nina_name: target.nina_name,
           rotation_deg: target.rotation_deg&.to_f,
           min_altitude_deg: target.effective_min_altitude_deg,
-          project: { id: project.id, name: project.name, priority: project.priority, ts_project_name: project.ts_project_name },
+          project: { id: project.id, name: project.name, priority: project.priority_code, ts_project_name: project.ts_project_name },
           optical_train: train && { key: train.key },
           exposure_plans: target.exposure_plans.sort_by(&:id).map do |plan|
             {

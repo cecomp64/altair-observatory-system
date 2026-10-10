@@ -6,7 +6,7 @@
 <div class="mt-3 flex items-start justify-between">
   <div>
     <h1 class="text-2xl font-semibold"><%= @project.name %></h1>
-    <p class="text-sm text-slate-500"><%= @project.user.display_name %> · <%= @project.status.humanize %> · priority <%= @project.priority %> · <%= @project.visibility.humanize %> · complete when <%= basis %></p>
+    <p class="text-sm text-slate-500"><%= @project.user.display_name %> · <%= @project.status.humanize %> · <%= @project.priority.humanize %> priority · <%= @project.visibility.humanize %> · complete when <%= basis %></p>
     <% if @project.description.present? %><div class="text-slate-600 mt-2 space-y-2"><%= simple_format(@project.description) %></div><% end %>
   </div>
   <% if policy(@project).update? %>

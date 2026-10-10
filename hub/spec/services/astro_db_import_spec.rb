@@ -46,7 +46,7 @@ RSpec.describe Imports::AstroDb do
                                       targets_created: 2, plans_created: 3, showcases: 1)
     expect(report.warnings.join).to include("OIII")
     project = user.projects.sole
-    expect(project).to have_attributes(name: "Andromeda", status: "active", priority: 3)
+    expect(project).to have_attributes(name: "Andromeda", status: "active", priority: "high")
     primary = project.targets.find_by!(astro_object: m31)
     expect(primary).to be_draft
     ha = primary.exposure_plans.find_by!(filter: "Ha")

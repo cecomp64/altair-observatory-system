@@ -57,12 +57,12 @@ RSpec.describe "ProjectWizard", type: :request do
     choose_train_and_plan
 
     expect {
-      post project_wizard_create_path, params: { name: "Andromeda mosaic", priority: 3 }
+      post project_wizard_create_path, params: { name: "Andromeda mosaic", priority: "high" }
     }.to change(Project, :count).by(1).and change(Target, :count).by(2)
 
     project = Project.order(:created_at).last
     expect(response).to redirect_to(project_path(project))
-    expect(project).to have_attributes(name: "Andromeda mosaic", priority: 3, user: user, status: "active")
+    expect(project).to have_attributes(name: "Andromeda mosaic", priority: "high", user: user, status: "active")
 
     first, second = project.targets.order(:id)
     expect(first).to have_attributes(astro_object: m31, name: "Andromeda Galaxy", optical_train: train, is_primary: true)

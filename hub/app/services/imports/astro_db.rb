@@ -106,7 +106,7 @@ module Imports
         targets = table?("project_targets") ? @db.execute("SELECT * FROM project_targets WHERE project_id = ? ORDER BY is_primary DESC, id", [ row["id"] ]) : []
         goal_lines = []
         project = @user.projects.create!(
-          name: row["name"], description: row["description"], priority: row["priority"].to_i,
+          name: row["name"], description: row["description"], priority: Prioritized.level_for(row["priority"]),
           status: @telescope ? project_status(row["status"]) : "planning"
         )
 

@@ -7,7 +7,7 @@ FactoryBot.define do
     ra_deg { 83.822 }
     dec_deg { -5.391 }
     status { :submitted }
-    priority { 0 }
+    priority { :normal }
     notes { "Some notes" }
     submitted_at { Time.current }
   end

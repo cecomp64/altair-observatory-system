@@ -17,7 +17,7 @@
         </div>
         <div>
           <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Priority</label>
-          <input type="number" name="priority" value="0" class="<%= input %>">
+          <%= select_tag :priority, options_for_select(Project.priorities.keys.map { |p| [ p.humanize, p ] }, "normal"), class: input %>
         </div>
       </div>
       <% end %>

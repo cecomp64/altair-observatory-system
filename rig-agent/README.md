@@ -73,9 +73,9 @@ scheduler:
 
 Run `robs check-schema --config <file>` once after installing to catch
 a Target Scheduler schema mismatch before it silently no-ops — see
-`src/robs/scheduler_schema.py` for why this is worth checking (that
-plugin's schema is reconstructed from its public source and isn't
-something we can verify against a live install here).
+`src/robs/scheduler_schema.py` for why this is worth checking (the
+schema there was checked against Target Scheduler 5.9.6; the plugin's
+schema changes across releases).
 
 ## How Hub targets map to Target Scheduler
 

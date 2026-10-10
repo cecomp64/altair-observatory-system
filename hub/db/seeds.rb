@@ -52,14 +52,14 @@ if api_key.new_record?
   puts "Created dev API key for #{telescope.name}: #{token}"
 end
 
-project = member.projects.find_or_create_by!(name: "Orion Nebula") { |p| p.status = :active; p.priority = 1 }
+project = member.projects.find_or_create_by!(name: "Orion Nebula") { |p| p.status = :active; p.priority = :normal }
 
 target = Target.find_or_create_by!(user: member, telescope: telescope, name: "M42 - Orion Nebula") do |t|
   t.project = project
   t.ra_deg = 83.822
   t.dec_deg = -5.391
   t.status = :in_progress
-  t.priority = 1
+  t.priority = :normal
   t.submitted_at = 2.days.ago
   t.notes = "Bright target, good for testing the wizard end to end."
 end

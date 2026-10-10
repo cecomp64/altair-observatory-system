@@ -1,4 +1,6 @@
 class Target < ApplicationRecord
+  include Prioritized
+
   belongs_to :user
   belongs_to :telescope
   belongs_to :project
@@ -167,7 +169,7 @@ class Target < ApplicationRecord
   def ensure_project
     return if project.present? || user.blank?
 
-    self.project = Project.new(user: user, name: name.presence || "Untitled", priority: priority || 0,
+    self.project = Project.new(user: user, name: name.presence || "Untitled", priority: priority || "normal",
                                status: draft? ? "planning" : "active")
   end
 

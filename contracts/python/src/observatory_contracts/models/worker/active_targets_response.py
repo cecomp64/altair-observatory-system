@@ -23,7 +23,7 @@ class ProjectRef(BaseModel):
     priority: Annotated[
         int,
         Field(
-            description="Effective Target Scheduler priority; the target's own priority breaks ties."
+            description="Effective Target Scheduler priority: 0 = low, 1 = normal, 2 = high (older Hubs sent any integer; clients clamp). The target's own priority breaks ties."
         ),
     ]
     ts_project_name: Annotated[
@@ -60,7 +60,12 @@ class ActiveTarget(BaseModel):
     ra_deg: Annotated[float, Field(ge=0.0, lt=360.0)]
     dec_deg: Annotated[float, Field(ge=-90.0, le=90.0)]
     status: Literal["draft", "submitted", "active", "in_progress", "completed", "cancelled"]
-    priority: int
+    priority: Annotated[
+        int,
+        Field(
+            description="0 = low, 1 = normal, 2 = high (older Hubs sent any integer)."
+        ),
+    ]
     notes: str | None = None
     nina_name: Annotated[
         str | None,
