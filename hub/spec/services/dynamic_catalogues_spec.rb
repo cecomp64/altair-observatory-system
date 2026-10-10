@@ -230,28 +230,10 @@ RSpec.describe "Dynamic catalogues" do
     let(:jpl) { Faraday.new(url: "https://ssd-api.jpl.nasa.gov/") { |f| f.adapter :test, jpl_stubs } }
     let(:source) { described_class.new(max_magnitude: 12, cobs: cobs, jpl: jpl, now: now) }
     let(:jpl_query) { {} }
-    let(:cobs_response) do
-      lambda do
-        json(info: { page: 1, pages: 1, recordsTotal: 5 }, objects: [
-          comet(53, "10P", "10P/Tempel", "10.4"),
-          comet(7, "P/2026 R2", "P/2026 R2 (Leonard)", "11.9", type: "N"),
-          comet(8, "C/2026 A2", "C/2026 A2 (Bok)", "13.2", type: "C"),
-          comet(9, "C/2020 F1", "C/2020 F1 (Faint)", nil, type: "C"),
-          comet(10, "C/2001 X1", "C/2001 X1 (Old)", "9.0", type: "C", is_active: false)
-        ])
-      end
-    end
-    let(:jpl_response) do
-      lambda do
-        json(fields: [ "Designation", "Full name", "Rise time", "Transit time", "Set time", "Max. time observable", "R.A.", "Dec.", "Vmag",
-                       "Helio. range (au)", "Topo.range (au)", "Object-Observer-Sun (deg)", "Object-Observer-Moon (deg)", "Galactic latitude (deg)" ],
-             data: [ jpl_row("10P", "10P/Tempel 2", "341.331", "-32.537"), jpl_row("2026 R2", "P/2026 R2 (Leonard)", "247.549", "-12.321"),
-                     jpl_row("2026 A2", "C/2026 A2 (Bok)", "278.730", "+65.979") ])
-      end
-    end
+    let(:obs_queries) { [] }
 
-    def comet(id, name, fullname, mag, **fields)
-      { id: id, type: "P", name: name, fullname: fullname, mpc_name: name, icq_name: name, component: nil, current_mag: mag,
+    def comet(id, name, fullname, model_mag, **fields)
+      { id: id, type: "P", name: name, fullname: fullname, mpc_name: name, icq_name: name, component: nil, current_mag: model_mag,
         perihelion_date: "2026-08-02 02:29", perihelion_mag: "7.8", peak_mag: "7.8", peak_mag_date: "2026-08-03",
         is_observed: true, is_active: true }.merge(fields)
     end
@@ -260,30 +242,93 @@ RSpec.describe "Dynamic catalogues" do
       [ designation, full_name, "05:44*", "11:43*", "17:42*", "00:59", ra, dec, vmag, "1.58", "0.737", "129.64", "139.9", "-61.90" ]
     end
 
+    # COBS's model says 10P is 10.4, 2026 R2 11.9, 460P 10.7 (nobody has seen it since 2016), 161P 11.1 (observers say 14.3),
+    # A2 13.2 (observed at 13.0: too faint), F1 14.9 (unobserved), and an inactive one.
+    let(:cobs_response) do
+      lambda do
+        json(info: { page: 1, pages: 1, recordsTotal: 7 }, objects: [
+          comet(53, "10P", "10P/Tempel", "10.4"),
+          comet(7, "P/2026 R2", "P/2026 R2 (Leonard)", "11.9", type: "N"),
+          comet(8, "P/2016 BA14", "P/2016 BA14 (PANSTARRS)", "10.7", type: "N"),
+          comet(9, "161P", "161P/Hartley-IRAS", "11.1"),
+          comet(12, "C/2026 A2", "C/2026 A2 (Bok)", "13.2", type: "C"),
+          comet(13, "C/2020 F1", "C/2020 F1 (Faint)", "14.9", type: "C"),
+          comet(14, "C/2001 X1", "C/2001 X1 (Old)", "9.0", type: "C", is_active: false),
+          comet(15, "C/2020 Z9", "C/2020 Z9 (Very faint)", "19.0", type: "C"),
+          comet(16, "C/2020 Y1", "C/2020 Y1 (No model)", nil, type: "C")
+        ])
+      end
+    end
+    let(:observations) do
+      { "10P" => [ "10.0", "10.5", "9.8", "10.2" ], "P/2026 R2" => [ "12.1", "11.9", nil, "11.5" ], "P/2016 BA14" => [],
+        "161P" => [ "14.3", "14.4" ], "C/2026 A2" => [ "13.0" ], "C/2020 F1" => [] }
+    end
+    let(:jpl_response) do
+      lambda do
+        json(fields: [ "Designation", "Full name", "Rise time", "Transit time", "Set time", "Max. time observable", "R.A.", "Dec.", "Vmag",
+                       "Helio. range (au)", "Topo.range (au)", "Object-Observer-Sun (deg)", "Object-Observer-Moon (deg)", "Galactic latitude (deg)" ],
+             data: [ jpl_row("10P", "10P/Tempel 2", "341.331", "-32.537"), jpl_row("2026 R2", "P/2026 R2 (Leonard)", "247.549", "-12.321"),
+                     jpl_row("460P", "460P/PANSTARRS", "197.475", "-04.038"), jpl_row("161P", "161P/Hartley-IRAS", "329.411", "+00.759") ])
+      end
+    end
+
     before do
       cobs_stubs.get("/api/comet_list.api") { instance_exec(&cobs_response) }
+      cobs_stubs.get("/api/obs_list.api") do |env|
+        obs_queries << env.params
+        json(info: {}, objects: observations.fetch(env.params["des"]).map { |mag| { type: "C", magnitude: mag, comet: { name: env.params["des"] } } })
+      end
       jpl_stubs.get("/sbwobs.api") do |env|
         jpl_query.replace(env.params)
         instance_exec(&jpl_response)
       end
     end
 
-    it "lists active comets at or under the limiting magnitude, brightest first, with JPL positions" do
+    it "lists comets whose recent observations put them at or under the limiting magnitude, brightest first, with JPL positions" do
       records = source.fetch
 
       expect(records.map(&:primary_name)).to eq([ "10P/Tempel", "P/2026 R2 (Leonard)" ])
       tempel = records.first
-      expect(tempel.attributes).to include(ra_deg: 341.331, dec_deg: -32.537, magnitude: 10.4, object_type: "Comet", source_ref: "10P")
+      expect(tempel.attributes).to include(ra_deg: 341.331, dec_deg: -32.537, magnitude: 10.1, object_type: "Comet", source_ref: "10P")
       expect(tempel.aliases).to contain_exactly([ "10P", nil ], [ "10P/Tempel 2", nil ])
-      expect(tempel.details).to include("current_mag" => 10.4, "peak_mag" => 7.8, "peak_mag_date" => "2026-08-03", "cobs_id" => 53, "ra_deg" => 341.331)
+      expect(tempel.details).to include("current_mag" => 10.1, "observations" => 4, "observation_days" => 14, "model_mag" => 10.4,
+                                        "peak_mag" => 7.8, "peak_mag_date" => "2026-08-03", "cobs_id" => 53, "ra_deg" => 341.331)
+      expect(records.last.attributes).to include(magnitude: 11.9) # median of 12.1, 11.9, 11.5; a report without a magnitude is ignored
       expect(records.last.aliases).to eq([ [ "P/2026 R2", nil ] ]) # JPL's name is the same as COBS's
     end
 
-    context "when JPL has no position for a bright comet" do
-      let(:cobs_response) { -> { json(objects: [ comet(11, "107P", "107P/Wilson-Harrington", "10.0"), comet(53, "10P", "10P/Tempel", "10.4") ]) } }
+    it "doesn't believe COBS's model: a comet nobody has reported lately is left out, and so is one observers find fainter" do
+      source.fetch
+
+      expect(source.unobserved).to eq([ "P/2016 BA14 (PANSTARRS)", "C/2020 F1 (Faint)" ])
+      expect(source.report).to eq("unobserved" => 2)
+      expect(obs_queries.map { |q| q["des"] }).to eq([ "10P", "P/2026 R2", "P/2016 BA14", "161P", "C/2026 A2", "C/2020 F1" ]) # model <= 15 only
+      expect(obs_queries).to all(include("format" => "json", "from_date" => "2026-09-25"))
+    end
+
+    context "when a bright comet has been renumbered since COBS named it" do
+      let(:observations) { { "P/2016 BA14" => [ "11.0", "11.4" ] } }
+      let(:cobs_response) { -> { json(objects: [ comet(8, "P/2016 BA14", "P/2016 BA14 (PANSTARRS)", "10.7", type: "N") ]) } }
+
+      it "finds its position under the new designation" do
+        jpl_stubs.get("/sbdb.api") { |env| json(object: { des: "460P", kind: "cn", fullname: "460P/PANSTARRS" }) if env.params["des"] == "P/2016 BA14" }
+
+        record = source.fetch.first
+        expect(record.primary_name).to eq("P/2016 BA14 (PANSTARRS)")
+        expect(record.attributes).to include(ra_deg: 197.475, dec_deg: -4.038, magnitude: 11.2)
+        expect(record.aliases).to include([ "460P/PANSTARRS", nil ])
+      end
+    end
+
+    context "when JPL files a bright comet as an asteroid, or doesn't know it" do
+      let(:observations) { { "P/2016 BA14" => [ "11.0" ], "10P" => [ "10.0" ] } }
+      let(:cobs_response) { -> { json(objects: [ comet(8, "P/2016 BA14", "P/2016 BA14 (PANSTARRS)", "10.7", type: "N"), comet(53, "10P", "10P/Tempel", "10.4") ]) } }
 
       it "skips it, and says so" do
+        jpl_stubs.get("/sbdb.api") { json(object: { des: "4015", kind: "an" }) }
+
         expect(source.fetch.map(&:primary_name)).to eq([ "10P/Tempel" ])
+        expect(source.skipped).to eq([ "P/2016 BA14 (PANSTARRS)" ])
         expect(source.report).to eq("skipped" => 1)
       end
     end
@@ -295,8 +340,8 @@ RSpec.describe "Dynamic catalogues" do
                                    "obs-time" => "2026-10-09T14:00:00", "obs-end" => "2026-10-10T13:55:00")
     end
 
-    context "when no comet is bright enough" do
-      let(:cobs_response) { -> { json(objects: [ comet(8, "C/2026 A2", "C/2026 A2 (Bok)", "13.2") ]) } }
+    context "when no candidate is observed at or under the limit" do
+      let(:observations) { { "161P" => [ "14.3" ], "P/2026 R2" => [ "13.1" ], "10P" => [ "12.5" ], "P/2016 BA14" => [], "C/2026 A2" => [], "C/2020 F1" => [] } }
       let(:jpl_response) { -> { raise "JPL should not be asked" } }
 
       it "lists nothing and doesn't ask JPL" do
@@ -318,6 +363,15 @@ RSpec.describe "Dynamic catalogues" do
       it "raises" do
         expect { source.fetch }.to raise_error(/COBS comet_list.api HTTP 503/)
       end
+    end
+
+    it "raises when a comet's observations can't be fetched, so no comet is dropped by mistake" do
+      stubs = Faraday::Adapter::Test::Stubs.new
+      stubs.get("/api/comet_list.api") { json(objects: [ comet(53, "10P", "10P/Tempel", "10.4") ]) }
+      stubs.get("/api/obs_list.api") { [ 500, {}, "oops" ] }
+      broken = described_class.new(max_magnitude: 12, cobs: Faraday.new(url: "https://www.cobs.si/api/") { |f| f.adapter :test, stubs }, jpl: jpl, now: now)
+
+      expect { broken.fetch }.to raise_error(/COBS obs_list.api HTTP 500/)
     end
 
     context "when JPL rejects the query" do
