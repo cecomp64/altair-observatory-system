@@ -630,6 +630,11 @@ aren't alerted twice.
 | `ShowcaseSurveyFetchJob` | A survey image (SkyView) for an object's showcase |
 | `NotifyOwnerJob`, `AdminAlertJob` | Notifications (§7.4) |
 
+Admins see the queue (pending, scheduled, failed and finished jobs, workers, recurring tasks)
+at `/admin/queue`, which is Mission Control Jobs behind the Hub's own admin sign-in. Altair's
+jobs are separate: it reports a summary of each with `PUT /processing/jobs/:altair_id`, and
+admins see them at `/admin/processing_jobs`.
+
 Recurring jobs are declared in `config/recurring.yml`.
 
 ---

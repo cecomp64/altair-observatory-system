@@ -97,6 +97,10 @@ Rails.application.routes.draw do
 
   get "observatory", to: "observatory#index", as: :observatory
 
+  # Solid Queue's background jobs. Admins only: the engine's controllers inherit
+  # from Admin::BaseController (config/application.rb).
+  mount MissionControl::Jobs::Engine, at: "/admin/queue"
+
   namespace :admin do
     root to: "dashboard#index"
 
@@ -114,6 +118,8 @@ Rails.application.routes.draw do
         post :revoke_key
       end
     end
+
+    resources :processing_jobs, only: [ :index, :show ]
 
     resource :catalogue, only: :show, controller: "catalogue" do
       post :import

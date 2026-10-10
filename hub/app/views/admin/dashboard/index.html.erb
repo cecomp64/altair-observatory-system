@@ -4,6 +4,8 @@
 <div class="flex flex-wrap gap-3 text-sm mb-6">
   <%= link_to "Telescopes", admin_telescopes_path, class: "text-indigo-600 hover:underline" %>
   <%= link_to "Processing nodes", admin_processing_nodes_path, class: "text-indigo-600 hover:underline" %>
+  <%= link_to "Processing jobs", admin_processing_jobs_path, class: "text-indigo-600 hover:underline" %>
+  <%= link_to "Background queue", mission_control_jobs_path, class: "text-indigo-600 hover:underline" %>
   <%= link_to "Catalogue", admin_catalogue_path, class: "text-indigo-600 hover:underline" %>
   <%= link_to "Issues (#{@open_issues})", issues_path, class: "text-indigo-600 hover:underline" %>
   <%= link_to "Unassigned frames (#{@unassigned})", unassigned_frames_path, class: "text-indigo-600 hover:underline" %>

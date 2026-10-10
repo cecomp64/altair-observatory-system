@@ -36,6 +36,12 @@ module RemoteObservatoryQueueingSystem
     # config.time_zone = "Central Time (US & Canada)"
     # config.eager_load_paths << Rails.root.join("extras")
 
+    # Mission Control (the background jobs UI at /admin/queue) signs in like the
+    # rest of the admin area instead of with its own HTTP basic auth. Set here:
+    # the engine reads these before config/initializers runs.
+    config.mission_control.jobs.base_controller_class = "Admin::BaseController"
+    config.mission_control.jobs.http_basic_auth_enabled = false
+
     # Don't generate system test files.
     config.generators.system_tests = nil
   end

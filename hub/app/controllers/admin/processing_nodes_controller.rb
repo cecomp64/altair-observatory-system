@@ -10,7 +10,7 @@ module Admin
       @keys = @node.api_keys.order(created_at: :desc)
       @commands = @node.processing_commands.recent_first.includes(:requested_by).limit(30)
       @issues = @node.processing_issues.open.where(project_id: nil).recent_first
-      @jobs = @node.processing_jobs.order(updated_at: :desc).limit(10)
+      @jobs = @node.processing_jobs.includes(:target).order(updated_at: :desc).limit(10)
     end
 
     def new
