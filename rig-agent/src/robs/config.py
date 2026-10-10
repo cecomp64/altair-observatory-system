@@ -6,7 +6,9 @@ live locally. See config/example.telescope.yml.
 
 Every value can be overridden by an environment variable
 `ROBS_<TELESCOPE_SLUG>_<FIELD>` (upper-cased), which is handy for
-keeping the API key out of the YAML file entirely.
+keeping the API key out of the YAML file entirely. The same names can
+live in a `.env` file next to the config file (`KEY=value` lines); a
+real environment variable wins over it.
 """
 
 from __future__ import annotations
@@ -27,6 +29,18 @@ class ConfigError(RuntimeError):
 
 
 TS_PROJECT_MODES = ("per_hub_project", "single")
+
+
+def read_dotenv(path: Path) -> dict[str, str]:
+    """`KEY=value` lines; blank lines and # comments are skipped, quotes dropped."""
+    if not path.is_file():
+        return {}
+    values = {}
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        key, separator, value = line.strip().removeprefix("export ").partition("=")
+        if separator and key.strip() and not key.startswith("#"):
+            values[key.strip()] = value.strip().strip("'\"")
+    return values
 
 
 @dataclass
@@ -70,9 +84,11 @@ class TelescopeConfig:
         if not slug:
             raise ConfigError(f"{path}: 'slug' is required")
 
+        dotenv = read_dotenv(path.parent / ".env")
+
         def env_override(field_name: str, default: Any) -> Any:
             env_key = f"ROBS_{slug.upper().replace('-', '_')}_{field_name.upper()}"
-            return os.environ.get(env_key, default)
+            return os.environ.get(env_key, dotenv.get(env_key, default))
 
         ts_project_mode = raw.get("ts_project_mode", "per_hub_project")
         if ts_project_mode not in TS_PROJECT_MODES:

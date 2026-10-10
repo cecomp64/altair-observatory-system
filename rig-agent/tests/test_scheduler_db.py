@@ -122,3 +122,23 @@ def test_schema_check_ignores_column_name_case(tmp_path):
 @pytest.mark.parametrize("hub_priority, expected", [(-3, 0), (0, 0), (1, 1), (2, 2), (7, 2)])
 def test_hub_priority_clamps_to_target_scheduler_priorities(hub_priority, expected):
     assert scheduler_db.ts_priority(hub_priority) == expected
+
+
+def test_backup_copies_the_database_and_keeps_only_the_newest(scheduler_db_path, monkeypatch):
+    monkeypatch.setattr(scheduler_db, "BACKUPS_KEPT", 2)
+    with scheduler_db.open_scheduler_db(scheduler_db_path) as conn:
+        scheduler_db.get_or_create_project(conn, PROFILE_ID)
+
+    backups = [scheduler_db.backup_scheduler_db(scheduler_db_path) for _ in range(3)]
+
+    folder = scheduler_db_path.parent / "robs_backups"
+    assert sorted(folder.iterdir()) == backups[1:]
+    with scheduler_db.open_scheduler_db(backups[-1]) as conn:
+        assert [r["name"] for r in conn.execute("SELECT name FROM project")] == ["Remote Observatory Queue"]
+
+
+def test_backup_failure_raises_and_leaves_no_partial_copy(scheduler_db_path):
+    (scheduler_db_path.parent / "robs_backups").write_text("a file where the folder should be")
+
+    with pytest.raises(scheduler_db.SchedulerBackupError, match="Couldn't back up"):
+        scheduler_db.backup_scheduler_db(scheduler_db_path)

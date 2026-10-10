@@ -10,7 +10,8 @@ from __future__ import annotations
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
+from datetime import datetime
 from pathlib import Path
 
 from . import scheduler_schema as schema
@@ -18,6 +19,36 @@ from . import scheduler_schema as schema
 
 class SchedulerSchemaError(RuntimeError):
     """The scheduler DB doesn't look like what scheduler_schema.py expects."""
+
+
+class SchedulerBackupError(RuntimeError):
+    """The scheduler DB couldn't be backed up, so it must not be changed."""
+
+
+# Backups go in this folder beside the database; the newest BACKUPS_KEPT stay.
+BACKUP_DIR_NAME = "robs_backups"
+BACKUPS_KEPT = 14
+
+
+def backup_scheduler_db(db_path: Path) -> Path:
+    """Copies the database before robs changes it and returns the copy's path.
+
+    Uses SQLite's online backup, which gives a consistent copy while NINA has
+    the database open.
+    """
+    folder = db_path.parent / BACKUP_DIR_NAME
+    backup_path = folder / f"{db_path.stem}-{datetime.now().strftime('%Y%m%dT%H%M%S-%f')}{db_path.suffix}"
+    try:
+        folder.mkdir(exist_ok=True)
+        with closing(sqlite3.connect(str(db_path))) as source, closing(sqlite3.connect(str(backup_path))) as copy:
+            source.backup(copy)
+    except (sqlite3.Error, OSError) as e:
+        backup_path.unlink(missing_ok=True)
+        raise SchedulerBackupError(f"Couldn't back up {db_path} to {backup_path}: {e}") from e
+
+    for old in sorted(folder.glob(f"{db_path.stem}-*{db_path.suffix}"))[:-BACKUPS_KEPT]:
+        old.unlink(missing_ok=True)
+    return backup_path
 
 
 @contextmanager

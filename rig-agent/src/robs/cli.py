@@ -11,13 +11,14 @@ import sys
 import click
 from observatory_contracts import check_hub_revision
 
+from . import nina_profile, ts_log
 from .api_client import ApiError
 from .cleanup import cleanup_completed_projects
 from .config import ConfigError, TelescopeConfig
 from .end_of_night import end_of_night as run_end_of_night
 from .hub import Hub
 from .logging_config import configure_logging
-from .scheduler_db import SchedulerSchemaError, ensure_schema_compatible, open_scheduler_db, per_project_columns_available
+from .scheduler_db import SchedulerBackupError, SchedulerSchemaError, ensure_schema_compatible, open_scheduler_db, per_project_columns_available
 from .sync import managed_target_ids, sync_progress_to_api, sync_targets_into_scheduler
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ def roof_open(config_path: str):
     config, hub = _load(config_path)
     try:
         count = sync_targets_into_scheduler(config, hub)
-    except (SchedulerSchemaError, ValueError) as e:
+    except (SchedulerSchemaError, SchedulerBackupError, ValueError) as e:
         click.echo(f"error: {e}", err=True)
         sys.exit(1)
     hub.session_event("roof_open", managed_target_ids(config))
@@ -52,6 +53,23 @@ def sync_progress(config_path: str):
     count = sync_progress_to_api(config, hub)
     hub.heartbeat({"last_command": "sync-progress", "targets": count})
     click.echo(f"Reported progress for {count} target(s) for {config.slug}.")
+
+
+@main.command("target-start")
+@click.option("--config", "config_path", required=True, type=click.Path(exists=True))
+def target_start(config_path: str):
+    """Tell the Hub which target Target Scheduler just started imaging."""
+    config, hub = _load(config_path)
+    name = ts_log.last_started_target(config)
+    target_id = ts_log.hub_target_id(name) if name else None
+    if target_id not in managed_target_ids(config):
+        reason = f"'{name}' is not a Hub target" if name else "Target Scheduler's log shows no target starting just now"
+        click.echo(f"Nothing reported for {config.slug}: {reason}.")
+    elif hub.session_event("target_start", [target_id]):
+        click.echo(f"Reported {name} as started for {config.slug}.")
+    else:
+        click.echo(f"The Hub did not accept the start of {name} (it may predate api_revision 5).")
+    hub.heartbeat({"last_command": "target-start"})
 
 
 @main.command("cleanup")
@@ -89,7 +107,7 @@ def session_end(config_path: str):
 @main.command("check-config")
 @click.option("--config", "config_path", required=True, type=click.Path(exists=True))
 def check_config(config_path: str):
-    """Hub reachable and key accepted, timezone matches the Hub telescope, folders and database present."""
+    """Hub reachable and key accepted, timezone matches the Hub telescope, folders, database and NINA profile present."""
     config, hub = _load(config_path)
     ok = True
 
@@ -104,10 +122,21 @@ def check_config(config_path: str):
         with open_scheduler_db(config.scheduler_db_path) as conn:
             check("Target Scheduler supports per-project settings", per_project_columns_available(conn),
                   "falls back to a single managed project otherwise")
+    profile = nina_profile.profile_path(config)
+    check("nina_profile_id is a NINA profile", profile is not None,
+          f"{config.nina_profile_id or 'unset'} in {nina_profile.profiles_dir(config)}")
+
+    def check_filters(targets: list) -> None:
+        if profile:
+            missing = nina_profile.missing_filters(config, targets)
+            check("exposure plan filters are in the NINA profile's filter wheel", not missing,
+                  f"missing {', '.join(missing)}" if missing else "")
+
     if config.hub_enabled:
         try:
             response = hub.api.active_targets_response(config.slug)
             check("Hub reachable, key accepted", True, config.api_base_url)
+            check_filters(response.get("targets") or [])
             hub_tz = (response.get("telescope") or {}).get("timezone")
             check("timezone matches the Hub telescope", bool(config.timezone) and config.timezone == hub_tz,
                   f"config {config.timezone or 'unset'}, Hub {hub_tz or 'unknown'}")
@@ -117,6 +146,8 @@ def check_config(config_path: str):
             check("Hub reachable, key accepted", False, str(e))
     else:
         check("targets_file readable", bool(config.targets_file and config.targets_file.is_file()), str(config.targets_file))
+        if config.targets_file and config.targets_file.is_file():
+            check_filters(hub.active_targets())
         check("Altair marker folder", True, str(config.marker_dir))
     click.echo("NINA must save into subs_dir with the same file pattern Altair's raw_root expects (SPEC §4.2).")
     sys.exit(0 if ok else 1)

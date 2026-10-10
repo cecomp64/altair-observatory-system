@@ -1,0 +1,19 @@
+# The NINA "ALTAIR Simulator" profile on this PC, against the Heroku Hub.
+# The API key comes from ROBS_ALTAIR_SIMULATOR_API_KEY (config/.env), not this file.
+
+slug: altair-simulator
+
+api_base_url: "https://altair-observatory-system-a815fe88304e.herokuapp.com"
+
+scheduler_db_path: "C:/Users/Carl/AppData/Local/NINA/SchedulerPlugin/schedulerdb.sqlite"
+
+# NINA profile "ALTAIR Simulator".
+nina_profile_id: "fb3feead-62cc-469a-b3bf-0522f7622686"
+
+# Where that profile saves images.
+subs_dir: "C:/Users/Carl/Documents/N.I.N.A"
+
+# Must match the Hub telescope (robs check-config).
+timezone: "America/Los_Angeles"
+
+ts_project_mode: per_hub_project

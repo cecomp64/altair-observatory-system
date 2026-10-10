@@ -1,6 +1,7 @@
 # Copy this file per telescope (e.g. config/backyard-16in.yml) and fill
 # it in. `api_key` can be omitted here and supplied instead via the
-# ROBS_<SLUG>_API_KEY environment variable so it never touches disk.
+# ROBS_<SLUG>_API_KEY environment variable, or a line with that name in a
+# `.env` file next to this one (gitignored), so it stays out of this file.
 
 slug: backyard-16in
 

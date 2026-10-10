@@ -22,12 +22,13 @@ lives in the `altair-observatory-system` monorepo with its full history.
 
 | Command | When it runs | What it does |
 |---|---|---|
-| `robs roof-open` | NINA sequencer "External Script" step on roof open | Fetches active targets from the Hub and upserts them into Target Scheduler: one Target Scheduler project per Hub project (`#P<id> <name>`, the project's priority, the target's minimum altitude), targets named `#<id> <name>`, and each plan's `schedule_count` as the desired count. Reports `roof_open`. |
+| `robs roof-open` | NINA sequencer "External Script" step on roof open | Fetches active targets from the Hub and upserts them into Target Scheduler: one Target Scheduler project per Hub project (`#P<id> <name>`, the project's priority, the target's minimum altitude), targets named `#<id> <name>`, and each plan's `schedule_count` as the desired count. Backs the database up first (see below). Reports `roof_open`. |
+| `robs target-start` | Target Scheduler Container, **Before New Target** | Reads which target the plugin just started from its log (`Logs/TS-*.log`, at the plugin's default DEBUG log level) and reports `target_start`, so the Hub shows it as being imaged now. Reports nothing for a target that isn't the Hub's. |
 | `robs sync-progress` | Periodically through the night (Task Scheduler / cron) | Reads accepted-frame counts out of Target Scheduler and reports them |
 | `robs end-of-night` | End of the NINA sequence (the **only** end-of-sequence script needed) | A final progress sync, then `session_end` to the Hub, which tells Altair the night is over (`night_ready`), then cleanup. Uploads and stacks nothing: Altair collects, archives and processes the frames. |
 | `robs session-end` | For sequences that signal the end separately | Only the `session_end` report (or Altair's marker file when standalone) |
 | `robs cleanup` | Periodically, or as part of `end-of-night` | Disables targets the Hub no longer considers active, and Target Scheduler projects left with none |
-| `robs check-config` | After installing or changing the config | Hub reachable and key accepted, timezone matches the Hub telescope, folders, Target Scheduler per-project support |
+| `robs check-config` | After installing or changing the config | Hub reachable and key accepted, timezone matches the Hub telescope, folders, Target Scheduler per-project support, `nina_profile_id` is a real NINA profile and its filter wheel has every filter the exposure plans use |
 | `robs check-schema` | Whenever you install/upgrade Target Scheduler | Verifies the plugin's SQLite schema still matches what this worker expects |
 
 Every command sends a heartbeat, so the Hub's admin pages show the worker's health.
@@ -60,7 +61,9 @@ API key (create one at **Admin → Telescopes → API keys** in the Hub), the lo
 NINA writes subs, and your NINA equipment profile GUID.
 `api_key` can instead be supplied via
 `ROBS_<SLUG>_API_KEY` (and any other field via `ROBS_<SLUG>_<FIELD>`) so
-it never has to live in the YAML file.
+it never has to live in the YAML file. Those names can also go in a `.env`
+file next to the config file (`ROBS_BACKYARD_16IN_API_KEY=...`, one per
+line); `.env` is gitignored, and a real environment variable wins over it.
 
 Then wire the commands into NINA's Advanced Sequencer and your OS
 scheduler:
@@ -90,6 +93,13 @@ upgrades. Instead:
 * A local per-telescope SQLite side database (`robs_state.sqlite`,
   written next to `schedulerdb.sqlite`) maps Hub ids to Target
   Scheduler row ids — see `src/robs/state.py`.
+
+## Backups
+
+`robs roof-open` copies `schedulerdb.sqlite` to `robs_backups/schedulerdb-<time>.sqlite`
+beside it before changing anything, and keeps the newest 14 copies. If the copy fails,
+nothing is written and the command exits with an error; Target Scheduler then images
+what it already had. To restore, close NINA and copy a backup over `schedulerdb.sqlite`.
 
 ## Tests
 

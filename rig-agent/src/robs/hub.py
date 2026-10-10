@@ -44,18 +44,21 @@ class Hub:
         else:
             self._log("progress", target_id=target_id, exposure_plans=exposure_plans)
 
-    def session_event(self, event: str, target_ids: Iterable[int] = (), at: datetime | None = None) -> None:
-        """Best effort: a failed report must never stop the night."""
+    def session_event(self, event: str, target_ids: Iterable[int] = (), at: datetime | None = None) -> bool:
+        """Best effort: a failed report must never stop the night. False when
+        the Hub didn't take it."""
         at = at or datetime.now(timezone.utc)
         night = self.night_for(at)
         ids = list(target_ids)
         if not self.api:
             self._log("session", event=event, at=_iso(at), night=night, target_ids=ids)
-            return
+            return True
         try:
             self.api.post_session_event(self.config.slug, event, _iso(at), night, ids)
         except (ApiError, OSError) as exc:
             logger.warning("Couldn't report %s to the Hub: %s", event, exc)
+            return False
+        return True
 
     def heartbeat(self, status: dict[str, Any]) -> None:
         if not self.api:

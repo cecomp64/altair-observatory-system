@@ -7,6 +7,14 @@ alongside v1 (SYSTEM_ARCHITECTURE.md §5). Clients report the revision they
 speak in heartbeats; checking it in `robs check-config` / `altair doctor` is still to do
 (SYSTEM_ARCHITECTURE.md §9.4).
 
+## api_revision 5
+
+- `POST /telescopes/:slug/sessions` accepts the event `target_start`: Target Scheduler
+  started imaging the targets in `target_ids`. The Hub records a `session` event for each,
+  moves a submitted or active target to `in_progress`, and shows the target on the
+  observatory page as being imaged now. `observing_nights` are untouched. Older Hubs reject
+  the unknown event with 422, which the rig agent reports and carries on.
+
 ## Clarification (no revision change)
 
 - `active_targets`: `project.priority` and a target's `priority` are now Target Scheduler's

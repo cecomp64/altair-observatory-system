@@ -41,3 +41,15 @@ def test_obsolete_legacy_settings_are_ignored(telescope_config_yaml, caplog):
 
     assert not hasattr(config, "s3_bucket")
     assert "'data_pipeline' is no longer used" in caplog.text
+
+
+def test_dotenv_next_to_the_config_supplies_values_and_the_environment_wins(telescope_config_yaml, monkeypatch):
+    (telescope_config_yaml.parent / ".env").write_text(
+        '# tokens\nROBS_TEST_SCOPE_API_KEY="from-dotenv"\nexport ROBS_TEST_SCOPE_NINA_PROFILE_ID=profile-from-dotenv\n\nnot a pair\n'
+    )
+
+    config = TelescopeConfig.load(telescope_config_yaml)
+    assert (config.api_key, config.nina_profile_id) == ("from-dotenv", "profile-from-dotenv")
+
+    monkeypatch.setenv("ROBS_TEST_SCOPE_API_KEY", "from-env")
+    assert TelescopeConfig.load(telescope_config_yaml).api_key == "from-env"

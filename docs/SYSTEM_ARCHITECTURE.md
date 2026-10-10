@@ -1,7 +1,7 @@
 # Altair Observatory System: Architecture
 
 **Describes:** the `altair-observatory-system` repository as of 2026-09-26 (contract
-`api_revision` 4). Where the design and the code differ, the difference is listed as work
+`api_revision` 5). Where the design and the code differ, the difference is listed as work
 in §9.
 **Not yet deployed:** no component has run on real equipment. §9 lists what has to happen
 before the first real night.
@@ -409,7 +409,7 @@ percentage (the mean across goal filters).
 
 ---
 
-## 5. Hub API (`/api/v1`, api_revision 4)
+## 5. Hub API (`/api/v1`, api_revision 5)
 
 The machine-readable contract is `contracts/schemas/`, with examples in
 `contracts/examples/`. Hub request specs validate every response and example request
@@ -447,7 +447,7 @@ generated `observatory-contracts` models.
 | `GET /telescopes/:slug/active_targets` | The telescope (with `timezone`) and its schedulable targets: coordinates, `nina_name`, `rotation_deg`, `min_altitude_deg`, `project` (id, name, priority, `ts_project_name`), `optical_train.key`, and exposure plans with `completed_count`, `remaining_count` and `schedule_count`. The effective Target Scheduler priority is the project's: 0 = low, 1 = normal, 2 = high. |
 | `PATCH /targets/:id/progress` | Sets `completed_count` per plan. Completion follows `completion_basis`. |
 | `POST /targets/:id/events` | A target event (notifications). |
-| `POST /telescopes/:slug/sessions` | `{event: roof_open \| roof_close \| session_end, at, night, target_ids}`. Updates `observing_nights` (a `roof_open` after a `roof_close` reopens the session) and emits `session` events. `session_end` queues `night_ready` for each optical train of the telescope on each node that serves it. |
+| `POST /telescopes/:slug/sessions` | `{event: roof_open \| roof_close \| session_end \| target_start, at, night, target_ids}`. Updates `observing_nights` (a `roof_open` after a `roof_close` reopens the session) and emits `session` events. `session_end` queues `night_ready` for each optical train of the telescope on each node that serves it. `target_start` (api_revision 5) leaves `observing_nights` alone: its targets become `in_progress` and the observatory page shows them as being imaged now. |
 | `POST /heartbeat` | `{agent, version, api_revision, status}`. Both principals. The response carries the Hub's `api_revision`. |
 
 ### 5.3 Processing endpoints (`/api/v1/processing`)
@@ -828,6 +828,7 @@ skipped.
 | Command | What it does |
 |---|---|
 | `robs roof-open` | Fetches `active_targets` and upserts Target Scheduler: one project per Hub project (`#P<id> <name>`, the project priority, the target's minimum altitude), targets named by `nina_name`, and `schedule_count` as the desired count. Moves targets out of the old single managed project and keeps their accepted counts. Posts `roof_open`. |
+| `robs target-start` | In Target Scheduler's Before New Target slot: reads the target the plugin just started from its log and posts `target_start`. |
 | `robs sync-progress` | Reads accepted counts from Target Scheduler and reports them. |
 | `robs end-of-night` | A final progress sync, `session_end` (or the marker file when standalone), then cleanup. |
 | `robs session-end` | Only the session-end signal. |

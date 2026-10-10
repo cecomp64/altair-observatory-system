@@ -1,9 +1,10 @@
 module Api
   module V1
     # POST /api/v1/telescopes/:telescope_id/sessions (§5.2): roof and session
-    # events from the worker. session_end queues night_ready for Altair.
+    # events from the worker. session_end queues night_ready for Altair;
+    # target_start (api_revision 5) marks the targets as being imaged.
     class SessionsController < BaseController
-      EVENTS = %w[roof_open roof_close session_end].freeze
+      EVENTS = %w[roof_open roof_close session_end target_start].freeze
 
       require_scope "sessions:write"
 
@@ -19,7 +20,8 @@ module Api
 
         at = Time.zone.parse(params[:at].to_s) || Time.current
         night = params[:night].present? ? Date.iso8601(params[:night]) : telescope.night_for(at)
-        trains = telescope.optical_trains.active.to_a
+        # A target starting says nothing about the roof or the night.
+        trains = event == "target_start" ? [] : telescope.optical_trains.active.to_a
         commands = []
         ActiveRecord::Base.transaction do
           trains.each do |train|
@@ -43,8 +45,10 @@ module Api
           end
           Target.where(telescope: telescope, id: Array(params[:target_ids])).find_each do |target|
             target.target_events.create!(event_type: :session, payload: { event: event, at: at.utc.iso8601, night: night.iso8601 })
+            target.update!(status: :in_progress) if event == "target_start" && (target.submitted? || target.active?)
           end
         end
+        ObservatoryStatus.broadcast if event == "target_start"
         render json: { ok: true, night: night.iso8601, commands_queued: commands.size }, status: :created
       rescue Date::Error
         render_error("night must be YYYY-MM-DD", status: :unprocessable_content)

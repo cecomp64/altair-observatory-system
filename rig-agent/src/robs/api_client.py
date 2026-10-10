@@ -55,7 +55,7 @@ class ObservatoryApiClient:
         return self._request("GET", f"/api/v1/telescopes/{telescope_slug}/active_targets")
 
     def post_session_event(self, telescope_slug: str, event: str, at: str, night: str, target_ids: Iterable[int] = ()) -> dict[str, Any]:
-        """roof_open / roof_close / session_end (§5.2). session_end makes the
+        """roof_open / roof_close / session_end / target_start (§5.2). session_end makes the
         Hub queue night_ready for Altair."""
         body = {"event": event, "at": at, "night": night, "target_ids": list(target_ids)}
         return self._request("POST", f"/api/v1/telescopes/{telescope_slug}/sessions", json=body)

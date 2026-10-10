@@ -45,6 +45,21 @@ RSpec.describe "Observatory status", type: :request do
     expect(body).to include("2 targets from 1 member")
   end
 
+  it "shows the target the rig agent reported as started before any frame arrives" do
+    ObservingNight.create!(telescope: telescope, optical_train: train, night: "2026-09-24", roof_open_at: Time.utc(2026, 9, 25, 3))
+    light(hidden, Time.utc(2026, 9, 25, 6, 5))
+    target.target_events.create!(event_type: :session, created_at: Time.utc(2026, 9, 25, 6, 10),
+                                 payload: { event: "target_start", at: "2026-09-25T06:10:00Z", night: "2026-09-24" })
+
+    get observatory_path
+
+    expect(response.body).to include("Pelican", "Started 23:10")
+
+    light(hidden, Time.utc(2026, 9, 25, 6, 25)) # a later frame of another target wins
+    get observatory_path
+    expect(response.body).not_to include("Started 23:10")
+  end
+
   it "shows closed when it's dark and the roof never opened, and maintenance when an admin says so" do
     get observatory_path
     expect(response.body).to include("Closed", "roof hasn&#39;t opened tonight")

@@ -10,7 +10,7 @@ from pydantic import AwareDatetime, BaseModel, Field
 
 
 class SessionEventRequest(BaseModel):
-    event: Literal["roof_open", "roof_close", "session_end"]
+    event: Literal["roof_open", "roof_close", "session_end", "target_start"]
     at: Annotated[
         AwareDatetime, Field(description="ISO 8601 timestamp with a UTC offset.")
     ]

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 
+from . import nina_profile
 from . import scheduler_db
 from . import scheduler_schema
 from . import state
@@ -42,11 +43,15 @@ def sync_targets_into_scheduler(config: TelescopeConfig, api: ObservatoryApiClie
     hub = _hub(config, api)
     targets = hub.active_targets()
     logger.info("Fetched %d active target(s) for %s", len(targets), config.slug)
+    for name in nina_profile.missing_filters(config, targets):
+        logger.warning("Filter '%s' is not in the NINA profile's filter wheel; Target Scheduler can't image its plans", name)
 
     state_db_path = state.state_db_path_for(config.scheduler_db_path)
 
     with scheduler_db.open_scheduler_db(config.scheduler_db_path) as sched_conn:
         scheduler_db.ensure_schema_compatible(sched_conn)
+        # Nothing is written unless the copy succeeded.
+        logger.info("Backed up the Target Scheduler database to %s", scheduler_db.backup_scheduler_db(config.scheduler_db_path))
         per_project = config.ts_project_mode == "per_hub_project"
         if per_project and not scheduler_db.per_project_columns_available(sched_conn):
             logger.warning("Target Scheduler lacks %s; using a single managed project (see check-schema)",

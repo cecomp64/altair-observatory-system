@@ -324,6 +324,18 @@ RSpec.describe "Worker session and heartbeat API", type: :request do
     expect(target.target_events.session.count).to eq(1)
   end
 
+  it "marks a started target in progress without touching the night (api_revision 5)" do
+    body = { event: "target_start", at: "2026-09-25T04:10:00Z", night: "2026-09-24", target_ids: [ target.id ] }
+    expect(body.deep_stringify_keys).to match_api_contract("worker/session_event.request.json")
+
+    post "/api/v1/telescopes/#{telescope.slug}/sessions", params: body.to_json, headers: headers
+
+    expect(response).to have_http_status(:created)
+    expect(target.reload).to be_in_progress
+    expect(target.target_events.session.sole.payload).to include("event" => "target_start", "night" => "2026-09-24")
+    expect(ObservingNight.count).to eq(0)
+  end
+
   it "rejects another telescope" do
     post "/api/v1/telescopes/#{create(:telescope).slug}/sessions", params: { event: "roof_open" }.to_json, headers: headers
     expect(response).to have_http_status(:forbidden)

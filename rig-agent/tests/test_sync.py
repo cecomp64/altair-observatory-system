@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import responses
 
 from robs import scheduler_db, state
@@ -136,3 +137,32 @@ def test_sync_follows_plan_changes_made_in_the_hub(telescope_config_yaml):
     assert rows == {"Luminance": (40, 0), "Ha": (3, 3), "OIII": (15, 0)}
     with state.open_state_db(state.state_db_path_for(config.scheduler_db_path)) as conn:
         assert sorted(link["rails_exposure_plan_id"] for link in state.exposure_plan_links_for_target(conn, 5)) == [50, 52]
+
+
+@responses.activate
+def test_roof_open_backs_up_the_database_before_changing_it(telescope_config_yaml):
+    config = TelescopeConfig.load(telescope_config_yaml)
+    api = ObservatoryApiClient(config.api_base_url, config.api_key)
+    responses.get(f"{config.api_base_url}/api/v1/telescopes/{config.slug}/active_targets", json=ACTIVE_TARGETS_RESPONSE)
+
+    sync_targets_into_scheduler(config, api)
+
+    backup = next((config.scheduler_db_path.parent / "robs_backups").iterdir())
+    with scheduler_db.open_scheduler_db(backup) as conn:
+        assert conn.execute("SELECT count(*) FROM target").fetchone()[0] == 0  # as it was before the sync
+    with scheduler_db.open_scheduler_db(config.scheduler_db_path) as conn:
+        assert conn.execute("SELECT count(*) FROM target").fetchone()[0] == 1
+
+
+@responses.activate
+def test_roof_open_changes_nothing_when_the_backup_fails(telescope_config_yaml):
+    config = TelescopeConfig.load(telescope_config_yaml)
+    api = ObservatoryApiClient(config.api_base_url, config.api_key)
+    responses.get(f"{config.api_base_url}/api/v1/telescopes/{config.slug}/active_targets", json=ACTIVE_TARGETS_RESPONSE)
+    (config.scheduler_db_path.parent / "robs_backups").write_text("a file where the folder should be")
+
+    with pytest.raises(scheduler_db.SchedulerBackupError):
+        sync_targets_into_scheduler(config, api)
+
+    with scheduler_db.open_scheduler_db(config.scheduler_db_path) as conn:
+        assert conn.execute("SELECT count(*) FROM project").fetchone()[0] == 0

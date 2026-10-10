@@ -41,7 +41,9 @@
       <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Now</p>
       <% if (current = status.current_target) %>
         <p><%= status.visible?(current) ? link_to(current.name, target_path(current), class: "font-medium hover:text-indigo-600") : "A member's target" %></p>
-        <p class="text-xs text-slate-500">Last frame <%= hm.(status.last_frame.date_obs) %><%= " · #{status.last_frame.filter}" if status.last_frame.filter %></p>
+        <% details = [ (started = status.current_target_started_at) && "Started #{hm.(started)}",
+                       status.last_frame && "Last frame #{hm.(status.last_frame.date_obs)}#{" · #{status.last_frame.filter}" if status.last_frame.filter}" ].compact %>
+        <p class="text-xs text-slate-500"><%= details.join(" · ") %></p>
       <% elsif status.last_frame %>
         <p class="text-slate-500">Last frame <%= hm.(status.last_frame.date_obs) %></p>
       <% else %>

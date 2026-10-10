@@ -67,11 +67,27 @@ class ObservatoryStatus
       @last_frame ||= lights_tonight.order(date_obs: :desc).includes(target: :project).first
     end
 
-    # The target of the newest frame, while the roof is open and it is recent.
-    def current_target
-      return nil unless state == "imaging" && last_frame && last_frame.date_obs >= now - NOW_IMAGING_WINDOW
+    # The newest target_start the rig agent reported since the roof opened.
+    def started_target_event
+      return @started_target_event if defined?(@started_target_event)
 
-      last_frame.target
+      @started_target_event = opened_at && TargetEvent.session.where(target_id: telescope.targets.select(:id))
+                                                      .where("payload->>'event' = ?", "target_start").where(created_at: opened_at..)
+                                                      .order(created_at: :desc).includes(target: :project).first
+    end
+
+    # While the roof is open: the target the rig agent last said it started,
+    # or the target of the newest recent frame when that frame is later
+    # (frames arrive from Altair well after they are taken).
+    def current_target
+      return nil unless state == "imaging"
+
+      started_current? ? started_target_event.target : recent_frame&.target
+    end
+
+    # When the rig agent reported the current target as started, if it did.
+    def current_target_started_at
+      started_target_event.created_at if state == "imaging" && started_current?
     end
 
     # [target, lights, hours] for each target imaged tonight, most first.
@@ -120,6 +136,14 @@ class ObservatoryStatus
 
     def processing_nodes
       telescope.processing_nodes.active.to_a
+    end
+
+    def recent_frame
+      last_frame if last_frame && last_frame.date_obs >= now - NOW_IMAGING_WINDOW
+    end
+
+    def started_current?
+      started_target_event.present? && (recent_frame.nil? || started_target_event.created_at >= recent_frame.date_obs)
     end
 
     def compute_state
