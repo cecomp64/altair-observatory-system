@@ -1,0 +1,27 @@
+<% content_for :title, "#{@job.kind.humanize} ##{@job.altair_id}" %>
+<% time = ->(t) { t ? "#{l(t, format: :short)} (#{time_ago_in_words(t)} ago)" : "—" } %>
+<%= link_to "← Processing jobs", admin_processing_jobs_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
+<div class="mt-3 flex items-center gap-3">
+  <h1 class="text-2xl font-semibold"><%= @job.kind.humanize %> <span class="text-slate-400">#<%= @job.altair_id %></span></h1>
+  <%= render "admin/processing_jobs/status", job: @job %>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 mt-6">
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+    <div><dt class="text-slate-400">Node</dt><dd><%= link_to @job.processing_node.name, admin_processing_node_path(@job.processing_node), class: "hover:text-indigo-600" %></dd></div>
+    <div><dt class="text-slate-400">Target</dt><dd><%= @job.target ? link_to(@job.target.name, target_path(@job.target), class: "hover:text-indigo-600") : "—" %></dd></div>
+    <div><dt class="text-slate-400">Night</dt><dd><%= @job.night || "—" %></dd></div>
+    <div><dt class="text-slate-400">Filter</dt><dd><%= @job.filter || "—" %></dd></div>
+    <div><dt class="text-slate-400">Started</dt><dd><%= time.(@job.started_at) %></dd></div>
+    <div><dt class="text-slate-400">Finished</dt><dd><%= time.(@job.finished_at) %></dd></div>
+    <div><dt class="text-slate-400">Took</dt><dd><%= @job.duration ? distance_of_time_in_words(@job.duration) : "—" %></dd></div>
+    <div><dt class="text-slate-400">Last reported</dt><dd><%= time.(@job.updated_at) %></dd></div>
+  </dl>
+</div>
+
+<% if @job.error.present? %>
+  <div class="rounded-xl border border-rose-200 bg-rose-50 p-5 mt-6">
+    <h2 class="text-sm font-medium text-rose-700 mb-2">Error</h2>
+    <pre class="text-xs text-rose-900 whitespace-pre-wrap break-words"><%= @job.error %></pre>
+  </div>
+<% end %>
