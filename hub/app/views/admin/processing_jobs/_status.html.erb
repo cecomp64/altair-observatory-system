@@ -1,0 +1,3 @@
+<% tone = { "succeeded" => "bg-emerald-50 text-emerald-700", "failed" => "bg-rose-50 text-rose-700", "blocked" => "bg-amber-50 text-amber-700",
+            "running" => "bg-indigo-50 text-indigo-700", "staging" => "bg-indigo-50 text-indigo-700" }.fetch(job.status, "bg-slate-100 text-slate-600") %>
+<span class="rounded-full px-2 py-0.5 text-xs font-medium <%= tone %>"><%= job.status.humanize %></span>

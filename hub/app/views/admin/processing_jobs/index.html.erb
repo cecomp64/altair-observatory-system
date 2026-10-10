@@ -1,0 +1,60 @@
+<% content_for :title, "Processing jobs" %>
+<% filters = { node: @node&.name, kind: @kind, status: @status }.compact
+   on = "font-medium text-slate-900"
+   off = "text-slate-500 hover:text-slate-700" %>
+<%= link_to "← Admin", admin_root_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
+<div class="mt-3 flex items-center justify-between">
+  <h1 class="text-2xl font-semibold">Processing jobs</h1>
+  <%= link_to "Background queue", mission_control_jobs_path, class: "text-sm text-indigo-600 hover:underline" %>
+</div>
+<p class="text-sm text-slate-500 mb-4">Altair's jobs as each processing node reports them. Altair keeps the full job table; this is its summary.</p>
+
+<div class="space-y-1 text-sm mb-4">
+  <div class="flex flex-wrap gap-3">
+    <span class="w-14 text-slate-400">Status</span>
+    <%= link_to "All (#{@status_counts.values.sum})", admin_processing_jobs_path(filters.except(:status)), class: @status ? off : on %>
+    <%= link_to "Active (#{@status_counts.values_at(*ProcessingJob::ACTIVE_STATUSES).compact.sum})", admin_processing_jobs_path(filters.merge(status: "active")), class: @status == "active" ? on : off %>
+    <% (ProcessingJob::STATUSES | @status_counts.keys).each do |s| %>
+      <%= link_to "#{s.humanize} (#{@status_counts[s] || 0})", admin_processing_jobs_path(filters.merge(status: s)), class: @status == s ? on : off %>
+    <% end %>
+  </div>
+  <div class="flex flex-wrap gap-3">
+    <span class="w-14 text-slate-400">Kind</span>
+    <%= link_to "All", admin_processing_jobs_path(filters.except(:kind)), class: @kind ? off : on %>
+    <% ProcessingJob::KINDS.each do |k| %>
+      <%= link_to k.humanize, admin_processing_jobs_path(filters.merge(kind: k)), class: @kind == k ? on : off %>
+    <% end %>
+  </div>
+  <% if @nodes.many? %>
+    <div class="flex flex-wrap gap-3">
+      <span class="w-14 text-slate-400">Node</span>
+      <%= link_to "All", admin_processing_jobs_path(filters.except(:node)), class: @node ? off : on %>
+      <% @nodes.each do |n| %>
+        <%= link_to n.name, admin_processing_jobs_path(filters.merge(node: n.name)), class: @node == n ? on : off %>
+      <% end %>
+    </div>
+  <% end %>
+</div>
+
+<div class="rounded-xl border border-slate-200 bg-white p-5 overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="text-left text-slate-400"><tr><th class="pb-2">Job</th><th class="pb-2">Target</th><th class="pb-2">Night</th><th class="pb-2">Filter</th><th class="pb-2">Node</th><th class="pb-2">Status</th><th class="pb-2">Took</th><th class="pb-2">Updated</th></tr></thead>
+    <tbody class="divide-y divide-slate-100">
+      <% @jobs.each do |job| %>
+        <tr>
+          <td class="py-2"><%= link_to job.kind.humanize, admin_processing_job_path(job), class: "font-medium hover:text-indigo-600" %> <span class="text-xs text-slate-400">#<%= job.altair_id %></span></td>
+          <td class="py-2 text-slate-600"><%= job.target ? link_to(job.target.name, target_path(job.target), class: "hover:text-indigo-600") : "—" %></td>
+          <td class="py-2 text-slate-600"><%= job.night || "—" %></td>
+          <td class="py-2 text-slate-600"><%= job.filter || "—" %></td>
+          <td class="py-2 text-slate-600"><%= link_to job.processing_node.name, admin_processing_node_path(job.processing_node), class: "hover:text-indigo-600" %></td>
+          <td class="py-2"><%= render "admin/processing_jobs/status", job: job %>
+            <% if job.error.present? %><p class="text-xs text-rose-600 truncate max-w-xs"><%= job.error.lines.first %></p><% end %></td>
+          <td class="py-2 text-slate-600"><%= job.duration ? distance_of_time_in_words(job.duration) : "—" %></td>
+          <td class="py-2 text-slate-400 whitespace-nowrap"><%= time_ago_in_words(job.updated_at) %> ago</td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <% if @jobs.empty? %><p class="text-sm text-slate-400 mt-2"><%= filters.any? ? "No jobs match these filters." : "No jobs reported yet." %></p><% end %>
+</div>
+<%= render "shared/pagination", pagy: @pagy %>

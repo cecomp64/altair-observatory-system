@@ -37,4 +37,15 @@ module DynamicCataloguesHelper
 
     "#{start ? l(start, format: :long) : '?'} – #{l(finish, format: :long)}"
   end
+
+  def comet_cobs_url(id)
+    format(Catalogue::Dynamic::BrightComets::COMET_URL, id.to_i)
+  end
+
+  # COBS dates are "2026-08-02 02:29" or "2026-08-03".
+  def comet_date(value)
+    Date.iso8601(value.to_s[0, 10]).strftime("%B %-d, %Y")
+  rescue Date::Error
+    value.to_s
+  end
 end
