@@ -55,7 +55,7 @@ jobs:
     needs: image
     runs-on: ubuntu-latest
     steps:
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: Hub ${{ needs.image.outputs.version }}
           prerelease: ${{ contains(needs.image.outputs.version, '-') }}
