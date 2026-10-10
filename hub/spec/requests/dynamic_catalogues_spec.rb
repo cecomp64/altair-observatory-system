@@ -49,13 +49,13 @@ RSpec.describe "Dynamic catalogues in the catalogue", type: :request do
     tempel = create(:astro_object, primary_name: "10P/Tempel", source: "cobs", object_type: "Comet", magnitude: 10.4)
     DynamicCatalogue.for("bright_comets").entries.create!(
       astro_object: tempel, first_seen_at: 1.day.ago, last_seen_at: 1.hour.ago,
-      details: { "designation" => "10P", "current_mag" => 10.4, "peak_mag" => 7.8, "peak_mag_date" => "2026-08-03",
+      details: { "designation" => "10P", "current_mag" => 10.4, "observations" => 12, "observation_days" => 14, "peak_mag" => 7.8, "peak_mag_date" => "2026-08-03",
                  "perihelion_date" => "2026-08-02 02:29", "cobs_id" => 53, "ra_deg" => 341.331, "dec_deg" => -32.537 }
     )
     sign_in create(:user)
 
     get object_path(tempel)
-    expect(response.body).to include("On Bright comets", "10.4", "August 2, 2026", "August 3, 2026", "341.33°, -32.54°", "https://www.cobs.si/comet/53")
+    expect(response.body).to include("On Bright comets", "10.4", "median of 12 reports, last 14 days", "August 2, 2026", "August 3, 2026", "341.33°, -32.54°", "https://www.cobs.si/comet/53")
 
     get objects_path(list: "bright_comets")
     expect(response.body).to include("10P/Tempel")
