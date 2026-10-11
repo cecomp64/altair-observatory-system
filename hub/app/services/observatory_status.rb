@@ -67,13 +67,20 @@ class ObservatoryStatus
       @last_frame ||= lights_tonight.order(date_obs: :desc).includes(target: :project).first
     end
 
-    # The newest target_start the rig agent reported since the roof opened.
+    # The newest target_start the rig agent reported since the roof opened. Its
+    # own `at` is compared, not created_at: roof_open_at and frame times are the
+    # rig's and Altair's clocks, and the Hub's can differ from them.
     def started_target_event
       return @started_target_event if defined?(@started_target_event)
 
+      started_at_sql = "(payload->>'at')::timestamptz"
       @started_target_event = opened_at && TargetEvent.session.where(target_id: telescope.targets.select(:id))
-                                                      .where("payload->>'event' = ?", "target_start").where(created_at: opened_at..)
-                                                      .order(created_at: :desc).includes(target: :project).first
+                                                      .where("payload->>'event' = ?", "target_start").where("#{started_at_sql} >= ?", opened_at)
+                                                      .order(Arel.sql("#{started_at_sql} DESC")).includes(target: :project).first
+    end
+
+    def started_target_at
+      Time.zone.parse(started_target_event.payload["at"].to_s) || started_target_event.created_at
     end
 
     # While the roof is open: the target the rig agent last said it started,
@@ -87,7 +94,7 @@ class ObservatoryStatus
 
     # When the rig agent reported the current target as started, if it did.
     def current_target_started_at
-      started_target_event.created_at if state == "imaging" && started_current?
+      started_target_at if state == "imaging" && started_current?
     end
 
     # [target, lights, hours] for each target imaged tonight, most first.
@@ -143,7 +150,7 @@ class ObservatoryStatus
     end
 
     def started_current?
-      started_target_event.present? && (recent_frame.nil? || started_target_event.created_at >= recent_frame.date_obs)
+      started_target_event.present? && (recent_frame.nil? || started_target_at >= recent_frame.date_obs)
     end
 
     def compute_state
