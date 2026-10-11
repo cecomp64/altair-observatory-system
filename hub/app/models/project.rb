@@ -32,6 +32,9 @@ class Project < ApplicationRecord
   enum :completion_basis, { acquired: "acquired", integrated: "integrated" }, prefix: :completion, validate: true
 
   validates :name, presence: true
+  # Target Scheduler project settings (§8.3): exposures per filter before
+  # switching (0 finishes a filter first) and between dithers (0 is none).
+  validates :filter_switch_frequency, :dither_every, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validate :processing_settings_is_a_hash
 
   scope :recent_first, -> { order(updated_at: :desc) }

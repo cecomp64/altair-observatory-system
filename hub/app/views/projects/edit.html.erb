@@ -25,5 +25,17 @@
       <%= f.select :completion_basis, [ [ "Frames are acquired", "acquired" ], [ "Frames are integrated into masters", "integrated" ] ], {}, class: field %>
     </div>
   </div>
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <%= f.label :filter_switch_frequency, "Exposures per filter before switching", class: label %>
+      <%= f.number_field :filter_switch_frequency, min: 0, step: 1, class: field %>
+      <p class="text-xs text-slate-500 mt-1">0 finishes each filter's plan before starting the next.</p>
+    </div>
+    <div>
+      <%= f.label :dither_every, "Dither after every", class: label %>
+      <%= f.number_field :dither_every, min: 0, step: 1, class: field %>
+      <p class="text-xs text-slate-500 mt-1">Exposures of a filter between dithers; 0 turns dithering off.</p>
+    </div>
+  </div>
   <%= f.submit "Save", class: "rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 cursor-pointer" %>
 <% end %>

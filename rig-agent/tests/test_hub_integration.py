@@ -217,3 +217,26 @@ def test_check_config_compares_the_hubs_api_revision(tmp_path, scheduler_db_path
 
     assert ("[ok] Hub API revision compatible" in result.output) is ok, result.output
     assert ("[FAIL] Hub API revision compatible" in result.output) is not ok
+
+
+@responses.activate
+def test_hub_project_filter_switch_and_dither_frequencies_reach_target_scheduler(tmp_path, scheduler_db_path):
+    config = write_config(tmp_path, scheduler_db_path)
+    url = f"{BASE}/telescopes/test-scope/active_targets"
+
+    def synced(**settings):
+        entry = target(34, 12)
+        entry["project"].update(settings)
+        responses.upsert(responses.GET, url, json=response(entry))
+        sync_targets_into_scheduler(config, Hub.for_config(config))
+        row = rows(scheduler_db_path, "SELECT filterswitchfrequency, ditherevery FROM project")[0]
+        return row["filterswitchfrequency"], row["ditherevery"]
+
+    assert synced(filter_switch_frequency=10, dither_every=4) == (10, 4)
+    assert synced(filter_switch_frequency=0, dither_every=0) == (0, 0)  # zero is a value, not "unset"
+    # An older Hub sends neither: what is in Target Scheduler stays.
+    conn = sqlite3.connect(scheduler_db_path)
+    conn.execute("UPDATE project SET filterswitchfrequency = 3, ditherevery = 6")
+    conn.commit()
+    conn.close()
+    assert synced() == (3, 6)

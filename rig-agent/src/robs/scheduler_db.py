@@ -108,13 +108,13 @@ def _insert(conn: sqlite3.Connection, table: str, values: dict) -> int:
 
 
 def _insert_project(conn: sqlite3.Connection, profile_id: str, name: str, description: str, priority: int,
-                    min_altitude: float | None = None) -> int:
+                    min_altitude: float | None = None, settings: dict[str, int] | None = None) -> int:
     """A project row as the plugin's own UI writes it, with its rule weights."""
     cols = schema.PROJECT_COLUMNS
     values = {
         cols["profile_id"]: profile_id, cols["name"]: name, cols["description"]: description,
         cols["state"]: schema.PROJECT_STATE_ACTIVE, cols["priority"]: priority,
-        cols["create_date"]: int(time.time()), cols["guid"]: str(uuid.uuid4()), **schema.PROJECT_DEFAULTS,
+        cols["create_date"]: int(time.time()), cols["guid"]: str(uuid.uuid4()), **schema.PROJECT_DEFAULTS, **(settings or {}),
     }
     if min_altitude is not None:
         values[schema.PROJECT_OPTIONAL_COLUMNS["minimum_altitude"]] = min_altitude
@@ -126,10 +126,12 @@ def _insert_project(conn: sqlite3.Connection, profile_id: str, name: str, descri
 
 
 def upsert_hub_project(conn: sqlite3.Connection, profile_id: str, name: str, priority: int, min_altitude: float | None,
-                       existing_id: int | None = None) -> int:
+                       existing_id: int | None = None, settings: dict[str, int | None] | None = None) -> int:
     """One Target Scheduler project per Hub project (§8.3). Matched by the id
-    we recorded (so renames follow), else by name."""
+    we recorded (so renames follow), else by name. `settings` are the Hub's
+    PROJECT_SETTING_COLUMNS values; one the Hub didn't send is left as it is."""
     cols = schema.PROJECT_COLUMNS
+    settings = {schema.PROJECT_SETTING_COLUMNS[key]: value for key, value in (settings or {}).items() if value is not None}
     min_alt = schema.PROJECT_OPTIONAL_COLUMNS["minimum_altitude"]
     row = None
     if existing_id is not None:
@@ -139,13 +141,14 @@ def upsert_hub_project(conn: sqlite3.Connection, profile_id: str, name: str, pri
             f"SELECT {cols['id']} FROM {schema.PROJECT_TABLE} WHERE {cols['name']} = ? AND {cols['profile_id']} = ?", (name, profile_id)
         ).fetchone()
     if row:
+        values = {cols["name"]: name, cols["priority"]: ts_priority(priority), min_alt: min_altitude or 0,
+                  cols["state"]: schema.PROJECT_STATE_ACTIVE, **settings}
         conn.execute(
-            f"UPDATE {schema.PROJECT_TABLE} SET {cols['name']} = ?, {cols['priority']} = ?, {min_alt} = ?, {cols['state']} = ? "
-            f"WHERE {cols['id']} = ?",
-            (name, ts_priority(priority), min_altitude or 0, schema.PROJECT_STATE_ACTIVE, row[cols["id"]]),
+            f"UPDATE {schema.PROJECT_TABLE} SET {', '.join(f'{column} = ?' for column in values)} WHERE {cols['id']} = ?",
+            (*values.values(), row[cols["id"]]),
         )
         return row[cols["id"]]
-    return _insert_project(conn, profile_id, name, "Managed by robs (Hub project)", ts_priority(priority), min_altitude or 0)
+    return _insert_project(conn, profile_id, name, "Managed by robs (Hub project)", ts_priority(priority), min_altitude or 0, settings)
 
 
 def move_target(conn: sqlite3.Connection, target_id: int, project_id: int) -> None:

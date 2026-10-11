@@ -1,0 +1,7 @@
+# The devcontainer mounts a Windows checkout into Linux: keep LF in the working tree so
+# shebang scripts (hub/bin/*) run, whatever core.autocrlf says on the host.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

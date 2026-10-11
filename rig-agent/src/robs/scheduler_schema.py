@@ -52,6 +52,12 @@ PROJECT_OPTIONAL_COLUMNS = {
     "minimum_altitude": "minimumaltitude",
 }
 
+# Hub project settings written on every sync when the Hub sends them (api_revision 6).
+PROJECT_SETTING_COLUMNS = {
+    "filter_switch_frequency": "filterswitchfrequency",
+    "dither_every": "ditherevery",
+}
+
 # Target Scheduler project states: 0 = draft, 1 = active, 2 = inactive, 3 = closed.
 PROJECT_STATE_ACTIVE = 1
 PROJECT_STATE_INACTIVE = 2

@@ -4,7 +4,8 @@
 Script sequencer step): pulls active targets and upserts them into Target
 Scheduler so NINA images them tonight. With ts_project_mode
 per_hub_project, each Hub project becomes its own Target Scheduler project
-("#P<id> <name>", the project's priority, the target's minimum altitude);
+("#P<id> <name>", the project's priority, filter switch and dither
+frequencies, the target's minimum altitude);
 targets that were in the old single managed project move over with their
 accepted counts, and that project is disabled once it is empty (§8.3).
 
@@ -67,6 +68,7 @@ def sync_targets_into_scheduler(config: TelescopeConfig, api: ObservatoryApiClie
                     project_id = scheduler_db.upsert_hub_project(
                         sched_conn, config.nina_profile_id, project["ts_project_name"], project["priority"],
                         target.get("min_altitude_deg"), existing_id=link["scheduler_project_id"] if link else None,
+                        settings={key: project.get(key) for key in scheduler_schema.PROJECT_SETTING_COLUMNS},
                     )
                     state.link_project(state_conn, project["id"], project_id)
                 else:

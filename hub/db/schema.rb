@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_10_000021) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_10_000022) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -405,6 +405,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_10_000021) do
     t.string "completion_basis", default: "acquired", null: false
     t.datetime "created_at", null: false
     t.text "description"
+    t.integer "dither_every", default: 4, null: false
+    t.integer "filter_switch_frequency", default: 0, null: false
     t.string "name", null: false
     t.integer "priority", default: 1, null: false
     t.jsonb "processing_settings", default: {}, null: false

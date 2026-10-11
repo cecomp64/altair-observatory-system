@@ -32,6 +32,20 @@ class ProjectRef(BaseModel):
             description='"#P<project_id> <project name>" (§4.4).', pattern="^#P\\d+ "
         ),
     ]
+    filter_switch_frequency: Annotated[
+        int | None,
+        Field(
+            description="api_revision 6. Target Scheduler's Filter Switch Frequency: exposures per filter before switching; 0 finishes a filter's plan before the next.",
+            ge=0,
+        ),
+    ] = None
+    dither_every: Annotated[
+        int | None,
+        Field(
+            description="api_revision 6. Target Scheduler's Dither After Every: exposures of a filter between dithers; 0 is no dithering by the project.",
+            ge=0,
+        ),
+    ] = None
 
 
 class OpticalTrainRef(BaseModel):

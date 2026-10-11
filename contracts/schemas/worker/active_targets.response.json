@@ -27,7 +27,9 @@
         "id": { "type": "integer" },
         "name": { "type": "string" },
         "priority": { "type": "integer", "description": "Effective Target Scheduler priority: 0 = low, 1 = normal, 2 = high (older Hubs sent any integer; clients clamp). The target's own priority breaks ties." },
-        "ts_project_name": { "type": "string", "pattern": "^#P\\d+ ", "description": "\"#P<project_id> <project name>\" (§4.4)." }
+        "ts_project_name": { "type": "string", "pattern": "^#P\\d+ ", "description": "\"#P<project_id> <project name>\" (§4.4)." },
+        "filter_switch_frequency": { "type": "integer", "minimum": 0, "description": "api_revision 6. Target Scheduler's Filter Switch Frequency: exposures per filter before switching; 0 finishes a filter's plan before the next." },
+        "dither_every": { "type": "integer", "minimum": 0, "description": "api_revision 6. Target Scheduler's Dither After Every: exposures of a filter between dithers; 0 is no dithering by the project." }
       }
     },
     "OpticalTrainRef": {

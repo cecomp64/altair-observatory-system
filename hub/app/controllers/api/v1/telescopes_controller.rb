@@ -43,7 +43,8 @@ module Api
           nina_name: target.nina_name,
           rotation_deg: target.rotation_deg&.to_f,
           min_altitude_deg: target.effective_min_altitude_deg,
-          project: { id: project.id, name: project.name, priority: project.priority_code, ts_project_name: project.ts_project_name },
+          project: { id: project.id, name: project.name, priority: project.priority_code, ts_project_name: project.ts_project_name,
+                     filter_switch_frequency: project.filter_switch_frequency, dither_every: project.dither_every },
           optical_train: train && { key: train.key },
           exposure_plans: target.exposure_plans.sort_by(&:id).map do |plan|
             {

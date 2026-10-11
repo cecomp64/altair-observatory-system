@@ -16,6 +16,12 @@ RSpec.describe Project, type: :model do
     expect(build(:project, priority: "urgent")).not_to be_valid
   end
 
+  it "finishes a filter before switching and dithers every 4 exposures by default" do
+    expect(described_class.new).to have_attributes(filter_switch_frequency: 0, dither_every: 4)
+    expect(build(:project, filter_switch_frequency: -1)).not_to be_valid
+    expect(build(:project, dither_every: 1.5)).not_to be_valid
+  end
+
   it "maps free-form numbers to a level" do
     expect([ -2, 0, nil, 1, 7 ].map { |n| Prioritized.level_for(n) }).to eq(%w[low normal normal high high])
   end

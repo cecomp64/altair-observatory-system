@@ -93,6 +93,6 @@ class ProjectsController < ApplicationController
   end
 
   def project_params
-    params.require(:project).permit(:name, :description, :status, :priority, :visibility, :completion_basis)
+    params.require(:project).permit(:name, :description, :status, :priority, :visibility, :completion_basis, :filter_switch_frequency, :dither_every)
   end
 end
