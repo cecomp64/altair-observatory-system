@@ -1,7 +1,7 @@
 <% content_for :title, "Unassigned frames" %>
 
-<%= link_to "← Files", frames_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
-<h1 class="text-2xl font-semibold mt-3">Unassigned frames</h1>
+<%= link_to "← Files", frames_path, class: "absolute top-2 text-sm text-slate-500 hover:text-slate-700" %>
+<h1 class="text-2xl font-semibold">Unassigned frames</h1>
 <p class="text-slate-500 text-sm mb-6">Lights Altair couldn't link to a target (no <code>#id</code> in OBJECT, no name or coordinate match). Assigning them tells Altair to link and process them.</p>
 
 <% if @groups.any? %>

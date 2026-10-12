@@ -1,9 +1,9 @@
 <% content_for :title, @project.name %>
 <% basis = @project.completion_basis %>
 
-<%= link_to "← Projects", projects_path, class: "text-sm text-slate-500 hover:text-slate-700" %>
+<%= link_to "← Projects", projects_path, class: "absolute top-2 text-sm text-slate-500 hover:text-slate-700" %>
 
-<div class="mt-3 flex items-start justify-between">
+<div class="flex items-start justify-between">
   <div>
     <h1 class="text-2xl font-semibold"><%= @project.name %></h1>
     <p class="text-sm text-slate-500"><%= @project.user.display_name %> · <%= @project.status.humanize %> · <%= @project.priority.humanize %> priority · <%= @project.visibility.humanize %> · complete when <%= basis %></p>

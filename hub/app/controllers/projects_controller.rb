@@ -4,7 +4,7 @@ class ProjectsController < ApplicationController
   def index
     @scope = params[:scope] == "club" ? "club" : "mine"
     projects = policy_scope(Project).includes(targets: [ :exposure_plans, :telescope ])
-    projects = @scope == "club" ? projects.visibility_club.where.not(user: current_user) : projects.where(user: current_user)
+    projects = @scope == "club" ? projects.visibility_club : projects.where(user: current_user)
     @projects = projects.recent_first
   end
 

@@ -1,8 +1,8 @@
 <% content_for :title, @object.primary_name %>
 
-<%= link_to "← Catalogue", objects_path(telescope: @telescope&.slug), class: "text-sm text-slate-500 hover:text-slate-700" %>
+<%= link_to "← Catalogue", objects_path(telescope: @telescope&.slug), class: "absolute top-2 text-sm text-slate-500 hover:text-slate-700" %>
 
-<div class="mt-3 flex flex-wrap items-start justify-between gap-4">
+<div class="flex flex-wrap items-start justify-between gap-4">
   <div>
     <h1 class="text-2xl font-semibold"><%= @object.primary_name %></h1>
     <p class="text-sm text-slate-500">
