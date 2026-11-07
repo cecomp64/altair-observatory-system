@@ -19,7 +19,7 @@ The steps below use the rig agent as the example. For Altair, use `processing/` 
 **Shortcut:** `tools/release.sh rig-agent|processing [VERSION]` does steps 1 and 3 for
 you. It bumps the version, runs `uv lock`, lint-imports and pytest, commits only
 `pyproject.toml` and `uv.lock`, then asks before it pushes `main` and the tag. In VS Code,
-run it with **Tasks: Run Task → Release: rig agent and/or Altair**. **Release: test
+run it with **Tasks: Run Task → Release: rig-agent and/or processing**. **Release: test
 build (no release)** does step 2.
 
 ### 1. Bump the version

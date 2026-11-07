@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release the rig agent or Altair, following docs/RELEASING.md:
+# Release rig-agent or processing, following docs/RELEASING.md:
 #   1. bump the version in <component>/pyproject.toml, `uv lock`, run the tests,
 #      commit and push;
 #   2. tag <prefix>vX.Y.Z and push the tag, which starts the release workflow.

@@ -33,7 +33,7 @@
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
-      "label": "Release: rig agent and/or Altair",
+      "label": "Release: rig-agent and/or processing",
       "detail": "docs/RELEASING.md: bump the version, uv lock, test, commit, push, then tag and push the tag (asks before pushing)",
       "type": "shell",
       "command": "case '${input:releaseComponent}' in both) tools/release.sh rig-agent && tools/release.sh processing ;; *) tools/release.sh '${input:releaseComponent}' ;; esac",
@@ -57,8 +57,8 @@
       "type": "pickString",
       "description": "Which component to release",
       "options": [
-        { "label": "Rig agent (robs)", "value": "rig-agent" },
-        { "label": "Altair (processing)", "value": "processing" },
+        { "label": "rig-agent", "value": "rig-agent" },
+        { "label": "processing", "value": "processing" },
         { "label": "Both", "value": "both" }
       ],
       "default": "rig-agent"
