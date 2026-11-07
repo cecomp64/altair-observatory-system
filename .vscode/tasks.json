@@ -31,6 +31,37 @@
       "options": { "cwd": "${workspaceFolder}/hub" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Release: rig agent and/or Altair",
+      "detail": "docs/RELEASING.md: bump the version, uv lock, test, commit, push, then tag and push the tag (asks before pushing)",
+      "type": "shell",
+      "command": "case '${input:releaseComponent}' in both) tools/release.sh rig-agent && tools/release.sh processing ;; *) tools/release.sh '${input:releaseComponent}' ;; esac",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "focus": true, "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Release: test build (no release)",
+      "detail": "docs/RELEASING.md step 2: runs the release workflow on main by hand; the executable ends up as a run artifact",
+      "type": "shell",
+      "command": "case '${input:releaseComponent}' in both) set -- rig-agent processing ;; *) set -- '${input:releaseComponent}' ;; esac; for c; do gh workflow run release-$c.yml --ref main || exit 1; done; sleep 5; gh run watch",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "focus": true, "panel": "dedicated", "clear": true }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "releaseComponent",
+      "type": "pickString",
+      "description": "Which component to release",
+      "options": [
+        { "label": "Rig agent (robs)", "value": "rig-agent" },
+        { "label": "Altair (processing)", "value": "processing" },
+        { "label": "Both", "value": "both" }
+      ],
+      "default": "rig-agent"
     }
   ]
 }

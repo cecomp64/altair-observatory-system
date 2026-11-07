@@ -1,14 +1,25 @@
 name: release-rig-agent
 
-# Tag rig-agent-vX.Y.Z (matching rig-agent/pyproject.toml) to release robs.exe for
-# the rig PCs. The rig agent's CI runs first; a tag with a suffix (-rc1) is a
-# pre-release.
+# Builds robs.exe for the rig PCs.
+#
+# - Pushing a tag rig-agent-vX.Y.Z (matching rig-agent/pyproject.toml) builds the
+#   executable and attaches it to the GitHub Release for that tag, creating the release
+#   if there isn't one yet. A tag with a suffix (-rc1) makes a pre-release.
+# - Running the workflow by hand (Actions -> release-rig-agent -> Run workflow) builds
+#   from the chosen branch and keeps the result as a workflow artifact, with no release.
+#
+# The rig agent's CI runs first. See docs/RELEASING.md.
 on:
   push:
     tags: [ "rig-agent-v*" ]
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-rig-agent-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   checks:
@@ -32,10 +43,14 @@ jobs:
 
       - name: The tag matches the package version
         id: version
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           version=$(sed -nE 's/^version = "(.*)"/\1/p' pyproject.toml | head -1)
-          tag="${GITHUB_REF_NAME#rig-agent-v}"
-          if [ "$tag" != "$version" ]; then echo "::error::tag $tag != pyproject version $version"; exit 1; fi
+          if [ -n "$TAG" ] && [ "${TAG#rig-agent-v}" != "$version" ]; then
+            echo "::error::tag $TAG does not match rig-agent/pyproject.toml version $version"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build robs.exe
@@ -50,25 +65,39 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: rig-agent
+          name: rig-agent-${{ steps.version.outputs.version }}
           path: release/
 
-  release:
+  attach:
     needs: build
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: rig-agent
+          name: rig-agent-${{ needs.build.outputs.version }}
           path: release
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          name: rig agent ${{ needs.build.outputs.version }}
-          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
-          files: release/*
-          body: |
-            `robs` ${{ needs.build.outputs.version }} for the rig PCs (Windows, single file).
-            Copy the executable and `example.telescope.yml` to the rig PC, fill in the config,
-            then run `robs check-config --config <file>` and `robs check-schema --config <file>`.
-            See rig-agent/README.md for the NINA wiring.
+      # The release may already exist, made on the website before or with the tag.
+      - name: Create the release if there isn't one
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            prerelease=""; case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+            gh release create "$TAG" --verify-tag --title "rig agent $VERSION" --notes "" $prerelease
+          fi
+
+      - name: Attach the executable to the release
+        run: gh release upload "$TAG" release/* --clobber
+
+      - name: Add install notes if the release has none
+        run: |
+          if [ -z "$(gh release view "$TAG" --json body -q .body)" ]; then
+            gh release edit "$TAG" --notes "\`robs\` $VERSION for the rig PCs (Windows, single file).
+          Download \`robs-$VERSION-windows-x64.exe\` and \`example.telescope.yml\`, check the hash
+          against \`SHA256SUMS\`, and follow rig-agent/docs/INSTALL.md."
+          fi

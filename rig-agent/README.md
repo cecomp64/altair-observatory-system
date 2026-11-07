@@ -50,6 +50,9 @@ database, and at end of night writes Altair's session-end marker
 
 ## Setup
 
+To install on a rig control PC, follow [`docs/INSTALL.md`](docs/INSTALL.md).
+For development:
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"

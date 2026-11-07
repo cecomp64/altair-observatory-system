@@ -82,8 +82,10 @@ cd rig-agent && uv run python ../tools/e2e/worker_hub_e2e.py --hub http://localh
 ```
 
 ### Releases
-Tag `hub-vX.Y.Z`, `rig-agent-vX.Y.Z` or `processing-vX.Y.Z` (matching the component's
-version) to run `release-*.yml`. Build the Windows executables locally with
+See [`docs/RELEASING.md`](docs/RELEASING.md). Push a tag `hub-vX.Y.Z`, `rig-agent-vX.Y.Z`
+or `processing-vX.Y.Z` (matching the component's version; run `uv lock` after bumping a
+Python component) to run `release-*.yml`, which builds and publishes the GitHub Release.
+Running a Windows release workflow by hand builds the executable as an artifact only. Build the Windows executables locally with
 `uv run --with pyinstaller pyinstaller packaging/robs.spec` (rig-agent/) or
 `uv sync --locked && uv run --no-sync --with pyinstaller pyinstaller packaging/altair.spec`
 (processing/, without the dev extras).

@@ -1,14 +1,25 @@
 name: release-processing
 
-# Tag processing-vX.Y.Z (matching processing/pyproject.toml) to release
-# altair.exe for the processing PC. Altair's CI runs first; a tag with a suffix
-# (-rc1) is a pre-release.
+# Builds altair.exe for the processing PC.
+#
+# - Pushing a tag processing-vX.Y.Z (matching processing/pyproject.toml) builds the
+#   executable and attaches it to the GitHub Release for that tag, creating the release
+#   if there isn't one yet. A tag with a suffix (-rc1) makes a pre-release.
+# - Running the workflow by hand (Actions -> release-processing -> Run workflow) builds
+#   from the chosen branch and keeps the result as a workflow artifact, with no release.
+#
+# Altair's CI runs first. See docs/RELEASING.md.
 on:
   push:
     tags: [ "processing-v*" ]
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-processing-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   checks:
@@ -32,10 +43,14 @@ jobs:
 
       - name: The tag matches the package version
         id: version
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           version=$(sed -nE 's/^version = "(.*)"/\1/p' pyproject.toml | head -1)
-          tag="${GITHUB_REF_NAME#processing-v}"
-          if [ "$tag" != "$version" ]; then echo "::error::tag $tag != pyproject version $version"; exit 1; fi
+          if [ -n "$TAG" ] && [ "${TAG#processing-v}" != "$version" ]; then
+            echo "::error::tag $TAG does not match processing/pyproject.toml version $version"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # Without the dev extras: astropy's PyInstaller hook trips over pytest.
@@ -50,25 +65,40 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: processing
+          name: processing-${{ steps.version.outputs.version }}
           path: release/
 
-  release:
+  attach:
     needs: build
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: processing
+          name: processing-${{ needs.build.outputs.version }}
           path: release
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          name: processing (Altair) ${{ needs.build.outputs.version }}
-          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
-          files: release/*
-          body: |
-            `altair` ${{ needs.build.outputs.version }} for the processing PC (Windows, single file).
-            Install it, keep `altair.yaml` in C:\ProgramData\Altair\, store the Hub node key in
-            Windows Credential Manager as `altair-hub`, then run `altair doctor`.
-            See processing/docs/SPEC.md.
+      # The release may already exist, made on the website before or with the tag.
+      - name: Create the release if there isn't one
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            prerelease=""; case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+            gh release create "$TAG" --verify-tag --title "processing (Altair) $VERSION" --notes "" $prerelease
+          fi
+
+      - name: Attach the executable to the release
+        run: gh release upload "$TAG" release/* --clobber
+
+      - name: Add install notes if the release has none
+        run: |
+          if [ -z "$(gh release view "$TAG" --json body -q .body)" ]; then
+            gh release edit "$TAG" --notes "\`altair\` $VERSION for the processing PC (Windows, single file).
+          Install it, keep \`altair.yaml\` in C:\ProgramData\Altair\, store the Hub node key in
+          Windows Credential Manager as \`altair-hub\`, then run \`altair doctor\`.
+          See processing/docs/SPEC.md."
+          fi
