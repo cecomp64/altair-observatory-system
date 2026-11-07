@@ -1,6 +1,6 @@
 [project]
 name = "remote-observatory-worker"
-version = "0.3.0"
+version = "0.4.0"
 description = "Rig agent: syncs Hub targets into NINA Target Scheduler and reports progress and session events."
 requires-python = ">=3.10"
 dependencies = [
