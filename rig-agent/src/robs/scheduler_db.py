@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 import time
 import uuid
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -43,7 +43,9 @@ def backup_scheduler_db(db_path: Path) -> Path:
         with closing(sqlite3.connect(str(db_path))) as source, closing(sqlite3.connect(str(backup_path))) as copy:
             source.backup(copy)
     except (sqlite3.Error, OSError) as e:
-        backup_path.unlink(missing_ok=True)
+        # Best effort: if the folder couldn't be made, unlink fails too (ENOTDIR).
+        with suppress(OSError):
+            backup_path.unlink(missing_ok=True)
         raise SchedulerBackupError(f"Couldn't back up {db_path} to {backup_path}: {e}") from e
 
     for old in sorted(folder.glob(f"{db_path.stem}-*{db_path.suffix}"))[:-BACKUPS_KEPT]:

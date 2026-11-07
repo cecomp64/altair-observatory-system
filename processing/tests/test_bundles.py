@@ -8,7 +8,7 @@ import io
 import json
 import os
 import zipfile
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -109,8 +109,8 @@ def test_a_sub_is_read_back_from_the_zip_even_when_it_is_cold(site):
 
 def test_nas_cleanup_of_subs_relies_on_a_fresh_check_of_the_zip(site):
     config, catalog, s3, client = site
-    later = Clock()
-    later.advance(timedelta(days=200).total_seconds())
+    # The site fixture stamps the catalog with the wall clock, so "later" is counted from now.
+    later = Clock(datetime.now(timezone.utc) + timedelta(days=200))
     report = Cleaner(catalog, config, s3=s3, clock=later).run(dry_run=True, location="nas")
     subs = [c for c in report.deleted if c.rule == "nas.calibrated_frame"]
     assert len(subs) == 6, report.skipped
