@@ -28,7 +28,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/hub_e2e
       HUB: http://localhost:3055
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install libvips (Active Storage variants)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvips-dev
