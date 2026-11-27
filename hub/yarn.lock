@@ -206,10 +206,10 @@
     "@jridgewell/resolve-uri" "^3.1.0"
     "@jridgewell/sourcemap-codec" "^1.4.14"
 
-"@kurkle/color@^0.3.0":
-  version "0.3.4"
-  resolved "https://registry.yarnpkg.com/@kurkle/color/-/color-0.3.4.tgz#4d4ff677e1609214fc71c580125ddddd86abcabf"
-  integrity sha512-M5UknZPHRu3DEDWoipU6sE8PdkZ6Z/S+v4dD+Ke8IaNlpdSQah50lz1KtcFBa2vsdOnwbbnxJwVM4wty6udA5w==
+"@kurkle/color@^0.6.6":
+  version "0.6.6"
+  resolved "https://registry.yarnpkg.com/@kurkle/color/-/color-0.6.6.tgz#34e3a0871371987dc00196e8fe883b0e37681faa"
+  integrity sha512-Bd1NjGyoe27ExXRIBu13YymFP6k/wFxpUkX97Z3RlofLFV43nECB2G8vETZzcZzz2Ct2oRzwYElX65lxyi5UNg==
 
 "@napi-rs/wasm-runtime@^1.1.4":
   version "1.2.4"
@@ -437,12 +437,12 @@ braces@^3.0.3:
   dependencies:
     fill-range "^7.1.1"
 
-chart.js@^4.5.1:
-  version "4.5.1"
-  resolved "https://registry.yarnpkg.com/chart.js/-/chart.js-4.5.1.tgz#19dd1a9a386a3f6397691672231cb5fc9c052c35"
-  integrity sha512-GIjfiT9dbmHRiYi6Nl2yFCq7kkwdkp1W/lp2J99rX0yo9tgJGn3lKQATztIjb5tVtevcBtIdICNWqlq5+E8/Pw==
+chart.js@^4.6.2:
+  version "4.6.2"
+  resolved "https://registry.yarnpkg.com/chart.js/-/chart.js-4.6.2.tgz#f18912826f0b49ca558a5999eedcf0a49640aefe"
+  integrity sha512-xachB+pPHjp0syJi7llUBA1w3kMYl6NF3o7eVrvjnWCT+IB2zMaF2pX5UYDiwbbfsioFEIRnAjreNOMsGj5TIA==
   dependencies:
-    "@kurkle/color" "^0.3.0"
+    "@kurkle/color" "^0.6.6"
 
 chartjs-adapter-date-fns@^3.0.0:
   version "3.0.0"
